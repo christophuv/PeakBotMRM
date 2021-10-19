@@ -135,9 +135,9 @@ class TabLog(metaclass = Singleton):
         self.instanceOrder = []
         self.keyOrder = []
 
-    def exportToFile(self, toFile):
+    def exportToFile(self, toFile, delimiter="\t"):
         with open(toFile, "w") as fOut:
-            tW = csv.writer(fOut, delimiter="\t")
+            tW = csv.writer(fOut, delimiter=delimiter)
             tW.writerow(["Instance"]+self.keyOrder)
             for ins in self.instanceOrder:
                 tW.writerow([ins]+[self.data[ins][key] if key in self.data[ins].keys() else "" for key in self.keyOrder])
@@ -220,3 +220,80 @@ def writeTSVFile(file, headers, rows, delimiter = "\t", commentChar = "#"):
             fOut.write(delimiter.join([str(i) for i in row]))
             fOut.write("\n")
     
+
+
+
+
+def parseTSVMultiLineHeader(fi, headerRowCount=1, delimiter = "\t", commentChar = "#", headerCombineChar = ".", convertToMinIfPossible = False):
+    headers = None
+    headersProcessed = False
+    colTypes  ={}
+    rows = []
+    comments = []
+    with open(fi, "r") as fIn:
+        rd = csv.reader(fIn, delimiter = delimiter)
+
+        for rowi, row in enumerate(rd):
+
+            if rowi < headerRowCount:
+                lastHead = row[0]
+                for celli, cell in enumerate(row):
+                    if cell == "":
+                        row[celli] = lastHead
+                    else:
+                        lastHead = cell
+
+                if rowi == 0:
+                    headers = row
+                else:
+                    for celli, cell in enumerate(row):
+                        headers[celli] = headers[celli] + headerCombineChar + cell
+            
+            elif row[0].startswith(commentChar):
+                comments.append(row)
+
+            else:
+                if not headersProcessed:
+                    temp = {}
+                    for headi, head in enumerate(headers):
+                        temp[head] = headi
+                    headersProcessed = True
+
+                    for celli, cell in enumerate(row):
+                        colTypes[celli] = None
+
+                rows.append(row)
+
+                for celli, cell in enumerate(row):
+                    if convertToMinIfPossible:
+                        colType = colTypes[celli]
+
+                        if colType is None or colType == "int":
+                            try:
+                                a = int(cell)
+                                colType = "int"
+                            except Exception:
+                                colType = "float"
+
+                        if colType == "float":
+                            try:
+                                a = float(cell)
+                                colType = "float"
+                            except Exception:
+                                colType = "str"
+
+                        colTypes[celli] = colType
+
+    for rowi, row in enumerate(rows):
+        for celli, cell in enumerate(row):
+            if colTypes[celli] == "int":
+                rows[rowi][celli] = int(cell)
+            if colTypes[celli] == "float":
+                rows[rowi][celli] = float(cell)
+
+    temp = {}
+    for headeri, header in enumerate(headers):
+        temp[header] = headeri
+    headers = temp
+
+    return headers, rows
