@@ -1,6 +1,6 @@
 import logging
 
-from .core import tic, toc, tocAddStat, timeit, writeTSVFile
+from .core import tic, toc, timeit
 
 import os
 import pickle
@@ -19,7 +19,7 @@ import pandas as pd
 class Config(object):
     """Base configuration class"""
 
-    NAME    = "PeakBot"
+    NAME    = "PeakBot_MRM"
     VERSION = "0.9"
 
     RTSLICES       = 256   ## should be of 2^n
@@ -72,7 +72,7 @@ class Config(object):
 
 
 
-print("Initializing PeakBot")
+print("Initializing PeakBot_MRM")
 try:
     import platform
     print("  | .. OS:", platform.platform())
@@ -104,7 +104,7 @@ try:
         print("  | .. TensorFlow device: Name '%s', type '%s'"%(gpu.name, gpu.device_type))
 except Exception:
     print("  | .. fetching GPU info failed")
-
+    
 
 
 
@@ -175,10 +175,11 @@ def modelAdapterGenerator(datGen, xKeys, yKeys, newBatchSize = None, verbose=Fal
 
 def modelAdapterTrainGenerator(datGen, newBatchSize = None, verbose=False):
     temp = modelAdapterGenerator(datGen, 
-                                 {"channel.int":"channel.int"},#, "inte.peak":"inte.peak", "inte.rtInds":"inte.rtInds"}, 
-                                 {"inte.peak":"pred.peak", "inte.rtInds":"pred.rtInds"},#, "loss.IOU_Area":"loss.IOU_Area"}, 
+                                 {"channel.int":"channel.int", "inte.peak":"inte.peak", "inte.rtInds":"inte.rtInds"}, 
+                                 {"inte.peak":"pred.peak", "inte.rtInds":"pred.rtInds", "loss.IOU_Area":"loss.IOU_Area"}, 
                                  newBatchSize, verbose = verbose)
     return temp
+
 def modelAdapterPredictGenerator(datGen, newBatchSize = None, verbose=False):
     temp = modelAdapterGenerator(datGen, 
                                  {"channel.int":"channel.int"}, 
@@ -418,25 +419,25 @@ class PeakBot():
         outputs = []
 
         if verbose:
-            print("  | PeakBot v %s model"%(self.version))
+            print("  | PeakBot_MRM v %s model"%(self.version))
             print("  | .. Desc: Detection of a single LC-HRMS peak in an area")
             print("  | ")
 
         ## Input: Only LC-HRMS area
         input_ = tf.keras.Input(shape=(self.rts, 1), name="channel.int")
         inputs.append(input_)
-        #if mode == "training":
-        #    peaks_ = tf.keras.Input(shape=(Config.NUMCLASSES), name="inte.peak")
-        #    inputs.append(peaks_)
-        #    rtInds_ = tf.keras.Input(shape=(2), name="inte.rtInds")
-        #    inputs.append(rtInds_)
+        if mode == "training":
+            peaks_ = tf.keras.Input(shape=(Config.NUMCLASSES), name="inte.peak")
+            inputs.append(peaks_)
+            rtInds_ = tf.keras.Input(shape=(2), name="inte.rtInds")
+            inputs.append(rtInds_)
         
         if verbose:
             print("  | .. Inputs")
             print("  | .. .. channel.int is", input_)
-            #if mode == "training":
-            #    print("  | .. .. inte.peak       is ", peaks_)
-            #    print("  | .. .. inte.rtInds     is ", rtInds_)
+            if mode == "training":
+                print("  | .. .. inte.peak       is ", peaks_)
+                print("  | .. .. inte.rtInds     is ", rtInds_)
             print("  |")
 
         ## Encoder
@@ -469,56 +470,55 @@ class PeakBot():
         rtInds = tf.keras.layers.Dense(2, activation="relu", name="pred.rtInds")(fx)
         outputs.append(rtInds)
         
-        if False:
-            overlap = None
-            if mode == "training":
-                #input_ = tf.keras.Input(shape=(256, 1), name="channel.int")
-                #rtInds_ = tf.keras.Input(shape=(2), name="inte.rtInds")
-                
-                #input_ = tf.expand_dims(tf.convert_to_tensor([[i/2. for i in [0,0,0,1,2,1,1,1,0,0,0,1]], [i/9. for i in [0,0,0,0,2,4,9,6,3,1,0,0]], [i/11. for i in [0,0,2,4,11,6,3,1,0,0,0,0]]], dtype=tf.float32), axis=2)
-                #rtInds_ = tf.convert_to_tensor([[0,0], [4,9], [2,7]], dtype=tf.float32)
-                #rtInds = tf.convert_to_tensor([[0,8], [3,8], [2,7]], dtype=tf.float32)
-                #peaks = tf.convert_to_tensor([[0.1, 0.9], [0.9, 0.1], [0.9, 0.1]], dtype=tf.float32)
+        overlap = None
+        if mode == "training":
+            #input_ = tf.keras.Input(shape=(256, 1), name="channel.int")
+            #rtInds_ = tf.keras.Input(shape=(2), name="inte.rtInds")
+            
+            #input_ = tf.expand_dims(tf.convert_to_tensor([[i/2. for i in [0,0,0,1,2,1,1,1,0,0,0,1]], [i/9. for i in [0,0,0,0,2,4,9,6,3,1,0,0]], [i/11. for i in [0,0,2,4,11,6,3,1,0,0,0,0]]], dtype=tf.float32), axis=2)
+            #rtInds_ = tf.convert_to_tensor([[0,0], [4,9], [2,7]], dtype=tf.float32)
+            #rtInds = tf.convert_to_tensor([[0,8], [3,8], [2,7]], dtype=tf.float32)
+            #peaks = tf.convert_to_tensor([[0.1, 0.9], [0.9, 0.1], [0.9, 0.1]], dtype=tf.float32)
 
-                indices = tf.cast(tf.transpose(tf.reshape(tf.repeat(tf.range(input_.shape[1]), repeats=[tf.shape(input_)[0]]), [1, input_.shape[1], tf.shape(input_)[0]])), dtype=input_.dtype)
+            indices = tf.cast(tf.transpose(tf.reshape(tf.repeat(tf.range(input_.shape[1]), repeats=[tf.shape(input_)[0]]), [1, input_.shape[1], tf.shape(input_)[0]])), dtype=input_.dtype)
 
-                ## Extract area for user integration
-                stripped = tf.where(tf.math.logical_and(indices >= tf.expand_dims(tf.reshape(tf.repeat(tf.cast(tf.math.floor(rtInds_[:,0]), dtype=input_.dtype), repeats=[input_.shape[1]]), [tf.shape(input_)[0], input_.shape[1]]), axis=2), 
-                                                        indices <= tf.expand_dims(tf.reshape(tf.repeat(tf.cast(tf.math.ceil(rtInds_[:,1]), dtype=input_.dtype), repeats=[input_.shape[1]]), [tf.shape(input_)[0], input_.shape[1]]), axis=2)), 
-                                    input_, tf.zeros_like(input_))
-                maxRow = tf.where(stripped == 0, tf.reshape(tf.repeat(tf.reduce_max(stripped, axis=1), repeats=(input_.shape[1])), [tf.shape(input_)[0], input_.shape[1], input_.shape[2]]), stripped)
-                minVal = tf.reduce_min(maxRow, axis=1)
-                stripped = stripped - tf.reshape(tf.repeat(minVal, repeats=input_.shape[1]), [tf.shape(input_)[0], input_.shape[1], input_.shape[2]])
-                stripped = tf.where(stripped < 0, tf.zeros_like(stripped), stripped)
-                inteArea = tf.squeeze(tf.reduce_sum(stripped, axis=1), axis=1)
+            ## Extract area for user integration
+            stripped = tf.where(tf.math.logical_and(indices >= tf.expand_dims(tf.reshape(tf.repeat(tf.cast(tf.math.floor(rtInds_[:,0]), dtype=input_.dtype), repeats=[input_.shape[1]]), [tf.shape(input_)[0], input_.shape[1]]), axis=2), 
+                                                    indices <= tf.expand_dims(tf.reshape(tf.repeat(tf.cast(tf.math.ceil(rtInds_[:,1]), dtype=input_.dtype), repeats=[input_.shape[1]]), [tf.shape(input_)[0], input_.shape[1]]), axis=2)), 
+                                input_, tf.zeros_like(input_))
+            maxRow = tf.where(stripped == 0, tf.reshape(tf.repeat(tf.reduce_max(stripped, axis=1), repeats=(input_.shape[1])), [tf.shape(input_)[0], input_.shape[1], input_.shape[2]]), stripped)
+            minVal = tf.reduce_min(maxRow, axis=1)
+            stripped = stripped - tf.reshape(tf.repeat(minVal, repeats=input_.shape[1]), [tf.shape(input_)[0], input_.shape[1], input_.shape[2]])
+            stripped = tf.where(stripped < 0, tf.zeros_like(stripped), stripped)
+            inteArea = tf.squeeze(tf.reduce_sum(stripped, axis=1), axis=1)
 
-                ## Extract area for PeakBot_MRM integration
-                stripped = tf.where(tf.math.logical_and(indices >= tf.expand_dims(tf.reshape(tf.repeat(tf.cast(tf.math.floor(rtInds[:,0]), dtype=input_.dtype), repeats=[input_.shape[1]]), [tf.shape(input_)[0], input_.shape[1]]), axis=2), 
-                                                        indices <= tf.expand_dims(tf.reshape(tf.repeat(tf.cast(tf.math.ceil(rtInds[:,1]), dtype=input_.dtype), repeats=[input_.shape[1]]), [tf.shape(input_)[0], input_.shape[1]]), axis=2)), 
-                                    input_, tf.zeros_like(input_))
-                maxRow = tf.where(stripped == 0, tf.reshape(tf.repeat(tf.reduce_max(stripped, axis=1), repeats=(input_.shape[1])), [tf.shape(input_)[0], input_.shape[1], input_.shape[2]]), stripped)
-                minVal = tf.reduce_min(maxRow, axis=1)
-                stripped = stripped - tf.reshape(tf.repeat(minVal, repeats=input_.shape[1]), [tf.shape(input_)[0], input_.shape[1], input_.shape[2]])
-                stripped = tf.where(stripped < 0, tf.zeros_like(stripped), stripped)
-                pbCalcArea = tf.squeeze(tf.reduce_sum(stripped, axis=1), axis=1)
+            ## Extract area for PeakBot_MRM integration
+            stripped = tf.where(tf.math.logical_and(indices >= tf.expand_dims(tf.reshape(tf.repeat(tf.cast(tf.math.floor(rtInds[:,0]), dtype=input_.dtype), repeats=[input_.shape[1]]), [tf.shape(input_)[0], input_.shape[1]]), axis=2), 
+                                                    indices <= tf.expand_dims(tf.reshape(tf.repeat(tf.cast(tf.math.ceil(rtInds[:,1]), dtype=input_.dtype), repeats=[input_.shape[1]]), [tf.shape(input_)[0], input_.shape[1]]), axis=2)), 
+                                input_, tf.zeros_like(input_))
+            maxRow = tf.where(stripped == 0, tf.reshape(tf.repeat(tf.reduce_max(stripped, axis=1), repeats=(input_.shape[1])), [tf.shape(input_)[0], input_.shape[1], input_.shape[2]]), stripped)
+            minVal = tf.reduce_min(maxRow, axis=1)
+            stripped = stripped - tf.reshape(tf.repeat(minVal, repeats=input_.shape[1]), [tf.shape(input_)[0], input_.shape[1], input_.shape[2]])
+            stripped = tf.where(stripped < 0, tf.zeros_like(stripped), stripped)
+            pbCalcArea = tf.squeeze(tf.reduce_sum(stripped, axis=1), axis=1)
 
-                ## Extract area for overlap of user and PeakBot_MRM integration
-                beginInds = tf.math.maximum(rtInds_[:,0], tf.cast(tf.math.floor(rtInds[:,0]), dtype=rtInds_.dtype))
-                endInds = tf.math.minimum(rtInds_[:,1], tf.cast(tf.math.ceil(rtInds[:,1]), dtype=rtInds_.dtype))
-                stripped = tf.where(tf.math.logical_and(indices >= tf.expand_dims(tf.reshape(tf.repeat(beginInds, repeats=[input_.shape[1]]), [tf.shape(input_)[0], input_.shape[1]]), axis=2), 
-                                                        indices <= tf.expand_dims(tf.reshape(tf.repeat(endInds, repeats=[input_.shape[1]]), [tf.shape(input_)[0], input_.shape[1]]), axis=2)), 
-                                    input_, tf.zeros_like(input_))
-                maxRow = tf.where(stripped == 0, tf.reshape(tf.repeat(tf.reduce_max(stripped, axis=1), repeats=(input_.shape[1])), tf.shape(input_)), stripped)
-                minVal = tf.reduce_min(maxRow, axis=1)
-                stripped = stripped - tf.reshape(tf.repeat(minVal, repeats=input_.shape[1]), [tf.shape(input_)[0], input_.shape[1], input_.shape[2]])
-                stripped = tf.where(stripped < 0, tf.zeros_like(stripped), stripped)
-                overlapArea = tf.squeeze(tf.reduce_sum(stripped, axis=1), axis=1)            
-                #overlapArea = tf.where(tf.argmax(peaks, axis=1) == 1, tf.zeros_like(overlapArea), overlapArea)
+            ## Extract area for overlap of user and PeakBot_MRM integration
+            beginInds = tf.math.maximum(rtInds_[:,0], tf.cast(tf.math.floor(rtInds[:,0]), dtype=rtInds_.dtype))
+            endInds = tf.math.minimum(rtInds_[:,1], tf.cast(tf.math.ceil(rtInds[:,1]), dtype=rtInds_.dtype))
+            stripped = tf.where(tf.math.logical_and(indices >= tf.expand_dims(tf.reshape(tf.repeat(beginInds, repeats=[input_.shape[1]]), [tf.shape(input_)[0], input_.shape[1]]), axis=2), 
+                                                    indices <= tf.expand_dims(tf.reshape(tf.repeat(endInds, repeats=[input_.shape[1]]), [tf.shape(input_)[0], input_.shape[1]]), axis=2)), 
+                                input_, tf.zeros_like(input_))
+            maxRow = tf.where(stripped == 0, tf.reshape(tf.repeat(tf.reduce_max(stripped, axis=1), repeats=(input_.shape[1])), tf.shape(input_)), stripped)
+            minVal = tf.reduce_min(maxRow, axis=1)
+            stripped = stripped - tf.reshape(tf.repeat(minVal, repeats=input_.shape[1]), [tf.shape(input_)[0], input_.shape[1], input_.shape[2]])
+            stripped = tf.where(stripped < 0, tf.zeros_like(stripped), stripped)
+            overlapArea = tf.squeeze(tf.reduce_sum(stripped, axis=1), axis=1)            
+            #overlapArea = tf.where(tf.argmax(peaks, axis=1) == 1, tf.zeros_like(overlapArea), overlapArea)
 
-                ## Calculate IOU
-                overlap = tf.divide(overlapArea, tf.subtract(tf.add(inteArea, pbCalcArea), overlapArea))
-                overlap = tf.keras.layers.Lambda(lambda x: x, name="loss.IOU_Area")(overlap)
-                outputs.append(overlap)
+            ## Calculate IOU
+            overlap = tf.divide(overlapArea, tf.subtract(tf.add(inteArea, pbCalcArea), overlapArea))
+            overlap = tf.keras.layers.Lambda(lambda x: x, name="loss.IOU_Area")(overlap)
+            outputs.append(overlap)
 
         if verbose:
             print("  | .. Intermediate layer")
@@ -528,8 +528,8 @@ class PeakBot():
             print("  | .. Outputs")
             print("  | .. .. pred.peak     is", peaks)
             print("  | .. .. pred.rtInds   is", rtInds)
-            #if mode == "training":
-            #    print("  | .. .. loss.IOU_Area is ", overlap)
+            if mode == "training":
+                print("  | .. .. loss.IOU_Area is ", overlap)
             print("  | .. ")
             print("  | ")
 
@@ -592,16 +592,12 @@ class PeakBot():
                            loss_weights={"pred.peak": 1,
                                          "pred.rtInds": 1/5000,},
                            metrics={"pred.peak": "categorical_accuracy",
-                                    "pred.rtInds": iou,},
-                                    #"loss.IOU_Area": "MSE"},
+                                    "pred.rtInds": iou,
+                                    "loss.IOU_Area": "MSE"},
                            )
-    
-    @timeit
-    def compileModel(self, learningRate = None):
-        pass
 
     @timeit
-    def train(self, datTrain, datVal, logDir = None, callbacks = None, verbose = 1):
+    def train(self, datTrain, datVal, logDir = None, callbacks = None, verbose = True):
         epochs = Config.EPOCHS
         steps_per_epoch = Config.STEPSPEREPOCH
 
@@ -702,7 +698,7 @@ def trainPeakBotModel(trainInstancesPath, logBaseDir, modelName = None, valInsta
             if "folder" in valInstance.keys():
                 print("  | .. - adding", valInstance["folder"])
                 datGen  = modelAdapterTrainGenerator(dataGenerator(valInstance["folder"]),
-                                                    newBatchSize = Config.BATCHSIZE)
+                                                     newBatchSize = Config.BATCHSIZE)
                 numBatches = valInstance["numBatches"] if "numBatches" in valInstance.keys() else 1
                 x,y = convertGeneratorToPlain(datGen, numBatches)
             if "x" in valInstance.keys():
@@ -739,7 +735,7 @@ def trainPeakBotModel(trainInstancesPath, logBaseDir, modelName = None, valInsta
         hist = valDS.history[-1]
         for valInstance in addValidationInstances:
             se = valInstance["name"]
-            for metric in ["pred.peak_categorical_accuracy", "pred.rtInds_iou"]:
+            for metric in ["pred.peak_categorical_accuracy", "pred.rtInds_iou", "loss.IOU_Area_MSE"]:
                 val = hist[se + "_" + metric]
                 newRow = pd.Series({"model": modelName, "set": se, "metric": metric, "value": val})
                 metricesAddValDS = metricesAddValDS.append(newRow, ignore_index=True)
@@ -788,7 +784,7 @@ def runPeakBot(instances, modelPath = None, model = None, verbose = True):
 
     assert all(np.amax(instances["channel.int"], (1)) == 1), "channel.int is not scaled to a maximum of 1 '%s'"%(str(np.amax(instances["channel.int"], (1))))
     
-    peakTypes, rtInds = pb.model.predict(instances["channel.int"])
+    peakTypes, rtInds = pb.model.predict(instances["channel.int"], verbose = verbose)
     rtStartInds = rtInds[:,0]
     rtEndInds = rtInds[:,1]
 
@@ -812,13 +808,26 @@ def evaluatePeakBot(instancesWithGT, modelPath = None, model = None, verbose = T
     assert all(np.amax(instancesWithGT["channel.int"], (1)) == 1), "channel.int is not scaled to a maximum of 1 '%s'"%(str(np.amax(instancesWithGT["channel.int"], (1))))
     
     x = {"channel.int": instancesWithGT["channel.int"],
-         #"inte.peak"  : instancesWithGT["inte.peak"],
-         #"inte.rtInds": instancesWithGT["inte.rtInds"],
+         "inte.peak"  : instancesWithGT["inte.peak"],
+         "inte.rtInds": instancesWithGT["inte.rtInds"],
         }
     y = {"pred.peak"  : instancesWithGT["inte.peak"],
          "pred.rtInds": instancesWithGT["inte.rtInds"],
-         #"loss.IOU_Area": np.ones((len(instancesWithGT["inte.peak"])), dtype=float)
+         "loss.IOU_Area": np.ones((len(instancesWithGT["inte.peak"])), dtype=float)
         }
-    ret = pb.model.evaluate(x, y, return_dict = True, verbose = 0)
+    history = pb.model.evaluate(x, y, return_dict = True, verbose = verbose)
 
-    return ret
+    return history
+
+
+
+
+
+
+
+
+
+
+
+
+
