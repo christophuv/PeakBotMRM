@@ -263,182 +263,11 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
     metricsTable = {}
 
 
-    ## load targets
-    print("Loading targets from file '%s'"%(targetFile))
-    headers, substances = readTSVFile(targetFile, header = True, delimiter = "\t", convertToMinIfPossible = True, getRowsAsDicts = True)
-    substances = dict((substance["Name"], {"Name"     : substance["Name"].replace(" (ISTD)", ""),
-                                        "Q1"       : substance["Precursor Ion"],
-                                        "Q3"       : substance["Product Ion"],
-                                        "RT"       : substance["RT"],
-                                        "PeakForm" : substance["PeakForm"], 
-                                        "Rt shifts": substance["RT shifts"],
-                                        "Note"     : substance["Note"],
-                                        "Pola"     : substance["Ion Polarity"],
-                                        "ColE"     : None}) for substance in substances) # TODO add collision energy here for selection of correct channel
-                ##TODO include collisionEnergy here
-    print("  | .. loaded %d substances"%(len(substances)))
-    print("  | .. of these %d have RT shifts"%(sum((1 if substance["Rt shifts"]!="" else 0 for substance in substances.values()))))
-    print("  | .. of these %d have abnormal peak forms"%(sum((1 if substance["PeakForm"]!="" else 0 for substance in substances.values()))))
-    print("\n")
-    # targets: [{'Name': 'Valine', 'Q1': 176.0, 'Q3': 116.0, 'RT': 1.427}, ...]
-
-
-
-    ## load integrations
-    print("Loading integrations from file '%s'"%(curatedPeaks))
-    headers, temp = parseTSVMultiLineHeader(curatedPeaks, headerRowCount=2, delimiter = ",", commentChar = "#", headerCombineChar = "$")
-    headers = dict((k.replace(" (ISTD)", ""), v) for k,v in headers.items())
-    foo = set([head[:head.find("$")] for head in headers if not head.startswith("Sample$")])
-    print("  | .. Not using substances ", end="")
-    for substance in substances.values():
-        if substance["Name"] not in foo:
-            print(substance["Name"], ", ", end="")
-    print("as these are not in the integration matrix")
-    foo = dict((k, v) for k, v in substances.items() if k in foo)
-    print("  | .. restricting substances from %d to %d (overlap of substances and integration results)"%(len(substances), len(foo)))
-    substances = foo
-
-    ## process integrations
-    integrations = {}
-    integratedSamples = set()
-    totalIntegrations = 0
-    foundPeaks = 0
-    foundNoPeaks = 0
-    for substance in [substance["Name"] for substance in substances.values()]:
-        integrations[substance] = {}
-        for intei, inte in enumerate(temp):
-            area = inte[headers["%s$Area"%(substance)]]
-            if area == "" or float(area) == 0:
-                integrations[substance][inte[headers["Sample$Name"]]] = {"foundPeak": False,
-                                                                        "rtstart"  : -1, 
-                                                                        "rtend"    : -1, 
-                                                                        "area"     : -1,
-                                                                        "chrom"    : [],}
-                foundNoPeaks += 1
-            else:
-                integrations[substance][inte[headers["Sample$Name"]]] = {"foundPeak": True,
-                                                                        "rtstart"  : float(inte[headers["%s$Int. Start"%(substance)]]), 
-                                                                        "rtend"    : float(inte[headers["%s$Int. End"  %(substance)]]), 
-                                                                        "area"     : float(inte[headers["%s$Area"      %(substance)]]),
-                                                                        "chrom"    : [],}
-                foundPeaks += 1
-            integratedSamples.add(inte[headers["Sample$Name"]])
-            totalIntegrations += 1
-    print("  | .. parsed %d integrations from %d substances and %d samples"%(totalIntegrations, len(substances), len(integratedSamples)))
-    print("  | .. there are %d areas and %d no peaks"%(foundPeaks, foundNoPeaks))
-    print("\n")
-    # integrations [['Pyridinedicarboxylic acid Results', 'R100140_METAB02_MCC025_CAL1_20200306', '14.731', '14.731', '0'], ...]
-
-
-
-    ## load chromatograms
-    tic("procChroms")
-    print("Processing chromatograms")
-    samples = [os.path.join(samplesPath, f) for f in os.listdir(samplesPath) if os.path.isfile(os.path.join(samplesPath, f)) and f.lower().endswith(".mzml")]
-    totalTraningPeaks = 0
-    totalTraningNoPeaks = 0
-    usedSamples = set()
-    if os.path.isfile(os.path.join(expDir, "integrations.pickle")):
-        with open(os.path.join(expDir, "integrations.pickle"), "rb") as fin:
-            integrations, referencePeaks, noReferencePeaks, usedSamples = pickle.load(fin)
-            print("  | .. Imported integrations from pickle file '%s/integrations.pickle'"%(expDir))
-    else:
-        print("  | .. This might take a couple of minutes as all samples/integrations/channels/etc. need to be compared and the current implementation are 4 sub-for-loops")
-        for sample in tqdm.tqdm(samples):
-            sampleName = os.path.basename(sample)
-            sampleName = sampleName[:sampleName.rfind(".")]
-            if sampleName in integratedSamples:# and sampleName == "R100140_METAB02_MCC025_105713_20200306":
-                usedSamples.add(sampleName)
-
-                foundTargets = []
-                unusedChannels = []
-                run = pymzml.run.Reader(sample, skip_chromatogram = False)
-                
-                ## get channels from the chromatogram
-                allChannels = []
-                for i, entry in enumerate(run):
-                    if isinstance(entry, pymzml.spec.Chromatogram) and entry.ID.startswith("- SRM"):
-                        m = re.match(MRMHeader, entry.ID)
-                        Q1, Q3, rtstart, rtend = float(m.group(1)), float(m.group(2)), float(m.group(3)), float(m.group(4))
-
-                        polarity = None
-                        if entry.get_element_by_name("negative scan") is not None:
-                            polarity = "negative"
-                        elif entry.get_element_by_name("positive scan") is not None:
-                            polarity = "positive"
-
-                        collisionEnergy = None
-                        if entry.get_element_by_name("collision energy") is not None:
-                            collisionEnergy = entry.get_element_by_name("collision energy").get("value", default=None)
-                            if collisionEnergy is not None:
-                                collisionEnergy = float(collisionEnergy)
-
-                        collisionType = None
-                        if entry.get_element_by_name("collision-induced dissociation") is not None:
-                            collisionType = "collision-induced dissociation"
-
-                        chrom = [(time, intensity) for time, intensity in entry.peaks()]
-
-                        allChannels.append([Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionType, entry.ID, chrom])
-
-                ## merge channels with integration results for this sample
-                for i, (Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionType, entryID, chrom) in enumerate(allChannels):
-                    usedChannel = []
-                    useChannel = True
-                    ## test if channel is unique ## TODO include collisionEnergy here as well
-                    for bi, (bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionType, bentryID, bchrom) in enumerate(allChannels):
-                        if i != bi:
-                            if abs(Q1 - bq1) <= allowedMZOffset and abs(Q3 - bq3) <= allowedMZOffset and \
-                                polarity == bpolarity and collisionType == bcollisionType:# TODO include collisionEnergy test here and collisionEnergy == bcollisionEnergy:
-                                useChannel = False
-                                unusedChannels.append(entryID)
-                    
-                    ## use channel if it is unique and find the integrated substance(s) for it
-                    if useChannel:
-                        for substance in substances.values(): ## TODO include collisionEnergy check here
-                            if abs(substance["Q1"] - Q1) < allowedMZOffset and abs(substance["Q3"] - Q3) <= allowedMZOffset and rtstart <= substance["RT"] <= rtend:
-                                if substance["Name"] in integrations.keys() and sampleName in integrations[substance["Name"]].keys():
-                                    foundTargets.append([substance, entry, integrations[substance["Name"]][sampleName]])
-                                    usedChannel.append(substance)
-                                    integrations[substance["Name"]][sampleName]["chrom"].append(["%s (%s mode, %s with %.1f energy)"%(entryID, polarity, collisionType, collisionEnergy), 
-                                                                                                Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionType, entryID, chrom])
-
-        ## remove all integrations with more than one scanEvent
-        referencePeaks = 0
-        noReferencePeaks = 0
-        for substance in integrations.keys():
-            for sample in integrations[substance].keys():
-                if len(integrations[substance][sample]["chrom"]) == 1:
-                    referencePeaks += 1
-                else:
-                    noReferencePeaks += 1
-                    integrations[substance][sample]["chrom"].clear()
-
-        with open (os.path.join(expDir, "integrations.pickle"), "wb") as fout:
-            pickle.dump((integrations, referencePeaks, noReferencePeaks, usedSamples), fout)
-            print("  | .. Stored integrations to '%s/integrations.pickle'"%expDir)
-        
-    print("  | .. There are %d training peaks and %d no peaks"%(referencePeaks, noReferencePeaks))
-    print("  | .. Using %d samples "%(len(usedSamples)))
-    remSubstancesChannelProblems = []
-    for substance in integrations.keys():
-        foundOnce = False
-        for sample in integrations[substance].keys():
-            if len(integrations[substance][sample]["chrom"]) > 1:
-                remSubstancesChannelProblems.append(substance)
-                break
-            elif len(integrations[substance][sample]["chrom"]) == 1:
-                foundOnce = True
-        if not foundOnce:
-            remSubstancesChannelProblems.append(substance)
-    if len(remSubstancesChannelProblems):
-        print("  | .. %d substances (%s) were not found as the channel selection was ambiguous"%(len(remSubstancesChannelProblems), ", ".join(sorted(remSubstancesChannelProblems))))
-        print("  | .. These will not be used further")
-        for r in remSubstancesChannelProblems:
-            del integrations[r]
-    print("  | .. took %.1f seconds"%(toc("procChroms")))
-    print("\n")
-
+    substances               = peakbot_MRM.importTargets(targetFile)
+    substances, integrations = peakbot_MRM.loadIntegrations(substances, curatedPeaks)
+    substances, integrations = peakbot_MRM.loadChromatogramsTo(substances, integrations, samplesPath, expDir,
+                                                               allowedMZOffset = allowedMZOffset, 
+                                                               MRMHeader = MRMHeader)
 
 
     if drawRawData:
@@ -516,7 +345,7 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
     cur = 0
     curI = 0
     ## iterate all samples and substances
-    print("Exporting instances")
+    print("Exporting instances for training")
     if addRandomNoise:
         print("  | .. Random noise will be added. The range of the randomly generated factors is %.3f - %.3f"%(1 - maxRandFactor, 1 + maxRandFactor))
     if shiftRTs:
@@ -619,9 +448,11 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
                                         newDS1Path = tempTrainDir, newDS2Path = tempValDir, 
                                         copy = True, ratioDS1 = 0.7, verbose = False)
         nTrainBatches = len([f for f in os.listdir(tempTrainDir) if os.path.isfile(os.path.join(tempTrainDir, f))])
-        nValBatches = len([f for f in os.listdir(tempValDir) if os.path.isfile(os.path.join(tempValDir, f))])           
+        nValBatches = len([f for f in os.listdir(tempValDir) if os.path.isfile(os.path.join(tempValDir, f))])         
+        print("Split dataset")  
         print("  | .. Randomly split dataset '%s' into a training and validation dataset with 0.7 and 0.3 parts of the instances "%expDir)
         print("  | .. There are %d training and %d validation batches available"%(nTrainBatches, nValBatches))
+        print("\n")
         
         addValDS = []
         addValDS.append({"folder": tempTrainDir, "name": "train", "numBatches": nTrainBatches-1})            

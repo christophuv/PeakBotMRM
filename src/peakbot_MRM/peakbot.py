@@ -1,14 +1,18 @@
 import logging
 
-from .core import tic, toc, timeit
+from .core import *
 
 import os
 import pickle
 import uuid
+import re
 
 import tensorflow as tf
 import numpy as np
 import pandas as pd
+
+import tqdm
+import pymzml
 
 
 
@@ -165,18 +169,16 @@ def modelAdapterGenerator(datGen, xKeys, yKeys, newBatchSize = None, verbose=Fal
                 elif isinstance(l[k], list):
                     l[k] = l[k][0:newBatchSize]
 
-        #print("Batch: number %d, %d peaks, %d backgrounds"%(ite, np.sum(l["inte.peak"][:,0]), np.sum(l["inte.peak"][:,1])))
-        #print("channel.int", l["channel.int"])
-        #print("inte.peak", l["inte.peak"])
-        #print("inte.rtInds", l["inte.rtInds"])
-        yield (dict((xKeys[k],v) for k,v in l.items() if k in xKeys.keys()), dict((yKeys[k],v) for k,v in l.items() if k in yKeys.keys()))
+        x= dict((xKeys[k],v) for k,v in l.items() if k in xKeys.keys())
+        y = dict((yKeys[k],v) for k,v in l.items() if k in yKeys.keys())
+        yield x,y
         l = next(datGen)
         ite += 1
 
 def modelAdapterTrainGenerator(datGen, newBatchSize = None, verbose=False):
     temp = modelAdapterGenerator(datGen, 
-                                 {"channel.int":"channel.int", "inte.peak":"inte.peak", "inte.rtInds":"inte.rtInds"}, 
-                                 {"inte.peak":"pred.peak", "inte.rtInds":"pred.rtInds", "loss.IOU_Area":"loss.IOU_Area"}, 
+                                 {"channel.int":"channel.int"}, 
+                                 {"inte.peak":"pred.peak", "inte.rtInds":"pred.rtInds"}, 
                                  newBatchSize, verbose = verbose)
     return temp
 
@@ -424,24 +426,16 @@ class PeakBot():
             print("  | ")
 
         ## Input: Only LC-HRMS area
-        input_ = tf.keras.Input(shape=(self.rts, 1), name="channel.int")
-        inputs.append(input_)
-        if mode == "training":
-            peaks_ = tf.keras.Input(shape=(Config.NUMCLASSES), name="inte.peak")
-            inputs.append(peaks_)
-            rtInds_ = tf.keras.Input(shape=(2), name="inte.rtInds")
-            inputs.append(rtInds_)
+        eic = tf.keras.Input(shape=(self.rts, 1), name="channel.int")
+        inputs.append(eic)
         
         if verbose:
             print("  | .. Inputs")
-            print("  | .. .. channel.int is", input_)
-            if mode == "training":
-                print("  | .. .. inte.peak       is ", peaks_)
-                print("  | .. .. inte.rtInds     is ", rtInds_)
+            print("  | .. .. channel.int is", eic)
             print("  |")
 
         ## Encoder
-        x = input_
+        x = eic
         cLayers = [x]
         for i in range(len(uNetLayerSizes)):
 
@@ -470,56 +464,6 @@ class PeakBot():
         rtInds = tf.keras.layers.Dense(2, activation="relu", name="pred.rtInds")(fx)
         outputs.append(rtInds)
         
-        overlap = None
-        if mode == "training":
-            #input_ = tf.keras.Input(shape=(256, 1), name="channel.int")
-            #rtInds_ = tf.keras.Input(shape=(2), name="inte.rtInds")
-            
-            #input_ = tf.expand_dims(tf.convert_to_tensor([[i/2. for i in [0,0,0,1,2,1,1,1,0,0,0,1]], [i/9. for i in [0,0,0,0,2,4,9,6,3,1,0,0]], [i/11. for i in [0,0,2,4,11,6,3,1,0,0,0,0]]], dtype=tf.float32), axis=2)
-            #rtInds_ = tf.convert_to_tensor([[0,0], [4,9], [2,7]], dtype=tf.float32)
-            #rtInds = tf.convert_to_tensor([[0,8], [3,8], [2,7]], dtype=tf.float32)
-            #peaks = tf.convert_to_tensor([[0.1, 0.9], [0.9, 0.1], [0.9, 0.1]], dtype=tf.float32)
-
-            indices = tf.cast(tf.transpose(tf.reshape(tf.repeat(tf.range(input_.shape[1]), repeats=[tf.shape(input_)[0]]), [1, input_.shape[1], tf.shape(input_)[0]])), dtype=input_.dtype)
-
-            ## Extract area for user integration
-            stripped = tf.where(tf.math.logical_and(indices >= tf.expand_dims(tf.reshape(tf.repeat(tf.cast(tf.math.floor(rtInds_[:,0]), dtype=input_.dtype), repeats=[input_.shape[1]]), [tf.shape(input_)[0], input_.shape[1]]), axis=2), 
-                                                    indices <= tf.expand_dims(tf.reshape(tf.repeat(tf.cast(tf.math.ceil(rtInds_[:,1]), dtype=input_.dtype), repeats=[input_.shape[1]]), [tf.shape(input_)[0], input_.shape[1]]), axis=2)), 
-                                input_, tf.zeros_like(input_))
-            maxRow = tf.where(stripped == 0, tf.reshape(tf.repeat(tf.reduce_max(stripped, axis=1), repeats=(input_.shape[1])), [tf.shape(input_)[0], input_.shape[1], input_.shape[2]]), stripped)
-            minVal = tf.reduce_min(maxRow, axis=1)
-            stripped = stripped - tf.reshape(tf.repeat(minVal, repeats=input_.shape[1]), [tf.shape(input_)[0], input_.shape[1], input_.shape[2]])
-            stripped = tf.where(stripped < 0, tf.zeros_like(stripped), stripped)
-            inteArea = tf.squeeze(tf.reduce_sum(stripped, axis=1), axis=1)
-
-            ## Extract area for PeakBot_MRM integration
-            stripped = tf.where(tf.math.logical_and(indices >= tf.expand_dims(tf.reshape(tf.repeat(tf.cast(tf.math.floor(rtInds[:,0]), dtype=input_.dtype), repeats=[input_.shape[1]]), [tf.shape(input_)[0], input_.shape[1]]), axis=2), 
-                                                    indices <= tf.expand_dims(tf.reshape(tf.repeat(tf.cast(tf.math.ceil(rtInds[:,1]), dtype=input_.dtype), repeats=[input_.shape[1]]), [tf.shape(input_)[0], input_.shape[1]]), axis=2)), 
-                                input_, tf.zeros_like(input_))
-            maxRow = tf.where(stripped == 0, tf.reshape(tf.repeat(tf.reduce_max(stripped, axis=1), repeats=(input_.shape[1])), [tf.shape(input_)[0], input_.shape[1], input_.shape[2]]), stripped)
-            minVal = tf.reduce_min(maxRow, axis=1)
-            stripped = stripped - tf.reshape(tf.repeat(minVal, repeats=input_.shape[1]), [tf.shape(input_)[0], input_.shape[1], input_.shape[2]])
-            stripped = tf.where(stripped < 0, tf.zeros_like(stripped), stripped)
-            pbCalcArea = tf.squeeze(tf.reduce_sum(stripped, axis=1), axis=1)
-
-            ## Extract area for overlap of user and PeakBot_MRM integration
-            beginInds = tf.math.maximum(rtInds_[:,0], tf.cast(tf.math.floor(rtInds[:,0]), dtype=rtInds_.dtype))
-            endInds = tf.math.minimum(rtInds_[:,1], tf.cast(tf.math.ceil(rtInds[:,1]), dtype=rtInds_.dtype))
-            stripped = tf.where(tf.math.logical_and(indices >= tf.expand_dims(tf.reshape(tf.repeat(beginInds, repeats=[input_.shape[1]]), [tf.shape(input_)[0], input_.shape[1]]), axis=2), 
-                                                    indices <= tf.expand_dims(tf.reshape(tf.repeat(endInds, repeats=[input_.shape[1]]), [tf.shape(input_)[0], input_.shape[1]]), axis=2)), 
-                                input_, tf.zeros_like(input_))
-            maxRow = tf.where(stripped == 0, tf.reshape(tf.repeat(tf.reduce_max(stripped, axis=1), repeats=(input_.shape[1])), tf.shape(input_)), stripped)
-            minVal = tf.reduce_min(maxRow, axis=1)
-            stripped = stripped - tf.reshape(tf.repeat(minVal, repeats=input_.shape[1]), [tf.shape(input_)[0], input_.shape[1], input_.shape[2]])
-            stripped = tf.where(stripped < 0, tf.zeros_like(stripped), stripped)
-            overlapArea = tf.squeeze(tf.reduce_sum(stripped, axis=1), axis=1)            
-            #overlapArea = tf.where(tf.argmax(peaks, axis=1) == 1, tf.zeros_like(overlapArea), overlapArea)
-
-            ## Calculate IOU
-            overlap = tf.divide(overlapArea, tf.subtract(tf.add(inteArea, pbCalcArea), overlapArea))
-            overlap = tf.keras.layers.Lambda(lambda x: x, name="loss.IOU_Area")(overlap)
-            outputs.append(overlap)
-
         if verbose:
             print("  | .. Intermediate layer")
             print("  | .. .. lastUpLayer is", lastUpLayer)
@@ -528,72 +472,20 @@ class PeakBot():
             print("  | .. Outputs")
             print("  | .. .. pred.peak     is", peaks)
             print("  | .. .. pred.rtInds   is", rtInds)
-            if mode == "training":
-                print("  | .. .. loss.IOU_Area is ", overlap)
             print("  | .. ")
             print("  | ")
 
         self.model = tf.keras.models.Model(inputs, outputs)
         
-        if False:
-            # TODO implement AreaIOU gradient for pred.rtInds
-            def areaIOULoss(inteRTInds, predRTInds, channelInt):
-
-                indices = tf.cast(tf.transpose(tf.reshape(tf.repeat(tf.range(channelInt.shape[1]), repeats=[tf.shape(channelInt)[0]]), [1, channelInt.shape[1], tf.shape(channelInt)[0]])), dtype=channelInt.dtype)
-
-                ## Extract area for user integration
-                stripped = tf.where(tf.math.logical_and(indices >= tf.expand_dims(tf.reshape(tf.repeat(tf.cast(tf.math.floor(inteRTInds[:,0]), dtype=channelInt.dtype), repeats=[channelInt.shape[1]]), [tf.shape(channelInt)[0], channelInt.shape[1]]), axis=2), 
-                                                        indices <= tf.expand_dims(tf.reshape(tf.repeat(tf.cast(tf.math.ceil(inteRTInds[:,1]), dtype=channelInt.dtype), repeats=[channelInt.shape[1]]), [tf.shape(channelInt)[0], channelInt.shape[1]]), axis=2)), 
-                                    channelInt, tf.zeros_like(channelInt))
-                maxRow = tf.where(stripped == 0, tf.reshape(tf.repeat(tf.reduce_max(stripped, axis=1), repeats=(channelInt.shape[1])), [tf.shape(channelInt)[0], channelInt.shape[1], channelInt.shape[2]]), stripped)
-                minVal = tf.reduce_min(maxRow, axis=1)
-                stripped = stripped - tf.reshape(tf.repeat(minVal, repeats=channelInt.shape[1]), [tf.shape(channelInt)[0], channelInt.shape[1], channelInt.shape[2]])
-                stripped = tf.where(stripped < 0, tf.zeros_like(stripped), stripped)
-                inteArea = tf.squeeze(tf.reduce_sum(stripped, axis=1), axis=1)
-
-                ## Extract area for PeakBot_MRM integration
-                stripped = tf.where(tf.math.logical_and(indices >= tf.expand_dims(tf.reshape(tf.repeat(tf.cast(tf.math.floor(predRTInds[:,0]), dtype=channelInt.dtype), repeats=[channelInt.shape[1]]), [tf.shape(channelInt)[0], channelInt.shape[1]]), axis=2), 
-                                                        indices <= tf.expand_dims(tf.reshape(tf.repeat(tf.cast(tf.math.ceil(predRTInds[:,1]), dtype=channelInt.dtype), repeats=[channelInt.shape[1]]), [tf.shape(channelInt)[0], channelInt.shape[1]]), axis=2)), 
-                                    channelInt, tf.zeros_like(channelInt))
-                maxRow = tf.where(stripped == 0, tf.reshape(tf.repeat(tf.reduce_max(stripped, axis=1), repeats=(channelInt.shape[1])), [tf.shape(channelInt)[0], channelInt.shape[1], channelInt.shape[2]]), stripped)
-                minVal = tf.reduce_min(maxRow, axis=1)
-                stripped = stripped - tf.reshape(tf.repeat(minVal, repeats=channelInt.shape[1]), [tf.shape(channelInt)[0], channelInt.shape[1], channelInt.shape[2]])
-                stripped = tf.where(stripped < 0, tf.zeros_like(stripped), stripped)
-                pbCalcArea = tf.squeeze(tf.reduce_sum(stripped, axis=1), axis=1)
-
-                ## Extract area for overlap of user and PeakBot_MRM integration
-                beginInds = tf.math.maximum(inteRTInds[:,0], tf.cast(tf.math.floor(predRTInds[:,0]), dtype=inteRTInds.dtype))
-                endInds = tf.math.minimum(inteRTInds[:,1], tf.cast(tf.math.ceil(predRTInds[:,1]), dtype=predRTInds.dtype))
-                stripped = tf.where(tf.math.logical_and(indices >= tf.expand_dims(tf.reshape(tf.repeat(beginInds, repeats=[channelInt.shape[1]]), [tf.shape(channelInt)[0], channelInt.shape[1]]), axis=2), 
-                                                        indices <= tf.expand_dims(tf.reshape(tf.repeat(endInds, repeats=[channelInt.shape[1]]), [tf.shape(channelInt)[0], channelInt.shape[1]]), axis=2)), 
-                                    channelInt, tf.zeros_like(channelInt))
-                maxRow = tf.where(stripped == 0, tf.reshape(tf.repeat(tf.reduce_max(stripped, axis=1), repeats=(channelInt.shape[1])), tf.shape(channelInt)), stripped)
-                minVal = tf.reduce_min(maxRow, axis=1)
-                stripped = stripped - tf.reshape(tf.repeat(minVal, repeats=channelInt.shape[1]), [tf.shape(channelInt)[0], channelInt.shape[1], channelInt.shape[2]])
-                stripped = tf.where(stripped < 0, tf.zeros_like(stripped), stripped)
-                overlapArea = tf.squeeze(tf.reduce_sum(stripped, axis=1), axis=1)            
-                #overlapArea = tf.where(tf.argmax(peaks, axis=1) == 1, tf.zeros_like(overlapArea), overlapArea)
-
-                ## Calculate IOU
-                overlap = tf.divide(overlapArea, tf.subtract(tf.add(inteArea, pbCalcArea), overlapArea))
-                overlap = tf.keras.layers.Lambda(lambda x: x, name="")(overlap)
-                loss = tf.square(overlap)
-                return loss
-            
-            if mode == "training":
-                self.model.add_loss(areaIOULoss(rtInds_, rtInds, input_))
-                self.model.add_loss(tf.losses.mse(peaks_, peaks))
-                self.model.add_metric(areaIOULoss(rtInds_, rtInds, input_), name="IOUArea")
+        losses = {"pred.peak": "CategoricalCrossentropy",
+                  "pred.rtInds": "Huber",}
+        lossWeights = {"pred.peak": 1,
+                       "pred.rtInds": 1}
+        metrics = {"pred.peak": "categorical_accuracy",
+                   "pred.rtInds": iou}
         
         self.model.compile(optimizer = tf.keras.optimizers.Adam(learning_rate = Config.LEARNINGRATESTART),
-                           loss={"pred.peak": "CategoricalCrossentropy",
-                                 "pred.rtInds": "MSE"
-                                 },
-                           loss_weights={"pred.peak": 1,
-                                         "pred.rtInds": 1/5000,},
-                           metrics={"pred.peak": "categorical_accuracy",
-                                    "pred.rtInds": iou,
-                                    "loss.IOU_Area": "MSE"},
+                           loss=losses, loss_weights=lossWeights, metrics=metrics,
                            )
 
     @timeit
@@ -735,7 +627,7 @@ def trainPeakBotModel(trainInstancesPath, logBaseDir, modelName = None, valInsta
         hist = valDS.history[-1]
         for valInstance in addValidationInstances:
             se = valInstance["name"]
-            for metric in ["pred.peak_categorical_accuracy", "pred.rtInds_iou", "loss.IOU_Area_MSE"]:
+            for metric in ["pred.peak_categorical_accuracy", "pred.rtInds_iou"]:
                 val = hist[se + "_" + metric]
                 newRow = pd.Series({"model": modelName, "set": se, "metric": metric, "value": val})
                 metricesAddValDS = metricesAddValDS.append(newRow, ignore_index=True)
@@ -782,7 +674,7 @@ def runPeakBot(instances, modelPath = None, model = None, verbose = True):
     if model is None and modelPath is not None:
         model = loadModel(modelPath, mode = "predict")
 
-    assert all(np.amax(instances["channel.int"], (1)) == 1), "channel.int is not scaled to a maximum of 1 '%s'"%(str(np.amax(instances["channel.int"], (1))))
+    assert all(np.amax(instances["channel.int"], (1)) <= 1), "channel.int is not scaled to a maximum of 1 '%s'"%(str(np.amax(instances["channel.int"], (1))))
     
     peakTypes, rtInds = pb.model.predict(instances["channel.int"], verbose = verbose)
     rtStartInds = rtInds[:,0]
@@ -805,15 +697,12 @@ def evaluatePeakBot(instancesWithGT, modelPath = None, model = None, verbose = T
     if model is None and modelPath is not None:
         pb = loadModel(modelPath, mode = "training")
 
-    assert all(np.amax(instancesWithGT["channel.int"], (1)) == 1), "channel.int is not scaled to a maximum of 1 '%s'"%(str(np.amax(instancesWithGT["channel.int"], (1))))
+    assert all(np.amax(instancesWithGT["channel.int"], (1)) <= 1), "channel.int is not scaled to a maximum of 1 '%s'"%(str(np.amax(instancesWithGT["channel.int"], (1))))
     
     x = {"channel.int": instancesWithGT["channel.int"],
-         "inte.peak"  : instancesWithGT["inte.peak"],
-         "inte.rtInds": instancesWithGT["inte.rtInds"],
         }
     y = {"pred.peak"  : instancesWithGT["inte.peak"],
          "pred.rtInds": instancesWithGT["inte.rtInds"],
-         "loss.IOU_Area": np.ones((len(instancesWithGT["inte.peak"])), dtype=float)
         }
     history = pb.model.evaluate(x, y, return_dict = True, verbose = verbose)
 
@@ -831,3 +720,199 @@ def evaluatePeakBot(instancesWithGT, modelPath = None, model = None, verbose = T
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+def importTargets(targetFile):
+    ## load targets
+    print("Loading targets from file '%s'"%(targetFile))
+    headers, substances = readTSVFile(targetFile, header = True, delimiter = "\t", convertToMinIfPossible = True, getRowsAsDicts = True)
+    substances = dict((substance["Name"], {"Name"     : substance["Name"].replace(" (ISTD)", ""),
+                                        "Q1"       : substance["Precursor Ion"],
+                                        "Q3"       : substance["Product Ion"],
+                                        "RT"       : substance["RT"],
+                                        "PeakForm" : substance["PeakForm"], 
+                                        "Rt shifts": substance["RT shifts"],
+                                        "Note"     : substance["Note"],
+                                        "Pola"     : substance["Ion Polarity"],
+                                        "ColE"     : None}) for substance in substances) # TODO add collision energy here for selection of correct channel
+                ##TODO include collisionEnergy here
+    print("  | .. loaded %d substances"%(len(substances)))
+    print("  | .. of these %d have RT shifts"%(sum((1 if substance["Rt shifts"]!="" else 0 for substance in substances.values()))))
+    print("  | .. of these %d have abnormal peak forms"%(sum((1 if substance["PeakForm"]!="" else 0 for substance in substances.values()))))
+    print("\n")
+    # targets: [{'Name': 'Valine', 'Q1': 176.0, 'Q3': 116.0, 'RT': 1.427}, ...]
+
+    return substances
+
+
+def loadIntegrations(substances, curatedPeaks):
+    ## load integrations
+    print("Loading integrations from file '%s'"%(curatedPeaks))
+    headers, temp = parseTSVMultiLineHeader(curatedPeaks, headerRowCount=2, delimiter = ",", commentChar = "#", headerCombineChar = "$")
+    headers = dict((k.replace(" (ISTD)", ""), v) for k,v in headers.items())
+    foo = set([head[:head.find("$")] for head in headers if not head.startswith("Sample$")])
+    notUsingSubs = []
+    for substance in substances.values():
+        if substance["Name"] not in foo:
+            notUsingSubs.append(substance["Name"])
+    if len(notUsingSubs) > 0:
+        print("Not using %d substances (%s) as these are not in the integration matrix"%(len(notUsingSubs), ", ".join(notUsingSubs)))
+    
+    foo = dict((k, v) for k, v in substances.items() if k in foo)
+    print("  | .. restricting substances from %d to %d (overlap of substances and integration results)"%(len(substances), len(foo)))
+    substances = foo
+
+    ## process integrations
+    integrations = {}
+    integratedSamples = set()
+    totalIntegrations = 0
+    foundPeaks = 0
+    foundNoPeaks = 0
+    for substance in [substance["Name"] for substance in substances.values()]:
+        integrations[substance] = {}
+        for intei, inte in enumerate(temp):
+            area = inte[headers["%s$Area"%(substance)]]
+            if area == "" or float(area) == 0:
+                integrations[substance][inte[headers["Sample$Name"]]] = {"foundPeak": False,
+                                                                         "rtstart"  : -1, 
+                                                                         "rtend"    : -1, 
+                                                                         "area"     : -1,
+                                                                         "chrom"    : [],}
+                foundNoPeaks += 1
+            else:
+                integrations[substance][inte[headers["Sample$Name"]]] = {"foundPeak": True,
+                                                                         "rtstart"  : float(inte[headers["%s$Int. Start"%(substance)]]), 
+                                                                         "rtend"    : float(inte[headers["%s$Int. End"  %(substance)]]), 
+                                                                         "area"     : float(inte[headers["%s$Area"      %(substance)]]),
+                                                                         "chrom"    : [],}
+                foundPeaks += 1
+            integratedSamples.add(inte[headers["Sample$Name"]])
+            totalIntegrations += 1
+    print("  | .. parsed %d integrations from %d substances and %d samples"%(totalIntegrations, len(substances), len(integratedSamples)))
+    print("  | .. there are %d areas and %d no peaks"%(foundPeaks, foundNoPeaks))
+    print("\n")
+    # integrations [['Pyridinedicarboxylic acid Results', 'R100140_METAB02_MCC025_CAL1_20200306', '14.731', '14.731', '0'], ...]
+
+    return substances, integrations
+
+
+ 
+
+def loadChromatogramsTo(substances, integrations, samplesPath, expDir, loadFromPickleIfPossible = True,
+                        allowedMZOffset = 0.05, MRMHeader = "- SRM SIC Q1=(\\d+[.]\\d+) Q3=(\\d+[.]\\d+) start=(\\d+[.]\\d+) end=(\\d+[.]\\d+)"):
+    ## load chromatograms
+    tic("procChroms")
+    print("Processing chromatograms")
+    samples = [os.path.join(samplesPath, f) for f in os.listdir(samplesPath) if os.path.isfile(os.path.join(samplesPath, f)) and f.lower().endswith(".mzml")]
+    usedSamples = set()
+    if os.path.isfile(os.path.join(expDir, "integrations.pickle")) and loadFromPickleIfPossible:
+        with open(os.path.join(expDir, "integrations.pickle"), "rb") as fin:
+            integrations, referencePeaks, noReferencePeaks, usedSamples = pickle.load(fin)
+            print("  | .. Imported integrations from pickle file '%s/integrations.pickle'"%(expDir))
+    else:
+        print("  | .. This might take a couple of minutes as all samples/integrations/channels/etc. need to be compared and the current implementation are 4 sub-for-loops")
+        for sample in tqdm.tqdm(samples):
+            sampleName = os.path.basename(sample)
+            sampleName = sampleName[:sampleName.rfind(".")]
+            usedSamples.add(sampleName)
+
+            foundTargets = []
+            unusedChannels = []
+            run = pymzml.run.Reader(sample, skip_chromatogram = False)
+            
+            ## get channels from the chromatogram
+            allChannels = []
+            for i, entry in enumerate(run):
+                if isinstance(entry, pymzml.spec.Chromatogram) and entry.ID.startswith("- SRM"):
+                    m = re.match(MRMHeader, entry.ID)
+                    Q1, Q3, rtstart, rtend = float(m.group(1)), float(m.group(2)), float(m.group(3)), float(m.group(4))
+
+                    polarity = None
+                    if entry.get_element_by_name("negative scan") is not None:
+                        polarity = "negative"
+                    elif entry.get_element_by_name("positive scan") is not None:
+                        polarity = "positive"
+
+                    collisionEnergy = None
+                    if entry.get_element_by_name("collision energy") is not None:
+                        collisionEnergy = entry.get_element_by_name("collision energy").get("value", default=None)
+                        if collisionEnergy is not None:
+                            collisionEnergy = float(collisionEnergy)
+
+                    collisionType = None
+                    if entry.get_element_by_name("collision-induced dissociation") is not None:
+                        collisionType = "collision-induced dissociation"
+
+                    chrom = [(time, intensity) for time, intensity in entry.peaks()]
+
+                    allChannels.append([Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionType, entry.ID, chrom])
+
+            ## merge channels with integration results for this sample
+            for i, (Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionType, entryID, chrom) in enumerate(allChannels):
+                usedChannel = []
+                useChannel = True
+                ## test if channel is unique ## TODO include collisionEnergy here as well
+                for bi, (bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionType, bentryID, bchrom) in enumerate(allChannels):
+                    if i != bi:
+                        if abs(Q1 - bq1) <= allowedMZOffset and abs(Q3 - bq3) <= allowedMZOffset and \
+                            polarity == bpolarity and collisionType == bcollisionType:# TODO include collisionEnergy test here and collisionEnergy == bcollisionEnergy:
+                            useChannel = False
+                            unusedChannels.append(entryID)
+                
+                ## use channel if it is unique and find the integrated substance(s) for it
+                if useChannel:
+                    for substance in substances.values(): ## TODO include collisionEnergy check here
+                        if abs(substance["Q1"] - Q1) < allowedMZOffset and abs(substance["Q3"] - Q3) <= allowedMZOffset and rtstart <= substance["RT"] <= rtend:
+                            if substance["Name"] in integrations.keys() and sampleName in integrations[substance["Name"]].keys():
+                                foundTargets.append([substance, entry, integrations[substance["Name"]][sampleName]])
+                                usedChannel.append(substance)
+                                integrations[substance["Name"]][sampleName]["chrom"].append(["%s (%s mode, %s with %.1f energy)"%(entryID, polarity, collisionType, collisionEnergy), 
+                                                                                            Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionType, entryID, chrom])
+        
+        ## remove all integrations with more than one scanEvent
+        referencePeaks = 0
+        noReferencePeaks = 0
+        for substance in integrations.keys():
+            for sample in integrations[substance].keys():
+                if len(integrations[substance][sample]["chrom"]) == 1:
+                    referencePeaks += 1
+                else:
+                    noReferencePeaks += 1
+                    integrations[substance][sample]["chrom"].clear()
+
+        with open (os.path.join(expDir, "integrations.pickle"), "wb") as fout:
+            pickle.dump((integrations, referencePeaks, noReferencePeaks, usedSamples), fout)
+            print("  | .. Stored integrations to '%s/integrations.pickle'"%expDir)
+        
+    print("  | .. There are %d peaks and %d no peaks"%(referencePeaks, noReferencePeaks))
+    print("  | .. Using %d samples "%(len(usedSamples)))
+    remSubstancesChannelProblems = []
+    for substance in integrations.keys():
+        foundOnce = False
+        for sample in integrations[substance].keys():
+            if len(integrations[substance][sample]["chrom"]) > 1:
+                remSubstancesChannelProblems.append(substance)
+                break
+            elif len(integrations[substance][sample]["chrom"]) == 1:
+                foundOnce = True
+        if not foundOnce:
+            remSubstancesChannelProblems.append(substance)
+    if len(remSubstancesChannelProblems):
+        print("  | .. %d substances (%s) were not found as the channel selection was ambiguous"%(len(remSubstancesChannelProblems), ", ".join(sorted(remSubstancesChannelProblems))))
+        print("  | .. These will not be used further")
+        for r in remSubstancesChannelProblems:
+            del integrations[r]
+    print("  | .. took %.1f seconds"%(toc("procChroms")))
+    print("\n")
+
+    return substances, integrations

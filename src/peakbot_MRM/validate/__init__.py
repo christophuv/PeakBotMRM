@@ -1,2 +1,2 @@
 
-from .validateExperiment import *
+from .validate import *
