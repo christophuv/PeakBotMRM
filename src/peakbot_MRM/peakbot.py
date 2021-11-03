@@ -30,9 +30,9 @@ class Config(object):
     NUMCLASSES     =   2   ## [isFullPeak, hasCoelutingPeakLeftAndRight, hasCoelutingPeakLeft, hasCoelutingPeakRight, isWall, isBackground]
     FIRSTNAREPEAKS =   1   ## specifies which of the first n classes represent a chromatographic peak (i.e. if classes 0,1,2,3 represent a peak, the value for this parameter must be 4)
 
-    BATCHSIZE     =   16
-    STEPSPEREPOCH =    8
-    EPOCHS        =  110
+    BATCHSIZE     =  16#2# 16
+    STEPSPEREPOCH =  8#4#  8
+    EPOCHS        =  300#7#110
 
     DROPOUT        = 0.2
     UNETLAYERSIZES = [32,64,128,256]
@@ -131,7 +131,6 @@ def dataGenerator(folder, instancePrefix = None, verbose=False):
 
     ite = 0
     while os.path.isfile(os.path.join(folder, "%s%d.pickle"%(instancePrefix, ite))):
-        
         l = pickle.load(open(os.path.join(folder, "%s%d.pickle"%(instancePrefix, ite)), "rb"))
         assert all(np.amax(l["channel.int"], (1)) == 1), "EIC is not scaled to a maximum of 1 '%s'"%(str(np.amax(l["channel.int"], (1))))
         yield l
@@ -301,6 +300,7 @@ def convertGeneratorToPlain(gen, numIters=1):
                     y[k] = np.concatenate((y[k], t[1][k]), axis=0)
         else:
             break
+    
     return x,y
 
 ## modified from https://stackoverflow.com/a/47738812
@@ -485,8 +485,7 @@ class PeakBot():
                    "pred.rtInds": iou}
         
         self.model.compile(optimizer = tf.keras.optimizers.Adam(learning_rate = Config.LEARNINGRATESTART),
-                           loss=losses, loss_weights=lossWeights, metrics=metrics,
-                           )
+                           loss=losses, loss_weights=lossWeights, metrics=metrics,)
 
     @timeit
     def train(self, datTrain, datVal, logDir = None, callbacks = None, verbose = True):
@@ -732,19 +731,23 @@ def evaluatePeakBot(instancesWithGT, modelPath = None, model = None, verbose = T
 
 
 
-def importTargets(targetFile):
+def importTargets(targetFile, excludeSubstances = None, includeSubstances = None):
+    if excludeSubstances is None:
+        excludeSubstances = []
+
     ## load targets
     print("Loading targets from file '%s'"%(targetFile))
     headers, substances = readTSVFile(targetFile, header = True, delimiter = "\t", convertToMinIfPossible = True, getRowsAsDicts = True)
-    substances = dict((substance["Name"], {"Name"     : substance["Name"].replace(" (ISTD)", ""),
-                                        "Q1"       : substance["Precursor Ion"],
-                                        "Q3"       : substance["Product Ion"],
-                                        "RT"       : substance["RT"],
-                                        "PeakForm" : substance["PeakForm"], 
-                                        "Rt shifts": substance["RT shifts"],
-                                        "Note"     : substance["Note"],
-                                        "Pola"     : substance["Ion Polarity"],
-                                        "ColE"     : None}) for substance in substances) # TODO add collision energy here for selection of correct channel
+    substances = dict((substance["Name"], 
+                       {"Name"     : substance["Name"].replace(" (ISTD)", ""),
+                        "Q1"       : substance["Precursor Ion"],
+                        "Q3"       : substance["Product Ion"],
+                        "RT"       : substance["RT"],
+                        "PeakForm" : substance["PeakForm"], 
+                        "Rt shifts": substance["RT shifts"],
+                        "Note"     : substance["Note"],
+                        "Pola"     : substance["Ion Polarity"],
+                        "ColE"     : None}) for substance in substances if substance["Name"] not in excludeSubstances and (includeSubstances is None or substance["Name"] in includeSubstances))
                 ##TODO include collisionEnergy here
     print("  | .. loaded %d substances"%(len(substances)))
     print("  | .. of these %d have RT shifts"%(sum((1 if substance["Rt shifts"]!="" else 0 for substance in substances.values()))))
@@ -766,7 +769,7 @@ def loadIntegrations(substances, curatedPeaks):
         if substance["Name"] not in foo:
             notUsingSubs.append(substance["Name"])
     if len(notUsingSubs) > 0:
-        print("Not using %d substances (%s) as these are not in the integration matrix"%(len(notUsingSubs), ", ".join(notUsingSubs)))
+        print("  | .. Not using %d substances (%s) as these are not in the integration matrix"%(len(notUsingSubs), ", ".join(notUsingSubs)))
     
     foo = dict((k, v) for k, v in substances.items() if k in foo)
     print("  | .. restricting substances from %d to %d (overlap of substances and integration results)"%(len(substances), len(foo)))
@@ -784,21 +787,21 @@ def loadIntegrations(substances, curatedPeaks):
             area = inte[headers["%s$Area"%(substance)]]
             if area == "" or float(area) == 0:
                 integrations[substance][inte[headers["Sample$Name"]]] = {"foundPeak": False,
-                                                                         "rtstart"  : -1, 
-                                                                         "rtend"    : -1, 
-                                                                         "area"     : -1,
-                                                                         "chrom"    : [],}
+                                                                        "rtstart"  : -1, 
+                                                                        "rtend"    : -1, 
+                                                                        "area"     : -1,
+                                                                        "chrom"    : [],}
                 foundNoPeaks += 1
             else:
                 integrations[substance][inte[headers["Sample$Name"]]] = {"foundPeak": True,
-                                                                         "rtstart"  : float(inte[headers["%s$Int. Start"%(substance)]]), 
-                                                                         "rtend"    : float(inte[headers["%s$Int. End"  %(substance)]]), 
-                                                                         "area"     : float(inte[headers["%s$Area"      %(substance)]]),
-                                                                         "chrom"    : [],}
+                                                                        "rtstart"  : float(inte[headers["%s$Int. Start"%(substance)]]), 
+                                                                        "rtend"    : float(inte[headers["%s$Int. End"  %(substance)]]), 
+                                                                        "area"     : float(inte[headers["%s$Area"      %(substance)]]),
+                                                                        "chrom"    : [],}
                 foundPeaks += 1
             integratedSamples.add(inte[headers["Sample$Name"]])
             totalIntegrations += 1
-    print("  | .. parsed %d integrations from %d substances and %d samples"%(totalIntegrations, len(substances), len(integratedSamples)))
+    print("  | .. parsed %d integrations from %d substances and %d samples."%(totalIntegrations, len(substances), len(integratedSamples)))
     print("  | .. there are %d areas and %d no peaks"%(foundPeaks, foundNoPeaks))
     print("\n")
     # integrations [['Pyridinedicarboxylic acid Results', 'R100140_METAB02_MCC025_CAL1_20200306', '14.731', '14.731', '0'], ...]

@@ -56,13 +56,15 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
                        expDir = None, logDir = None, 
                        MRMHeader = "- SRM SIC Q1=(\\d+[.]\\d+) Q3=(\\d+[.]\\d+) start=(\\d+[.]\\d+) end=(\\d+[.]\\d+)",
                        allowedMZOffset = 0.05,
-                       plotSubstance = None):
+                       plotSubstance = None, excludeSubstances = None, includeSubstances = None):
     if expDir is None:
         expDir = os.path.join(".", expName)
     if logDir is None:
         logDir = os.path.join(expDir, "log")
     if plotSubstance is None:
         plotSubstances = []
+    if excludeSubstances is None:
+        excludeSubstances = []
         
     
     print("Validating experiment")
@@ -97,7 +99,7 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
     histAll = None
     metricsTable = {}
 
-    substances               = peakbot_MRM.importTargets(targetFile)
+    substances               = peakbot_MRM.importTargets(targetFile, excludeSubstances = excludeSubstances, includeSubstances = includeSubstances)
     substances, integrations = peakbot_MRM.loadIntegrations(substances, curatedPeaks)
     substances, integrations = peakbot_MRM.loadChromatogramsTo(substances, integrations, samplesPath, expDir,
                                                                allowedMZOffset = allowedMZOffset,
