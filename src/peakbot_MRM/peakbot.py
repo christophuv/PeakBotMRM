@@ -1,5 +1,7 @@
 import logging
 
+from numba.core.types.functions import NumberClass
+
 from .core import *
 
 import os
@@ -56,7 +58,6 @@ class Config(object):
             " UNetLayerSizes: %s"%(Config.UNETLAYERSIZES),
             " LearningRate: Start: %g, DecreaseAfter: %d steps, Multiplier: %g, min. rate: %g"%(Config.LEARNINGRATESTART, Config.LEARNINGRATEDECREASEAFTERSTEPS, Config.LEARNINGRATEMULTIPLIER, Config.LEARNINGRATEMINVALUE),
             " Prefix for instances: '%s'"%Config.INSTANCEPREFIX,
-            " "
         ])
 
     @staticmethod
@@ -71,7 +72,6 @@ class Config(object):
             "UNetLayerSizes: %s"%(Config.UNETLAYERSIZES),
             "LearningRate: Start: %g, DecreaseAfter: %d steps, Multiplier: %g, min. rate: %g"%(Config.LEARNINGRATESTART, Config.LEARNINGRATEDECREASEAFTERSTEPS, Config.LEARNINGRATEMULTIPLIER, Config.LEARNINGRATEMINVALUE),
             "InstancePrefix: '%s'"%(Config.INSTANCEPREFIX),
-            ""
         ])
 
 
@@ -168,8 +168,11 @@ def modelAdapterGenerator(datGen, xKeys, yKeys, newBatchSize = None, verbose=Fal
                 elif isinstance(l[k], list):
                     l[k] = l[k][0:newBatchSize]
 
-        x= dict((xKeys[k],v) for k,v in l.items() if k in xKeys.keys())
+        if "channel.int" in l.keys() and "inte.peak" in l.keys() and "inte.rtInds" in l.keys():
+            l["pred"] = np.hstack((l["inte.peak"], l["inte.rtInds"], l["channel.int"]))
+        x = dict((xKeys[k],v) for k,v in l.items() if k in xKeys.keys())
         y = dict((yKeys[k],v) for k,v in l.items() if k in yKeys.keys())
+
         yield x,y
         l = next(datGen)
         ite += 1
@@ -177,7 +180,7 @@ def modelAdapterGenerator(datGen, xKeys, yKeys, newBatchSize = None, verbose=Fal
 def modelAdapterTrainGenerator(datGen, newBatchSize = None, verbose=False):
     temp = modelAdapterGenerator(datGen, 
                                  {"channel.int":"channel.int"}, 
-                                 {"inte.peak":"pred.peak", "inte.rtInds":"pred.rtInds"}, 
+                                 {"pred": "pred", "inte.peak":"pred.peak", "inte.rtInds": "pred.rtInds"},
                                  newBatchSize, verbose = verbose)
     return temp
 
@@ -283,6 +286,89 @@ def pFPR(y_true, y_pred):
                        tf.cast(tf.math.less(tf.math.argmax(y_pred, axis=1), Config.FIRSTNAREPEAKS), tf.float32))
 
 
+@tf.autograph.experimental.do_not_convert
+def EICIOULoss(dummyX, dummyY):
+    ## separate user integration and eic
+    peaks   = dummyX[:, 0:Config.NUMCLASSES]
+    rtInds  = dummyX[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
+    eic     = dummyX[:, (Config.NUMCLASSES + 2):]
+    
+    ## separate predicted values
+    ppeaks  = dummyY[:, 0:Config.NUMCLASSES]
+    prtInds = dummyY[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
+    
+    ## Calculate indices for EICs
+    indices = tf.transpose(tf.reshape(tf.repeat(tf.range(tf.shape(eic)[1], dtype=eic.dtype), repeats=tf.shape(eic)[0]), [tf.shape(eic)[1], tf.shape(eic)[0]]))
+
+    ## Extract area for user integration
+    stripped = tf.where(tf.math.logical_and(tf.math.greater_equal(indices, tf.reshape(tf.repeat(tf.math.floor(rtInds[:,0]), repeats=tf.shape(eic)[1]), tf.shape(eic))), 
+                                            tf.math.less_equal   (indices, tf.reshape(tf.repeat(tf.math.ceil (rtInds[:,1]), repeats=tf.shape(eic)[1]), tf.shape(eic)))), 
+                        eic, tf.zeros_like(eic))
+    maxRow = tf.where(tf.math.equal(stripped, 0), tf.reshape(tf.repeat(tf.reduce_max(stripped, axis=1), repeats=(tf.shape(eic)[1])), [tf.shape(eic)[0], tf.shape(eic)[1]]), stripped)
+    minVal = tf.reduce_min(maxRow, axis=1)
+    stripped = tf.subtract(stripped, tf.reshape(tf.repeat(minVal, repeats=tf.shape(eic)[1]), [tf.shape(eic)[0], tf.shape(eic)[1]]))
+    stripped = tf.where(tf.math.less(stripped, 0), tf.zeros_like(stripped)+0.0001, stripped)
+    inteArea = tf.reduce_sum(stripped, axis=1)
+
+    ## Extract area for PeakBot_MRM integration
+    stripped = tf.where(tf.math.logical_and(tf.math.greater_equal(indices, tf.reshape(tf.repeat(tf.math.floor(prtInds[:,0]), repeats=tf.shape(eic)[1]), tf.shape(eic))), 
+                                            tf.math.less_equal   (indices, tf.reshape(tf.repeat(tf.math.ceil (prtInds[:,1]), repeats=tf.shape(eic)[1]), tf.shape(eic)))), 
+                        eic, tf.zeros_like(eic))
+    maxRow = tf.where(tf.math.equal(stripped, 0), tf.reshape(tf.repeat(tf.reduce_max(stripped, axis=1), repeats=(tf.shape(eic)[1])), [tf.shape(eic)[0], tf.shape(eic)[1]]), stripped)
+    minVal = tf.reduce_min(maxRow, axis=1)
+    stripped = tf.subtract(stripped, tf.reshape(tf.repeat(minVal, repeats=tf.shape(eic)[1]), [tf.shape(eic)[0], tf.shape(eic)[1]]))
+    stripped = tf.where(tf.math.less(stripped, 0), tf.zeros_like(stripped)+0.0001, stripped)
+    pbCalcArea = tf.reduce_sum(stripped, axis=1)
+
+    ## Extract area for overlap of user and PeakBot_MRM integration
+    beginInds = tf.math.floor(tf.math.maximum(rtInds[:,0], prtInds[:,0]))
+    endInds   = tf.math.ceil (tf.math.minimum(rtInds[:,1], prtInds[:,1]))
+    stripped  = tf.where(tf.math.logical_and(tf.math.greater_equal(indices, tf.reshape(tf.repeat(beginInds, repeats=tf.shape(eic)[1]), tf.shape(eic))), 
+                                             tf.math.less_equal   (indices, tf.reshape(tf.repeat(endInds  , repeats=tf.shape(eic)[1]), tf.shape(eic)))), 
+                            eic, tf.zeros_like(eic))
+    maxRow = tf.where(tf.math.equal(stripped, 0), tf.reshape(tf.repeat(tf.reduce_max(stripped, axis=1), repeats=(tf.shape(eic)[1])), [tf.shape(eic)[0], tf.shape(eic)[1]]), stripped)
+    minVal = tf.reduce_min(maxRow, axis=1)
+    stripped = tf.subtract(stripped, tf.reshape(tf.repeat(minVal, repeats=tf.shape(eic)[1]), [tf.shape(eic)[0], tf.shape(eic)[1]]))
+    stripped = tf.where(tf.math.less(stripped, 0), tf.zeros_like(stripped)+0.0001, stripped)
+    overlapArea = tf.reduce_sum(stripped, axis=1)
+    #overlapArea = tf.where(tf.math.equal(tf.argmax(peaks, axis=1), 1), tf.zeros_like(overlapArea), overlapArea)
+
+    ## Calculate IOU
+    iou = 1 - tf.divide(overlapArea+0.0001, tf.subtract(tf.add(inteArea, pbCalcArea), overlapArea)+0.0001)
+
+    ## Combine losses
+    mse = tf.keras.losses.MeanSquaredError()(rtInds, prtInds) * iou
+    cce = tf.keras.losses.CategoricalCrossentropy()(peaks, ppeaks)
+    
+    return mse
+
+@tf.autograph.experimental.do_not_convert
+def CCAPeak(dummyX, dummyY):
+    ## separate user integration and eic
+    peaks   = dummyX[:, 0:Config.NUMCLASSES]
+    rtInds  = dummyX[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
+    eic     = dummyX[:, (Config.NUMCLASSES + 2):]
+    
+    ## separate predicted values
+    ppeaks  = dummyY[:, 0:Config.NUMCLASSES]
+    prtInds = dummyY[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
+   
+    cca = tf.keras.losses.CategoricalCrossentropy()(peaks, ppeaks)
+    return cca
+
+@tf.autograph.experimental.do_not_convert
+def MSERtInds(dummyX, dummyY):
+    ## separate user integration and eic
+    peaks   = dummyX[:, 0:Config.NUMCLASSES]
+    rtInds  = dummyX[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
+    eic     = dummyX[:, (Config.NUMCLASSES + 2):]
+    
+    ## separate predicted values
+    ppeaks  = dummyY[:, 0:Config.NUMCLASSES]
+    prtInds = dummyY[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
+
+    mse = tf.keras.losses.MeanSquaredError()(rtInds, prtInds)
+    return mse
 
 
 def convertGeneratorToPlain(gen, numIters=1):
@@ -370,7 +456,11 @@ class AdditionalValidationSets(tf.keras.callbacks.Callback):
                 self.maxLenNames = max(self.maxLenNames, len(validation_set_name))
 
                 file_writer = tf.summary.create_file_writer(self.logDir + "/" + validation_set_name)
-                for i, (metric, result) in enumerate(zip(self.model.metrics_names, results)):
+                metNames = self.model.metrics_names
+                metVals = results
+                if len(metNames) == 1:
+                    metVals = [metVals]
+                for i, (metric, result) in enumerate(zip(metNames, metVals)):
                     valuename = "epoch_" + metric
                     with file_writer.as_default():
                         tf.summary.scalar(valuename, data=result, step=epoch)
@@ -459,10 +549,13 @@ class PeakBot():
         x      = tf.keras.layers.BatchNormalization()(x)
         fx     = tf.keras.layers.Flatten()(x)
         
-        peaks  = tf.keras.layers.Dense(Config.NUMCLASSES, name="pred.peak", activation="sigmoid")(fx)
+        peaks  = tf.keras.layers.Dense(Config.NUMCLASSES, activation="sigmoid", name="pred.peak")(fx)
         outputs.append(peaks)
         rtInds = tf.keras.layers.Dense(2, activation="relu", name="pred.rtInds")(fx)
         outputs.append(rtInds)
+        
+        pred = tf.keras.layers.Concatenate(axis=1, name="pred")([peaks, rtInds])#tf.keras.layers.Dense(Config.NUMCLASSES + 2 + Config.RTSLICES, name = "pred", activation = "sigmoid")(fx)
+        outputs.append(pred)
         
         if verbose:
             print("  | .. Intermediate layer")
@@ -470,22 +563,20 @@ class PeakBot():
             print("  | .. .. fx          is", fx)
             print("  | .. ")
             print("  | .. Outputs")
-            print("  | .. .. pred.peak     is", peaks)
-            print("  | .. .. pred.rtInds   is", rtInds)
+            print("  | .. .. pred.peak   is", peaks)
+            print("  | .. .. pred.rtInds is", rtInds)
+            print("  | .. .. pred        is", pred)
             print("  | .. ")
             print("  | ")
 
         self.model = tf.keras.models.Model(inputs, outputs)
         
-        losses = {"pred.peak": "CategoricalCrossentropy",
-                  "pred.rtInds": "Huber",}
-        lossWeights = {"pred.peak": 1,
-                       "pred.rtInds": 1}
-        metrics = {"pred.peak": "categorical_accuracy",
-                   "pred.rtInds": iou}
+        losses      = {"pred.peak": "CategoricalCrossentropy", "pred.rtInds": None, "pred": EICIOULoss}
+        lossWeights = {"pred.peak": 1                        , "pred.rtInds": None, "pred": 1/200     }
+        metrics     = {"pred.peak": "categorical_accuracy"   , "pred.rtInds": None, "pred": [MSERtInds]}
         
         self.model.compile(optimizer = tf.keras.optimizers.Adam(learning_rate = Config.LEARNINGRATESTART),
-                           loss=losses, loss_weights=lossWeights, metrics=metrics,)
+                           loss = losses, loss_weights = lossWeights, metrics = metrics)
 
     @timeit
     def train(self, datTrain, datVal, logDir = None, callbacks = None, verbose = True):
@@ -609,16 +700,49 @@ def trainPeakBotModel(trainInstancesPath, logBaseDir, modelName = None, valInsta
     pb = PeakBot(modelName)
     pb.buildTFModel(mode="training", verbose = verbose)
 
-    ## train the model
-    history = pb.train(
-        datTrain = datGenTrain,
-        datVal   = datGenVal,
+    if True:
+        ## train the model
+        history = pb.train(
+            datTrain = datGenTrain,
+            datVal   = datGenVal,
 
-        logDir = logDir,
-        callbacks = [logger, lrScheduler, valDS],
+            logDir = logDir,
+            callbacks = [logger, lrScheduler, valDS],
 
-        verbose = verbose * 2
-    )
+            verbose = verbose * 2
+        )
+    else:
+        optimizer = tf.keras.optimizers.Adam(learning_rate = Config.LEARNINGRATESTART)
+        for epoch in range(Config.EPOCHS):
+            print("\nStart of epoch %d" % (epoch,))
+
+            # Iterate over the batches of the dataset.
+            for step, (x_batch_train, y_batch_train) in enumerate(datGenTrain):
+
+                # Open a GradientTape to record the operations run
+                # during the forward pass, which enables auto-differentiation.
+                with tf.GradientTape(persistent=True) as tape:
+
+                    # Create tensor that you will watch
+                    x_tensor = tf.convert_to_tensor(x_batch_train["channel.int"])
+                    tape.watch(x_tensor)
+                    # Feed forward
+                    output = pb.model(x_tensor, training=True)
+
+                    # Gradient and the corresponding loss function
+                    o_x = tape.gradient(output, x_tensor)
+                    loss_value = EICIOULoss(y_batch_train["pred"], o_x)
+
+
+                # Use the gradient tape to automatically retrieve
+                # the gradients of the trainable variables with respect to the loss.
+                print(loss_value)
+                grads = tape.gradient(loss_value, pb.model.trainable_weights)
+
+                # Run one step of gradient descent by updating
+                # the value of the variables to minimize the loss.
+                optimizer.apply_gradients(zip(grads, pb.model.trainable_weights))
+
 
     ## save metrices of the training process in a user-convenient format (pandas table)
     metricesAddValDS = pd.DataFrame(columns=["model", "set", "metric", "value"])
@@ -675,9 +799,10 @@ def runPeakBot(instances, modelPath = None, model = None, verbose = True):
 
     assert all(np.amax(instances["channel.int"], (1)) <= 1), "channel.int is not scaled to a maximum of 1 '%s'"%(str(np.amax(instances["channel.int"], (1))))
     
-    peakTypes, rtInds = pb.model.predict(instances["channel.int"], verbose = verbose)
-    rtStartInds = rtInds[:,0]
-    rtEndInds = rtInds[:,1]
+    pred = pb.model.predict(instances["channel.int"], verbose = verbose)
+    peakTypes = pred[:,0:Config.NUMCLASSES]
+    rtStartInds = pred[:,Config.NUMCLASSES]
+    rtEndInds = pred[:,Config.NUMCLASSES+1]
 
     return peakTypes, rtStartInds, rtEndInds
 
@@ -698,11 +823,8 @@ def evaluatePeakBot(instancesWithGT, modelPath = None, model = None, verbose = T
 
     assert all(np.amax(instancesWithGT["channel.int"], (1)) <= 1), "channel.int is not scaled to a maximum of 1 '%s'"%(str(np.amax(instancesWithGT["channel.int"], (1))))
     
-    x = {"channel.int": instancesWithGT["channel.int"],
-        }
-    y = {"pred.peak"  : instancesWithGT["inte.peak"],
-         "pred.rtInds": instancesWithGT["inte.rtInds"],
-        }
+    x = {"channel.int": instancesWithGT["channel.int"]}
+    y = {"pred"  : np.hstack((instancesWithGT["inte.peak"], instancesWithGT["inte.rtInds"], instancesWithGT["channel.int"]))}
     history = pb.model.evaluate(x, y, return_dict = True, verbose = verbose)
 
     return history
