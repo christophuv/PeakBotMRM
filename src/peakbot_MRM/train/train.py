@@ -243,6 +243,7 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
                                                                MRMHeader = MRMHeader)
 
     print("Balancing training dataset")
+    tic()
     peaks = []
     noPeaks = []
     for substance in substances.values():
@@ -280,6 +281,7 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
                 else:
                     noPeaks.append((substance["Name"], sample))
     print("  | .. balanced dataset to %d peaks and %d backgrounds"%(len(peaks), len(noPeaks)))
+    print("  | .. took %.1f seconds"%(toc()))
     print("\n")
 
 
@@ -350,6 +352,7 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
 
 
     print("Exporting instances for training")
+    tic()
     instanceDirObj = tempfile.TemporaryDirectory()
     instanceDir = instanceDirObj.name
     temp = None
@@ -451,6 +454,7 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
     peakbot_MRM.train.shuffleResultsSampleNames(instanceDir)
     peakbot_MRM.train.shuffleResults(instanceDir, steps=1E4, samplesToExchange=12)
     print("  | .. Instances shuffled")
+    print("  | .. took %.1f seconds"%(toc()))
     print("\n")
 
 
@@ -463,9 +467,11 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
         nTrainBatches = len([f for f in os.listdir(tempTrainDir) if os.path.isfile(os.path.join(tempTrainDir, f))])
         nValBatches = len([f for f in os.listdir(tempValDir) if os.path.isfile(os.path.join(tempValDir, f))])         
         print("Split dataset")  
+        tic()
         print("  | .. Randomly split dataset '%s' into a training and validation dataset with 0.7 and 0.3 parts of the instances "%expDir)
         print("  | .. There are %d training and %d validation batches available"%(nTrainBatches, nValBatches))
         print("  | .. With the current configuration (%d batchsize, %d steps per epoch) this will allow for %d epochs of training"%(peakbot_MRM.Config.BATCHSIZE, peakbot_MRM.Config.STEPSPEREPOCH, math.floor(nTrainBatches/peakbot_MRM.Config.STEPSPEREPOCH)))
+        print("  | .. took %.1f seconds"%(toc()))
         print("\n")
         
         addValDS = []

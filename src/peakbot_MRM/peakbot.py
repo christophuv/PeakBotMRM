@@ -337,10 +337,13 @@ def EICIOULoss(dummyX, dummyY):
     iou = 1 - tf.divide(overlapArea+0.0001, tf.subtract(tf.add(inteArea, pbCalcArea), overlapArea)+0.0001)
 
     ## Combine losses
-    mse = tf.keras.losses.MeanSquaredError()(rtInds, prtInds) * iou
+    mse = tf.reduce_mean(tf.square(rtInds-prtInds), axis=1)#tf.keras.losses.MeanSquaredError()(rtInds, prtInds)
+    print("mse metric is", mse)
+    print("iou metri is", iou)
+    print("mse*iou metric is", mse*iou)
     cce = tf.keras.losses.CategoricalCrossentropy()(peaks, ppeaks)
     
-    return mse
+    return mse * iou
 
 @tf.autograph.experimental.do_not_convert
 def CCAPeak(dummyX, dummyY):
@@ -750,7 +753,7 @@ def trainPeakBotModel(trainInstancesPath, logBaseDir, modelName = None, valInsta
         hist = valDS.history[-1]
         for valInstance in addValidationInstances:
             se = valInstance["name"]
-            for metric in ["pred.peak_categorical_accuracy", "pred.rtInds_iou"]:
+            for metric in ["pred.peak_categorical_accuracy", "pred_MSERtInds", "pred.peak_loss"]:
                 val = hist[se + "_" + metric]
                 newRow = pd.Series({"model": modelName, "set": se, "metric": metric, "value": val})
                 metricesAddValDS = metricesAddValDS.append(newRow, ignore_index=True)
@@ -800,9 +803,9 @@ def runPeakBot(instances, modelPath = None, model = None, verbose = True):
     assert all(np.amax(instances["channel.int"], (1)) <= 1), "channel.int is not scaled to a maximum of 1 '%s'"%(str(np.amax(instances["channel.int"], (1))))
     
     pred = pb.model.predict(instances["channel.int"], verbose = verbose)
-    peakTypes = pred[:,0:Config.NUMCLASSES]
-    rtStartInds = pred[:,Config.NUMCLASSES]
-    rtEndInds = pred[:,Config.NUMCLASSES+1]
+    peakTypes = pred[0]
+    rtStartInds = pred[1][:,0]
+    rtEndInds = pred[1][:,1]
 
     return peakTypes, rtStartInds, rtEndInds
 
