@@ -4,12 +4,14 @@ from numba.core.types.functions import NumberClass
 
 from .core import *
 
+import sys
 import os
 import pickle
 import uuid
 import re
 
 import tensorflow as tf
+import tensorflow_addons as tfa
 import numpy as np
 import pandas as pd
 
@@ -51,6 +53,9 @@ class Config(object):
         return "\n  | ..".join([
             "  | .. %s"%(Config.NAME),
             " Version " + Config.VERSION,
+            " Python: %s"%(sys.version),
+            " Tensorflow: %s"%(tf.__version__),
+            " Tensorflow Addons: %s"%(tfa.__version__),
             " Size of EIC: %d (scans)"%(Config.RTSLICES),
             " Number of peak-classes: %d"%(Config.NUMCLASSES),
             " Batchsize: %d, Epochs %d, StepsPerEpoch: %d"%(Config.BATCHSIZE, Config.EPOCHS, Config.STEPSPEREPOCH),
@@ -65,6 +70,8 @@ class Config(object):
         return ";".join([
             "%s"%(Config.NAME),
             "Version " + Config.VERSION,
+            "Python: %s"%(sys.version),
+            "Tensorflow: %s"%(tf.__version__),
             "Size of EIC: %d (scans)"%(Config.RTSLICES),
             "Number of peak-classes: %d"%(Config.NUMCLASSES),
             "Batchsize: %d, Epochs %d, StepsPerEpoch: %d"%(Config.BATCHSIZE, Config.EPOCHS, Config.STEPSPEREPOCH),
@@ -207,87 +214,8 @@ def modelAdapterPredictGenerator(datGen, newBatchSize = None, verbose=False):
 #####################################
 ### PeakBot additional methods
 ##
-def iou(boxes1, boxes2):
-    ## from https://github.com/paperclip/cat-camera/blob/master/object_detection_2/core/post_processing.py
-    """Calculates the overlap between proposal and ground truth boxes.
-    Some `boxes2` may have been padded. The returned `iou` tensor for these
-    boxes will be -1.
-    Args:
-    boxes1: a tensor with a shape of [batch_size, 2]. N is the number of
-    proposals before groundtruth assignment. The last dimension is the pixel
-    coordinates in [ymin, xmin, ymax, xmax] form.
-    boxes2: a tensor with a shape of [batch_size, 2]. This
-    tensor might have paddings with a negative value.
-    Returns:
-    iou: a tensor with as a shape of [batch_size].
-    """
-    with tf.name_scope('BatchIOU'):
-        x1_min, x1_max = tf.split(value=boxes1, num_or_size_splits=2, axis=1)
-        x2_min, x2_max = tf.split(value=boxes2, num_or_size_splits=2, axis=1)
-
-        # Calculates the intersection area
-        intersection_xmin = tf.maximum(x1_min, x2_min)
-        intersection_xmax = tf.minimum(x1_max, x2_max)
-        intersection_area = tf.maximum(tf.subtract(intersection_xmax, intersection_xmin), 0)
-
-        # Calculates the union area
-        area1 = tf.subtract(x1_max, x1_min)
-        area2 = tf.subtract(x2_max, x2_min)
-        # Adds a small epsilon to avoid divide-by-zero.
-        union_area = tf.add(tf.subtract(tf.add(area1, area2), intersection_area), tf.constant(1e-8))
-
-        # Calculates IoU
-        iou = tf.divide(intersection_area, union_area)
-
-        return iou
-def InvIOU(boxes1, boxes2):
-    return 1 - iou(boxes1, boxes2)
-
-## adapted from https://medium.com/analytics-vidhya/custom-metrics-for-keras-tensorflow-ae7036654e05
-def recall(y_true, y_pred):
-    true_positives     = tf.keras.backend.sum(tf.keras.backend.round(tf.keras.backend.clip(y_true * y_pred, 0, 1)))
-    possible_positives = tf.keras.backend.sum(tf.keras.backend.round(tf.keras.backend.clip(y_true, 0, 1)))
-    recall_keras = true_positives / (possible_positives + tf.keras.backend.epsilon())
-    return recall_keras
-
-## adapted from https://medium.com/analytics-vidhya/custom-metrics-for-keras-tensorflow-ae7036654e05
-def precision(y_true, y_pred):
-    true_positives      = tf.keras.backend.sum(tf.keras.backend.round(tf.keras.backend.clip(y_true * y_pred, 0, 1)))
-    predicted_positives = tf.keras.backend.sum(tf.keras.backend.round(tf.keras.backend.clip(y_pred, 0, 1)))
-    precision_keras = true_positives / (predicted_positives + tf.keras.backend.epsilon())
-    return precision_keras
-
-## adapted from https://medium.com/analytics-vidhya/custom-metrics-for-keras-tensorflow-ae7036654e05
-def specificity(y_true, y_pred):
-    tn = tf.keras.backend.sum(tf.keras.backend.round(tf.keras.backend.clip((1 - y_true) * (1 - y_pred), 0, 1)))
-    fp = tf.keras.backend.sum(tf.keras.backend.round(tf.keras.backend.clip((1 - y_true) * y_pred, 0, 1)))
-    return tn / (tn + fp + tf.keras.backend.epsilon())
-
-## adapted from https://medium.com/analytics-vidhya/custom-metrics-for-keras-tensorflow-ae7036654e05
-def negative_predictive_value(y_true, y_pred):
-    tn = tf.keras.backend.sum(tf.keras.backend.round(tf.keras.backend.clip((1 - y_true) * (1 - y_pred), 0, 1)))
-    fn = tf.keras.backend.sum(tf.keras.backend.round(tf.keras.backend.clip(y_true * (1 - y_pred), 0, 1)))
-    return tn / (tn + fn + tf.keras.backend.epsilon())
-
-## adapted from https://medium.com/analytics-vidhya/custom-metrics-for-keras-tensorflow-ae7036654e05
-def f1(y_true, y_pred):
-    p = precision(y_true, y_pred)
-    r = recall(y_true, y_pred)
-    return 2 * ((p * r) / (p + r + tf.keras.backend.epsilon()))
-
-def pF1(y_true, y_pred):
-    return f1(tf.cast(tf.math.less(tf.math.argmax(y_true, axis=1), Config.FIRSTNAREPEAKS), tf.float32),
-              tf.cast(tf.math.less(tf.math.argmax(y_pred, axis=1), Config.FIRSTNAREPEAKS), tf.float32))
-def pTPR(y_true, y_pred):
-    return recall(tf.cast(tf.math.less(tf.math.argmax(y_true, axis=1), Config.FIRSTNAREPEAKS), tf.float32),
-                  tf.cast(tf.math.less(tf.math.argmax(y_pred, axis=1), Config.FIRSTNAREPEAKS), tf.float32))
-def pFPR(y_true, y_pred):
-    return 1-precision(tf.cast(tf.math.less(tf.math.argmax(y_true, axis=1), Config.FIRSTNAREPEAKS), tf.float32),
-                       tf.cast(tf.math.less(tf.math.argmax(y_pred, axis=1), Config.FIRSTNAREPEAKS), tf.float32))
-
-
 @tf.autograph.experimental.do_not_convert
-def EICIOULoss(dummyX, dummyY):
+def EICIOU(dummyX, dummyY):
     ## separate user integration and eic
     peaks   = dummyX[:, 0:Config.NUMCLASSES]
     rtInds  = dummyX[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
@@ -334,16 +262,67 @@ def EICIOULoss(dummyX, dummyY):
     #overlapArea = tf.where(tf.math.equal(tf.argmax(peaks, axis=1), 1), tf.zeros_like(overlapArea), overlapArea)
 
     ## Calculate IOU
-    iou = 1 - tf.divide(overlapArea+0.0001, tf.subtract(tf.add(inteArea, pbCalcArea), overlapArea)+0.0001)
-
-    ## Combine losses
-    mse = tf.reduce_mean(tf.square(rtInds-prtInds), axis=1)#tf.keras.losses.MeanSquaredError()(rtInds, prtInds)
-    print("mse metric is", mse)
-    print("iou metri is", iou)
-    print("mse*iou metric is", mse*iou)
-    cce = tf.keras.losses.CategoricalCrossentropy()(peaks, ppeaks)
+    iou = tf.divide(overlapArea+0.0001, tf.subtract(tf.add(inteArea, pbCalcArea), overlapArea)+0.0001)
+    ## set IOU to 0 if gt and prediction of peak do not match
+    iou = tf.where(tf.math.equal(tf.argmax(peaks, axis=1), tf.argmax(ppeaks, axis=1)), iou, tf.zeros_like(iou))
+    ## set IOU to 1 if gt and prediction of peak match and if no peak was detected
+    iou = tf.where(tf.math.logical_and(tf.math.equal(tf.argmax(peaks, axis=1), tf.argmax(ppeaks, axis=1)), tf.argmax(peaks, axis=1) == 1), tf.ones_like(iou), iou)
     
-    return mse * iou
+    return iou
+
+def EICIOUPeaks(dummyX, dummyY):
+    ## separate user integration and eic
+    peaks   = dummyX[:, 0:Config.NUMCLASSES]
+    rtInds  = dummyX[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
+    eic     = dummyX[:, (Config.NUMCLASSES + 2):]
+    
+    ## separate predicted values
+    ppeaks  = dummyY[:, 0:Config.NUMCLASSES]
+    prtInds = dummyY[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
+
+    ## get IOU
+    iou = EICIOU(dummyX, dummyY)
+
+    ## Only get IOU for true peaks
+    iou = tf.where(tf.math.logical_and(tf.math.equal(tf.argmax(peaks, axis=1), tf.argmax(ppeaks, axis=1)), tf.argmax(peaks, axis=1) == 0), iou, tf.zeros_like(iou))
+    
+    ## Calculate IOU only for peaks and return a mean value
+    return iou   ## TODO only include iou of peaks in this calculation
+
+def EICIOULoss(dummyX, dummyY):
+    ## separate user integration and eic
+    peaks   = dummyX[:, 0:Config.NUMCLASSES]
+    rtInds  = dummyX[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
+    eic     = dummyX[:, (Config.NUMCLASSES + 2):]
+    
+    ## separate predicted values
+    ppeaks  = dummyY[:, 0:Config.NUMCLASSES]
+    prtInds = dummyY[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
+
+    ## get IOUloss 
+    iou = 1 - EICIOU(dummyX, dummyY)
+
+    ## Only get IOUloss for true peaks
+    iou = tf.where(tf.math.logical_and(tf.math.equal(tf.argmax(peaks, axis=1), tf.argmax(ppeaks, axis=1)), tf.argmax(peaks, axis=1) == 0), iou, tf.zeros_like(iou))
+
+    ## Combine iou loss with MSE
+    mse = tf.reduce_mean(tf.square(rtInds-prtInds), axis=1)    
+    return mse * tf.sqrt(tf.abs(iou))
+
+
+@tf.autograph.experimental.do_not_convert
+def CCEPeak(dummyX, dummyY):
+    ## separate user integration and eic
+    peaks   = dummyX[:, 0:Config.NUMCLASSES]
+    rtInds  = dummyX[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
+    eic     = dummyX[:, (Config.NUMCLASSES + 2):]
+    
+    ## separate predicted values
+    ppeaks  = dummyY[:, 0:Config.NUMCLASSES]
+    prtInds = dummyY[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
+   
+    cca = tf.keras.losses.CategoricalCrossentropy()(peaks, ppeaks)
+    return cca
 
 @tf.autograph.experimental.do_not_convert
 def CCAPeak(dummyX, dummyY):
@@ -356,7 +335,7 @@ def CCAPeak(dummyX, dummyY):
     ppeaks  = dummyY[:, 0:Config.NUMCLASSES]
     prtInds = dummyY[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
    
-    cca = tf.keras.losses.CategoricalCrossentropy()(peaks, ppeaks)
+    cca = tf.keras.metrics.categorical_accuracy(peaks, ppeaks)
     return cca
 
 @tf.autograph.experimental.do_not_convert
@@ -536,8 +515,8 @@ class PeakBot():
             x = tf.keras.layers.Conv1D(uNetLayerSizes[i], (5), use_bias=True)(x)
             x = tf.keras.layers.BatchNormalization()(x)
             x = tf.keras.layers.Activation("relu")(x)
-
-            #x = tf.keras.layers.Dropout(dropOutRate)(x)
+            x = tf.keras.layers.Dropout(dropOutRate)(x)
+            
             x = tf.keras.layers.ZeroPadding1D(padding=1)(x)
             x = tf.keras.layers.Conv1D(uNetLayerSizes[i], (3), use_bias=True)(x)
             x = tf.keras.layers.BatchNormalization()(x)
@@ -574,9 +553,13 @@ class PeakBot():
 
         self.model = tf.keras.models.Model(inputs, outputs)
         
-        losses      = {"pred.peak": "CategoricalCrossentropy", "pred.rtInds": None, "pred": EICIOULoss}
-        lossWeights = {"pred.peak": 1                        , "pred.rtInds": None, "pred": 1/200     }
-        metrics     = {"pred.peak": "categorical_accuracy"   , "pred.rtInds": None, "pred": [MSERtInds]}
+        losses      = {"pred.peak": "CategoricalCrossentropy", "pred.rtInds": None, "pred": EICIOULoss} # MSERtInds EICIOULoss
+        lossWeights = {"pred.peak": 1                        , "pred.rtInds": None, "pred": 1/200         }
+        metrics     = {"pred.peak": ["categorical_accuracy", tfa.metrics.MatthewsCorrelationCoefficient(num_classes=2)]   , "pred.rtInds": "MSE", "pred": [EICIOU, EICIOUPeaks]}
+        
+        #losses      = {"pred.peak": "CategoricalCrossentropy", "pred.rtInds": "MSE", "pred": None}
+        #lossWeights = {"pred.peak": 1                        , "pred.rtInds": 1/200, "pred": None     }
+        #metrics     = {"pred.peak": ["categorical_accuracy", tfa.metrics.MatthewsCorrelationCoefficient(num_classes=2)]   , "pred.rtInds": None,  "pred": EICIOULoss}
         
         self.model.compile(optimizer = tf.keras.optimizers.Adam(learning_rate = Config.LEARNINGRATESTART),
                            loss = losses, loss_weights = lossWeights, metrics = metrics)
@@ -703,48 +686,16 @@ def trainPeakBotModel(trainInstancesPath, logBaseDir, modelName = None, valInsta
     pb = PeakBot(modelName)
     pb.buildTFModel(mode="training", verbose = verbose)
 
-    if True:
-        ## train the model
-        history = pb.train(
-            datTrain = datGenTrain,
-            datVal   = datGenVal,
+    ## train the model
+    history = pb.train(
+        datTrain = datGenTrain,
+        datVal   = datGenVal,
 
-            logDir = logDir,
-            callbacks = [logger, lrScheduler, valDS],
+        logDir = logDir,
+        callbacks = [logger, lrScheduler, valDS],
 
-            verbose = verbose * 2
-        )
-    else:
-        optimizer = tf.keras.optimizers.Adam(learning_rate = Config.LEARNINGRATESTART)
-        for epoch in range(Config.EPOCHS):
-            print("\nStart of epoch %d" % (epoch,))
-
-            # Iterate over the batches of the dataset.
-            for step, (x_batch_train, y_batch_train) in enumerate(datGenTrain):
-
-                # Open a GradientTape to record the operations run
-                # during the forward pass, which enables auto-differentiation.
-                with tf.GradientTape(persistent=True) as tape:
-
-                    # Create tensor that you will watch
-                    x_tensor = tf.convert_to_tensor(x_batch_train["channel.int"])
-                    tape.watch(x_tensor)
-                    # Feed forward
-                    output = pb.model(x_tensor, training=True)
-
-                    # Gradient and the corresponding loss function
-                    o_x = tape.gradient(output, x_tensor)
-                    loss_value = EICIOULoss(y_batch_train["pred"], o_x)
-
-
-                # Use the gradient tape to automatically retrieve
-                # the gradients of the trainable variables with respect to the loss.
-                print(loss_value)
-                grads = tape.gradient(loss_value, pb.model.trainable_weights)
-
-                # Run one step of gradient descent by updating
-                # the value of the variables to minimize the loss.
-                optimizer.apply_gradients(zip(grads, pb.model.trainable_weights))
+        verbose = verbose * 2
+    )
 
 
     ## save metrices of the training process in a user-convenient format (pandas table)
@@ -753,7 +704,7 @@ def trainPeakBotModel(trainInstancesPath, logBaseDir, modelName = None, valInsta
         hist = valDS.history[-1]
         for valInstance in addValidationInstances:
             se = valInstance["name"]
-            for metric in ["pred.peak_categorical_accuracy", "pred_MSERtInds", "pred.peak_loss"]:
+            for metric in ["loss", "pred.peak_loss", "pred_loss", "pred.peak_categorical_accuracy", "pred.peak_MatthewsCorrelationCoefficient", "pred.rtInds_MSE", "pred_EICIOU", "pred_EICIOUPeaks"]:
                 val = hist[se + "_" + metric]
                 newRow = pd.Series({"model": modelName, "set": se, "metric": metric, "value": val})
                 metricesAddValDS = metricesAddValDS.append(newRow, ignore_index=True)
@@ -811,6 +762,20 @@ def runPeakBot(instances, modelPath = None, model = None, verbose = True):
 
 
 
+@timeit
+def integrateArea(eic, rts, start, end, method = "linear"):
+    startInd = np.argmin([abs(r-start) for r in rts])
+    endInd = np.argmin([abs(r-end) for r in rts])
+
+    area = 0
+    if method == "linear":
+        for i in range(startInd, endInd+1):
+            area = area + eic[i] - (rts[i]-rts[startInd])/(rts[endInd]-rts[startInd]) * (max(eic[startInd], eic[endInd]) - min(eic[startInd], eic[endInd])) + min(eic[startInd], eic[endInd])
+    
+    return area
+
+
+
 
 @timeit
 def evaluatePeakBot(instancesWithGT, modelPath = None, model = None, verbose = True):
@@ -827,7 +792,7 @@ def evaluatePeakBot(instancesWithGT, modelPath = None, model = None, verbose = T
     assert all(np.amax(instancesWithGT["channel.int"], (1)) <= 1), "channel.int is not scaled to a maximum of 1 '%s'"%(str(np.amax(instancesWithGT["channel.int"], (1))))
     
     x = {"channel.int": instancesWithGT["channel.int"]}
-    y = {"pred"  : np.hstack((instancesWithGT["inte.peak"], instancesWithGT["inte.rtInds"], instancesWithGT["channel.int"]))}
+    y = {"pred"  : np.hstack((instancesWithGT["inte.peak"], instancesWithGT["inte.rtInds"], instancesWithGT["channel.int"])), "pred.peak": instancesWithGT["inte.peak"], "pred.rtInds": instancesWithGT["inte.rtInds"]}
     history = pb.model.evaluate(x, y, return_dict = True, verbose = verbose)
 
     return history

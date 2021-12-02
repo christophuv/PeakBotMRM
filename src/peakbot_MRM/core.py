@@ -1,10 +1,15 @@
 
 
+
+import peakbot_MRM
+
 from collections import OrderedDict
 import csv
 import time
 import datetime
-import os
+
+import numpy as np
+import random
 
 ## General functions
 #Function statistics and runtime
@@ -137,10 +142,11 @@ class TabLog(metaclass = Singleton):
 
     def exportToFile(self, toFile, delimiter="\t"):
         with open(toFile, "w") as fOut:
-            tW = csv.writer(fOut, delimiter=delimiter)
-            tW.writerow(["Instance"]+self.keyOrder)
+            fOut.write("\t".join(str(s) for s in ["Instance"]+self.keyOrder))
+            fOut.write("\n")
             for ins in self.instanceOrder:
-                tW.writerow([ins]+[self.data[ins][key] if key in self.data[ins].keys() else "" for key in self.keyOrder])
+                fOut.write("\t".join(str(s) for s in [ins]+[self.data[ins][key] if key in self.data[ins].keys() else "" for key in self.keyOrder]))
+                fOut.write("\n")
 
 
 
@@ -297,3 +303,35 @@ def parseTSVMultiLineHeader(fi, headerRowCount=1, delimiter = "\t", commentChar 
     headers = temp
 
     return headers, rows
+
+
+
+
+
+
+def extractStandardizedEIC(eic, rts, refRT):
+    ## Find best rt-reference match and extract EIC as standardized EIC around that rt
+    eicrts = np.array([abs(t - refRT) for t in rts])
+    bestRTInd = np.argmin(eicrts)
+    rtsS = np.zeros(peakbot_MRM.Config.RTSLICES, dtype=float)
+    eicS = np.zeros(peakbot_MRM.Config.RTSLICES, dtype=float)
+    for i in range(eicS.shape[0]):
+        cPos = bestRTInd - int(peakbot_MRM.Config.RTSLICES/2.) + i
+        if 0 <= cPos < len(rts):
+            rtsS[i] = rts[cPos]
+            eicS[i] = eic[cPos]
+    if np.sum(eicS) > 0:
+        eicS = eicS / np.max(eicS)
+    return rtsS, eicS
+
+def getInteRTIndsOnStandardizedEIC(rtsS, eicS, refRT, peakType, rtStart, rtEnd):
+    bestRTInd = np.argmin(np.array([abs(t - refRT) for t in rtsS]))        
+    bestRTStartInd = -1
+    bestRTEndInd = -1
+    if peakType:
+        bestRTStartInd = np.argmin(np.array([abs(t - rtStart) for t in rtsS]))
+        bestRTEndInd   = np.argmin(np.array([abs(t - rtEnd) for t in rtsS]))
+    else:
+        bestRTStartInd = random.randint(0, int((peakbot_MRM.Config.RTSLICES-1)/2))
+        bestRTEndInd = random.randint(int((peakbot_MRM.Config.RTSLICES-1)/2), peakbot_MRM.Config.RTSLICES-1)
+    return bestRTInd, peakType, bestRTStartInd, bestRTEndInd, rtStart, rtEnd

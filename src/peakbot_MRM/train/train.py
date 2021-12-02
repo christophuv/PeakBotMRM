@@ -1,14 +1,12 @@
 
 from peakbot_MRM.core import tic, toc, tocP, tocAddStat, addFunctionRuntime, timeit, printRunTimesSummary
 import peakbot_MRM
-from peakbot_MRM.core import readTSVFile, parseTSVMultiLineHeader
-from peakbot_MRM.validate import extractStandardizedEIC, getInteRTIndsOnStandardizedEIC
+from peakbot_MRM.core import readTSVFile, parseTSVMultiLineHeader, extractStandardizedEIC, getInteRTIndsOnStandardizedEIC
 
 import os
 import pathlib
 import tempfile
 import matplotlib.pyplot as plt
-import matplotlib as mpl
 import plotnine as p9
 import pandas as pd
 import numpy as np
@@ -20,7 +18,6 @@ import math
 import shutil
 import pathlib
 
-import pymzml
 
 
 
@@ -107,7 +104,7 @@ def shuffleResults(exportPath, steps=1E5, samplesToExchange=50,
 
                     elif isinstance(a[k], list):
                         a[k][beginA:(beginA + cExchange)],       b[k][beginB:(beginB + cExchange)]       = b[k][beginB:(beginB + cExchange)],       a[k][beginA:(beginA + cExchange)]
-                    
+                        
                     else:
                         assert False, "Unknown key in shuffling, aborting"
 
@@ -181,7 +178,7 @@ def splitDSinto(path, newDS1Path, newDS2Path = None, ratioDS1 = 0.3, instancePre
 def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFile, expDir = None, logDir = None, historyObject = None,
                          MRMHeader = "- SRM SIC Q1=(\\d+[.]\\d+) Q3=(\\d+[.]\\d+) start=(\\d+[.]\\d+) end=(\\d+[.]\\d+)",
                          allowedMZOffset = 0.05, drawRawData = False,
-                         addRandomNoise = True, maxRandFactor = 0.1, shiftRTs = True, maxShift = 0.15, useEachInstanceNTimes = 5, 
+                         addRandomNoise = True, maxRandFactor = 0.1, maxNoiseLevelAdd=0.1, shiftRTs = True, maxShift = 0.15, useEachInstanceNTimes = 5, 
                          excludeSubstances = None, includeSubstances = None):
     if expDir is None:
         expDir = os.path.join(".", expName)
@@ -360,7 +357,7 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
     curI = 0
     ## iterate all samples and substances
     if addRandomNoise:
-        print("  | .. Random noise will be added. The range of the randomly generated factors is %.3f - %.3f"%(1 - maxRandFactor, 1 + maxRandFactor))
+        print("  | .. Random noise will be added. The range of the randomly generated factors is %.3f - %.3f and the maximum randomly-generated noise added on top of the EICs is %.3f"%(1/(1 + maxRandFactor), 1 + maxRandFactor, maxNoiseLevelAdd))
     if shiftRTs:
         print("  | .. Random RT shifts will be added. The range is -%.3f - %.3f minutes"%(maxShift, maxShift))
     if useEachInstanceNTimes > 1:
@@ -374,6 +371,7 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
                     rts = [t[0] for t in inte[9]]
                     eic = [t[1] for t in inte[9]]
                     refRT = substances[substance]["RT"]
+                    ## add uniform Rt shift to EICs
                     artificialRTShift = np.random.rand(1) * 2 * maxShift - maxShift
                     
                     ## standardize EIC
@@ -388,7 +386,16 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
                     
                     ## add random noise
                     if addRandomNoise:
-                        eicS = eicS * (1 + np.random.rand(eicS.shape[0]) * 2 * maxRandFactor - maxRandFactor)
+                        ## randomize signal intensitiers
+                        if np.random.rand(1)[0] > 0.5:
+                            eicS = eicS * (1 + np.random.rand(eicS.shape[0]) * maxRandFactor)
+                        else:
+                            eicS = eicS / (1 + np.random.rand(eicS.shape[0]) * maxRandFactor)
+                        
+                        ## add noise on top of EIC
+                        eicS = eicS + np.random.rand(eicS.shape[0]) * maxNoiseLevelAdd
+                        
+                        ## re-scale EIC
                         eicS = eicS / np.max(eicS)
                     
                     ## test if eic has detected signals
