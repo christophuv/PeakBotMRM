@@ -264,12 +264,14 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
                     temp = integrations[substance][sample]
                     ## Integration
                     if temp["area"] > 0:
-                        fout.write("\t%.3f\t%.3f\t%d\t%d"%(temp["rtstart"], temp["rtend"], temp["area"], temp["area."]))
+                        fout.write("\t%.3f\t%.3f\t%d\t%.3f"%(temp["rtstart"], temp["rtend"], temp["area"], temp["area"]))
                     else:
                         fout.write("\t\t\t\t")
                     ## Prediction
                     if temp["pred.foundPeak"]:
-                        fout.write("\t%.3f\t%.3f\t%d"%(temp["pred.rtstart"], temp["pred.rtend"], temp["pred.area"]))
+                        fout.write("\t%.3f\t%.3f\t%.3f"%(temp["pred.rtstart"] if not np.isnan(temp["pred.rtstart"]) else -1, 
+                                                         temp["pred.rtend"] if not np.isnan(temp["pred.rtend"]) else -1, 
+                                                         temp["pred.area"] if not np.isnan(temp["pred.area"]) else -1))
                     else:
                         fout.write("\t\t\t")
                 else:

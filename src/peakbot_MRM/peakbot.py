@@ -215,7 +215,7 @@ def modelAdapterPredictGenerator(datGen, newBatchSize = None, verbose=False):
 ### PeakBot additional methods
 ##
 @tf.autograph.experimental.do_not_convert
-def EICIOU(dummyX, dummyY):
+def _EICIOU(dummyX, dummyY):
     ## separate user integration and eic
     peaks   = dummyX[:, 0:Config.NUMCLASSES]
     rtInds  = dummyX[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
@@ -263,6 +263,22 @@ def EICIOU(dummyX, dummyY):
 
     ## Calculate IOU
     iou = tf.divide(overlapArea+0.0001, tf.subtract(tf.add(inteArea, pbCalcArea), overlapArea)+0.0001)
+
+    return iou
+
+@tf.autograph.experimental.do_not_convert
+def EICIOU(dummyX, dummyY):
+    ## separate user integration and eic
+    peaks   = dummyX[:, 0:Config.NUMCLASSES]
+    rtInds  = dummyX[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
+    eic     = dummyX[:, (Config.NUMCLASSES + 2):]
+    
+    ## separate predicted values
+    ppeaks  = dummyY[:, 0:Config.NUMCLASSES]
+    prtInds = dummyY[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
+
+    ## Calculate IOU
+    iou = _EICIOU(dummyX, dummyY)
     ## set IOU to 0 if gt and prediction of peak do not match
     iou = tf.where(tf.math.equal(tf.argmax(peaks, axis=1), tf.argmax(ppeaks, axis=1)), iou, tf.zeros_like(iou))
     ## set IOU to 1 if gt and prediction of peak match and if no peak was detected
@@ -270,6 +286,7 @@ def EICIOU(dummyX, dummyY):
     
     return iou
 
+@tf.autograph.experimental.do_not_convert
 def EICIOUPeaks(dummyX, dummyY):
     ## separate user integration and eic
     peaks   = dummyX[:, 0:Config.NUMCLASSES]
@@ -280,15 +297,17 @@ def EICIOUPeaks(dummyX, dummyY):
     ppeaks  = dummyY[:, 0:Config.NUMCLASSES]
     prtInds = dummyY[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
 
-    ## get IOU
-    iou = EICIOU(dummyX, dummyY)
-
-    ## Only get IOU for true peaks
-    iou = tf.where(tf.math.logical_and(tf.math.equal(tf.argmax(peaks, axis=1), tf.argmax(ppeaks, axis=1)), tf.argmax(peaks, axis=1) == 0), iou, tf.zeros_like(iou))
-    
+    ## Calculate IOU
+    iou = _EICIOU(dummyX, dummyY)
     ## Calculate IOU only for peaks and return a mean value
-    return iou   ## TODO only include iou of peaks in this calculation
+    iou = tf.where(tf.math.logical_and(tf.math.equal(tf.argmax(peaks, axis=1), tf.argmax(ppeaks, axis=1)), tf.argmax(peaks, axis=1) == 0), iou, tf.zeros_like(iou))
+    ## Calculate mean IOU
+    iou = tf.reduce_sum(iou) / tf.cast(tf.math.count_nonzero(iou), dtype=iou.dtype)
+    iou = tf.where(tf.math.is_nan(iou), tf.zeros_like(iou), iou)
 
+    return iou
+
+@tf.autograph.experimental.do_not_convert
 def EICIOULoss(dummyX, dummyY):
     ## separate user integration and eic
     peaks   = dummyX[:, 0:Config.NUMCLASSES]
@@ -300,13 +319,13 @@ def EICIOULoss(dummyX, dummyY):
     prtInds = dummyY[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
 
     ## get IOUloss 
-    iou = 1 - EICIOU(dummyX, dummyY)
-
+    iou = 1 - _EICIOU(dummyX, dummyY)
     ## Only get IOUloss for true peaks
     iou = tf.where(tf.math.logical_and(tf.math.equal(tf.argmax(peaks, axis=1), tf.argmax(ppeaks, axis=1)), tf.argmax(peaks, axis=1) == 0), iou, tf.zeros_like(iou))
+    ## Calculate MSE
+    mse = tf.reduce_mean(tf.square(rtInds-prtInds), axis=1)    
 
     ## Combine iou loss with MSE
-    mse = tf.reduce_mean(tf.square(rtInds-prtInds), axis=1)    
     return mse * tf.sqrt(tf.abs(iou))
 
 
@@ -770,7 +789,7 @@ def integrateArea(eic, rts, start, end, method = "linear"):
     area = 0
     if method == "linear":
         for i in range(startInd, endInd+1):
-            area = area + eic[i] - (rts[i]-rts[startInd])/(rts[endInd]-rts[startInd]) * (max(eic[startInd], eic[endInd]) - min(eic[startInd], eic[endInd])) + min(eic[startInd], eic[endInd])
+            area = area + eic[i] - ((rts[i]-rts[startInd])/(rts[endInd]-rts[startInd]) * (max(eic[startInd], eic[endInd]) - min(eic[startInd], eic[endInd])) + min(eic[startInd], eic[endInd]))
     
     return area
 
