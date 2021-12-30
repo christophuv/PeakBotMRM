@@ -22,17 +22,15 @@ import pathlib
 
 
 def shuffleResultsSampleNames(exportPath, instancePrefix=None,
-                              tempFileName="bqu40mcb25473zfhbgwh22534", verbose=False):
+                              tempFileName="bqu40mcb25473zfhbgwh22534", verbose=True):
 
     if instancePrefix is None:
         instancePrefix = peakbot_MRM.Config.INSTANCEPREFIX
 
     tic("shuffling")
-    if verbose:
-        print("Shuffling the test instances (batch name shuffling)")
     files = [os.path.join(exportPath, f) for f in os.listdir(exportPath) if os.path.isfile(os.path.join(exportPath, f))]
     if verbose:
-        print("  | .. there are %d files" % (len(files)))
+        print("  | .. shuffling the test instances (batch name shuffling), there are %d files" % (len(files)))
 
     random.shuffle(files)
     for i in range(len(files)):
@@ -40,29 +38,23 @@ def shuffleResultsSampleNames(exportPath, instancePrefix=None,
 
 
     files = [os.path.join(exportPath, f) for f in os.listdir(exportPath) if os.path.isfile(os.path.join(exportPath, f))]
-    for i in range(len(files)):
+    for i in tqdm.tqdm(range(len(files)), desc="  | .. shuffling file names", disable = not verbose):
         os.rename(files[i], files[i].replace(tempFileName, instancePrefix))
-
-    if verbose:
-        print("  | .. took %.1f seconds" % toc("shuffling"))
-        print("")
 
 
 def shuffleResults(exportPath, steps=1E5, samplesToExchange=50,
-                   instancePrefix=None, verbose=False):
+                   instancePrefix=None, verbose=True):
 
     if instancePrefix is None:
         instancePrefix = peakbot_MRM.Config.INSTANCEPREFIX
 
     tic("shuffling")
-    if verbose:
-        print("Shuffling the test instances (inter-batch shuffling)")
     files = [os.path.join(exportPath, f) for f in os.listdir(exportPath) if os.path.isfile(os.path.join(exportPath, f))]
     if verbose:
-        print("  | .. there are %d files" % (len(files)))
+        print("  | .. shuffling the test instances (inter-batch shuffling), there are %d files" % (len(files)))
             
 
-    with tqdm.tqdm(total=steps, desc="  | .. shuffling", disable=not verbose) as t:
+    with tqdm.tqdm(total=steps, desc="  | .. shuffling instances", disable=not verbose) as t:
         while steps > 0:
             a = None
             b = None
@@ -117,10 +109,6 @@ def shuffleResults(exportPath, steps=1E5, samplesToExchange=50,
 
             steps = steps - 1
             t.update()
-    
-    if verbose:
-        print("  | .. took %.1f seconds" % toc("shuffling"))
-        print("")
 
 
 def splitDSinto(path, newDS1Path, newDS2Path = None, ratioDS1 = 0.3, instancePrefix = None, tempFileName = "bqu40mcb25473zfhbgwh22534", copy=False, verbose = False):
@@ -232,12 +220,11 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
     histAll = None
 
 
-    substances               = peakbot_MRM.importTargets(targetFile, excludeSubstances = excludeSubstances, includeSubstances = includeSubstances)
+    substances               = peakbot_MRM.loadTargets(targetFile, excludeSubstances = excludeSubstances, includeSubstances = includeSubstances)
     substances, integrations = peakbot_MRM.loadIntegrations(substances, curatedPeaks)
-
-    substances, integrations = peakbot_MRM.loadChromatogramsTo(substances, integrations, samplesPath, expDir,
-                                                               allowedMZOffset = allowedMZOffset, 
-                                                               MRMHeader = MRMHeader)
+    substances, integrations = peakbot_MRM.loadChromatograms(substances, integrations, samplesPath, expDir,
+                                                             allowedMZOffset = allowedMZOffset, 
+                                                             MRMHeader = MRMHeader)
 
     print("Balancing training dataset")
     tic()
@@ -286,7 +273,7 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
         tic("drawEICs")
         offset = 0.2
         print("Exporting illustrations of data")
-        for substance in tqdm.tqdm(integrations.keys()):
+        for substance in tqdm.tqdm(integrations.keys(), desc="  | .. exporting"):
             fig, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(1, 5, sharey=False)
             fig.set_size_inches(15, 8)
 
@@ -362,7 +349,7 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
         print("  | .. Random RT shifts will be added. The range is -%.3f - %.3f minutes"%(maxShift, maxShift))
     if useEachInstanceNTimes > 1:
         print("  | .. Each instance will be used %d times augmented with different randomness factors"%(useEachInstanceNTimes))
-    for substance in tqdm.tqdm(integrations.keys()):
+    for substance in tqdm.tqdm(integrations.keys(), desc="  | .. augmenting"):
         for sample in integrations[substance].keys():
             for repi in range(useEachInstanceNTimes):
                 if len(integrations[substance][sample]["chrom"]) == 1:
@@ -457,7 +444,6 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
     print("  | .. Exported %d batches each with %d instances."%(cur, peakbot_MRM.Config.BATCHSIZE))
 
     ## randomize instances
-    print(".. shuffling instances\r", end="")
     peakbot_MRM.train.shuffleResultsSampleNames(instanceDir)
     peakbot_MRM.train.shuffleResults(instanceDir, steps=1E4, samplesToExchange=12)
     print("  | .. Instances shuffled")
@@ -466,7 +452,7 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
 
 
     ## train new model
-    with tempfile.TemporaryDirectory() as tempTrainDir, tempfile.TemporaryDirectory() as tempValDir:
+    with tempfile.TemporaryDirectory(prefix="PBMRM_training__") as tempTrainDir, tempfile.TemporaryDirectory(prefix="PBMRM_validation__") as tempValDir:
         peakbot_MRM.train.splitDSinto(instanceDir, 
                                         newDS1Path = tempTrainDir, newDS2Path = tempValDir, 
                                         copy = True, ratioDS1 = 0.7, verbose = False)
@@ -476,14 +462,14 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
         print("Split dataset")  
         tic()
         print("  | .. Randomly split dataset '%s' into a training and validation dataset with 0.7 and 0.3 parts of the instances "%expDir)
-        print("  | .. There are %d training and %d validation batches available"%(nTrainBatches, nValBatches))
+        print("  | .. There are %d training (%s) and %d validation (%s) batches available"%(nTrainBatches, tempTrainDir, nValBatches, tempValDir))
         print("  | .. With the current configuration (%d batchsize, %d steps per epoch) this will allow for %d epochs of training"%(peakbot_MRM.Config.BATCHSIZE, peakbot_MRM.Config.STEPSPEREPOCH, math.floor(nTrainBatches/peakbot_MRM.Config.STEPSPEREPOCH)))
         print("  | .. took %.1f seconds"%(toc()))
         print("\n")
         
         addValDS = []
         addValDS.append({"folder": tempTrainDir, "name": "train", "numBatches": nTrainBatches-1})            
-        addValDS.append({"folder": tempValDir, "name": "val", "numBatches": nValBatches-1})
+        addValDS.append({"folder": tempValDir  , "name": "val"  , "numBatches": nValBatches  -1})
 
         pb, hist = peakbot_MRM.trainPeakBotModel(trainInstancesPath = tempTrainDir,
                                                  addValidationInstances = addValDS,

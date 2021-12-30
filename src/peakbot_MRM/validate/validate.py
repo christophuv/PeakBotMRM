@@ -4,6 +4,7 @@
 
 
 ## General imports
+from re import I
 import tqdm
 import os
 import pickle
@@ -69,11 +70,11 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
         
     metricsTable = {}
 
-    substances               = peakbot_MRM.importTargets(targetFile, excludeSubstances = excludeSubstances, includeSubstances = includeSubstances)
+    substances               = peakbot_MRM.loadTargets(targetFile, excludeSubstances = excludeSubstances, includeSubstances = includeSubstances)
     substances, integrations = peakbot_MRM.loadIntegrations(substances, curatedPeaks)
-    substances, integrations = peakbot_MRM.loadChromatogramsTo(substances, integrations, samplesPath, expDir,
-                                                               allowedMZOffset = allowedMZOffset,
-                                                               MRMHeader = MRMHeader)
+    substances, integrations = peakbot_MRM.loadChromatograms(substances, integrations, samplesPath, expDir,
+                                                             allowedMZOffset = allowedMZOffset,
+                                                             MRMHeader = MRMHeader)
 
 
     print("Evaluating model (using predtrained model from '%s')"%(modelFile))
@@ -85,11 +86,11 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
     pbModelEval = peakbot_MRM.loadModel(modelFile, mode="training", verbose = False)
     allSubstances = set()
     allSamples = set()
-    for substance in tqdm.tqdm(integrations.keys()):
+    for substance in tqdm.tqdm(integrations.keys(), desc="  | .. comparing"):
         allSubstances.add(substance)
         if plotSubstance == "all" or substance in plotSubstance:
-            fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4, sharey = False, sharex = True)
-            fig.set_size_inches(15, 8)
+            fig, ((ax1, ax2, ax3, ax4), (ax5, ax6, ax7, ax8)) = plt.subplots(2,4, sharey = "row", sharex = True)
+            fig.set_size_inches(15, 16)
 
         temp = {"channel.int"  : np.zeros((len(integrations[substance]), peakbot_MRM.Config.RTSLICES), dtype=float),
                 "channel.rts"  : np.zeros((len(integrations[substance]), peakbot_MRM.Config.RTSLICES), dtype=float),
@@ -175,12 +176,15 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
                     ## plot results
                     ## find correct axis to plot to 
                     ax = ax1
+                    axR = ax5
                     if peakType:
                         ax = ax1 if ppeakType else ax2
+                        axR = ax5 if ppeakType else ax6
                     else:
                         ax = ax3 if ppeakType else ax4
+                        axR = ax7 if ppeakType else ax8
                     
-                    ## plot raw data
+                    ## plot raw, scaled data according to classification prediction and integration result
                     b = min(eic)
                     m = max([i-b for i in eic])
                     ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts], [(e-b)/m+offsetEIC*samplei for e in eic], "lightgrey", linewidth=.25, zorder=(len(integrations[substance].keys())-samplei+1)*2)
@@ -192,9 +196,21 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
                         ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if prtStart <= t <= prtEnd], [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if prtStart <= rts[i] <= prtEnd], "olivedrab", linewidth=1, zorder=(len(integrations[substance].keys())-samplei+1)*2)
                         ax.fill_between([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if prtStart <= t <= prtEnd], [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if prtStart <= rts[i] <= prtEnd], offsetEIC*samplei, facecolor='yellowgreen', lw=0, zorder=(len(integrations[substance].keys())-samplei+1)*2-1)
 
-                    ## add integratin results
+                    ## add integration results
                     if peakType:            
-                        ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if bestRTStart <= t <= bestRTEnd], [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if bestRTStart <= rts[i] <= bestRTEnd], "k", linewidth=.5, zorder=(len(integrations[substance].keys())-samplei+1)*2)
+                        ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if bestRTStart <= t <= bestRTEnd], [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if bestRTStart <= rts[i] <= bestRTEnd], "k", linewidth=.33, zorder=(len(integrations[substance].keys())-samplei+1)*2)
+                        
+                        
+                    ## plot raw data
+                    axR.plot(rts, eic, "lightgrey", linewidth=.25, zorder=(len(integrations[substance].keys())-samplei+1)*2)
+                    
+                    ## add detected peak
+                    if ppeakType:
+                        axR.plot([t for t in rts if prtStart <= t <= prtEnd], [e for i, e in enumerate(eic) if prtStart <= rts[i] <= prtEnd], "olivedrab", linewidth=1, zorder=(len(integrations[substance].keys())-samplei+1)*2)
+
+                    ## add integration results
+                    if peakType:            
+                        axR.plot([t for t in rts if bestRTStart <= t <= bestRTEnd], [e for i, e in enumerate(eic) if bestRTStart <= rts[i] <= bestRTEnd], "k", linewidth=.33, zorder=(len(integrations[substance].keys())-samplei+1)*2)
                     
             
         ## log metrics
@@ -210,11 +226,11 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
         
         if substance not in metricsTable.keys():
             metricsTable[substance] = {}
-        metricsTable[substance] = {"PeakCA": metrics["pred.peak_categorical_accuracy"], 
-                                   "PeakMCC": metrics["pred.peak_MatthewsCorrelationCoefficient"],
-                                   "RTMSE": metrics["pred.rtInds_MSE"], 
-                                   "PeakAreaIOU": metrics["pred_EICIOUPeaks"],
-                                   "AreaIOU": metrics["pred_EICIOU"]}
+        metricsTable[substance] = {"CCA"        : metrics["pred.peak_categorical_accuracy"], 
+                                   "MCC"        : metrics["pred.peak_MatthewsCorrelationCoefficient"],
+                                   "RtMSE"      : metrics["pred.rtInds_MSE"], 
+                                   "EICIOUPeaks": metrics["pred_EICIOUPeaks"],
+                                   "EICIOU"     : metrics["pred_EICIOU"]}
         
         if plotSubstance == "all" or substance in plotSubstance:
             ## add retention time of peak
@@ -222,12 +238,20 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
             ax2.axvline(x = substances[substance]["RT"], zorder = 1E6, alpha = 0.1)
             ax3.axvline(x = substances[substance]["RT"], zorder = 1E6, alpha = 0.1)
             ax4.axvline(x = substances[substance]["RT"], zorder = 1E6, alpha = 0.1)
+            ax5.axvline(x = substances[substance]["RT"], zorder = 1E6, alpha = 0.1)
+            ax6.axvline(x = substances[substance]["RT"], zorder = 1E6, alpha = 0.1)
+            ax7.axvline(x = substances[substance]["RT"], zorder = 1E6, alpha = 0.1)
+            ax8.axvline(x = substances[substance]["RT"], zorder = 1E6, alpha = 0.1)
 
             ## add title and scale accordingly
-            ax1.set(xlabel = 'time (min)', ylabel = 'abundance')
-            ax2.set(xlabel = 'time (min)', ylabel = 'abundance')
-            ax3.set(xlabel = 'time (min)', ylabel = 'abundance')
-            ax4.set(xlabel = 'time (min)', ylabel = 'abundance')
+            ax1.set(xlabel = 'time (min)', ylabel = 'rel. abundance')
+            ax2.set(xlabel = 'time (min)', ylabel = 'rel. abundance')
+            ax3.set(xlabel = 'time (min)', ylabel = 'rel. abundance')
+            ax4.set(xlabel = 'time (min)', ylabel = 'rel. abundance')
+            ax5.set(xlabel = 'time (min)', ylabel = 'abundance')
+            ax6.set(xlabel = 'time (min)', ylabel = 'abundance')
+            ax7.set(xlabel = 'time (min)', ylabel = 'abundance')
+            ax8.set(xlabel = 'time (min)', ylabel = 'abundance')
             ax1.set_title('Integration peak\nPrediciton peak', loc="left")
             ax2.set_title('Integration peak\nPrediction no peak', loc="left")
             ax3.set_title('Integration no peak\nPrediction peak', loc="left")
@@ -240,7 +264,7 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
 
             plt.tight_layout()
             fig.savefig(os.path.join(expDir, "SubstanceFigures","%s.png"%substance), dpi = 600)
-            print("  | .. plotted substance '%s'"%(substance))
+            print("   | .. plotted substance '%s'"%(substance))
             plt.close(fig)
     print("\n")
 
@@ -283,13 +307,12 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
     with open (os.path.join(expDir, "metricsTable.pickle"), "rb") as fin:
         metricsTable = pickle.load(fin)
 
-    for metric in ["PeakCA", "PeakMCC", "PeakAreaIOU", "RTMSE", "AreaIOU"]:
-        rows = [0]
-        cols = [i for i in metricsTable.keys()]
-        heatmapData = np.zeros((len(rows), len(cols)))
-        for i, r in enumerate(rows):
-            for j, c in enumerate(cols):
-                heatmapData[i,j] = metricsTable[c][metric]
+    rows = [i for i in metricsTable[list(metricsTable.keys())[0]].keys()]
+    cols = [j for j in metricsTable.keys()]
+    heatmapData = np.zeros((len(rows), len(cols)))
+    for i, metric in enumerate(rows):
+        for j, c in enumerate(cols):
+            heatmapData[i,j] = metricsTable[c][metric]
 
         fig, ax = plt.subplots()
         fig.set_size_inches(32, 8)
@@ -299,23 +322,73 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
             levels = [0,0.8, 0.9, 0.95, 0.99,1]
             cmap= mpl.colors.ListedColormap(colors)
             norm = mpl.colors.BoundaryNorm(levels, cmap.N)
-            im = ax.imshow(heatmapData, cmap=cmap, norm=norm)
+            im = ax.imshow(heatmapData[[i],:], cmap=cmap, norm=norm)
         else:
-            im = ax.imshow(heatmapData)
+            im = ax.imshow(heatmapData[[i],:])
             
         plt.colorbar(im)
         ax.set_xticks(np.arange(len(cols)))
-        ax.set_yticks(np.arange(len(rows)))
+        ax.set_yticks(np.arange(len([rows[i]])))
         ax.set_xticklabels(cols)
-        ax.set_yticklabels(rows)
+        ax.set_yticklabels([rows[i]])
         # Rotate the tick labels and set their alignment.
         plt.setp(ax.get_xticklabels(), rotation=45, ha="right",rotation_mode="anchor")
-        #for i in range(len(rows)):
-        #    for j in range(len(cols)):
-        #        text = ax.text(j, i, "%.2f"%heatmapData[i, j], ha="center", va="center", color="w")
         plt.tight_layout()
         fig.savefig(os.path.join(expDir,"Metric_%s.png"%(metric)), dpi = 300)
         plt.close()
+        
+    heatmapData = heatmapData[[i for i, k in enumerate(rows) if k != "RtMSE"],:]
+    rows = [r for r in rows if r != "RtMSE"]
+    
+    fig, ax = plt.subplots()
+    fig.set_size_inches(32, 8)
+    
+    if metric=="PeakCA":
+        colors = ['firebrick', 'orange', 'dodgerblue', 'yellowgreen', 'olivedrab']
+        levels = [0,0.8, 0.9, 0.95, 0.99,1]
+        cmap= mpl.colors.ListedColormap(colors)
+        norm = mpl.colors.BoundaryNorm(levels, cmap.N)
+        im = ax.imshow(heatmapData, cmap=cmap, norm=norm)
+    else:
+        im = ax.imshow(heatmapData)
+        
+    plt.colorbar(im)
+    ax.set_xticks(np.arange(len(cols)))
+    ax.set_yticks(np.arange(len(rows)))
+    ax.set_xticklabels(cols)
+    ax.set_yticklabels(rows)
+    # Rotate the tick labels and set their alignment.
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right",rotation_mode="anchor")
+    plt.tight_layout()
+    fig.savefig(os.path.join(expDir,"Metrics.png"), dpi = 300)
+    plt.close()
+        
+        
+    heatmapData = heatmapData[[i for i, r in enumerate(rows) if r in ["CCA", "EICIOUPeaks"]],:]
+    rows = [r for r in rows if r in ["CCA", "EICIOUPeaks"]]
+    
+    fig, ax = plt.subplots()
+    fig.set_size_inches(32, 8)
+    
+    if metric=="PeakCA":
+        colors = ['firebrick', 'orange', 'dodgerblue', 'yellowgreen', 'olivedrab']
+        levels = [0,0.8, 0.9, 0.95, 0.99,1]
+        cmap= mpl.colors.ListedColormap(colors)
+        norm = mpl.colors.BoundaryNorm(levels, cmap.N)
+        im = ax.imshow(heatmapData, cmap=cmap, norm=norm)
+    else:
+        im = ax.imshow(heatmapData)
+        
+    plt.colorbar(im)
+    ax.set_xticks(np.arange(len(cols)))
+    ax.set_yticks(np.arange(len(rows)))
+    ax.set_xticklabels(cols)
+    ax.set_yticklabels(rows)
+    # Rotate the tick labels and set their alignment.
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right",rotation_mode="anchor")
+    plt.tight_layout()
+    fig.savefig(os.path.join(expDir,"Metrics_short.png"), dpi = 300)
+    plt.close()
 
 
     TabLog().exportToFile(os.path.join(expDir, "results.tsv"))

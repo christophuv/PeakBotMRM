@@ -1,7 +1,5 @@
 import logging
 
-from numba.core.types.functions import NumberClass
-
 from .core import *
 
 import sys
@@ -18,6 +16,8 @@ import pandas as pd
 import tqdm
 import pymzml
 
+from .AdditionalValidationSets import *
+from .CustomLossesMetrices import *
 
 
 
@@ -109,12 +109,12 @@ except Exception:
 try:
     from numba import cuda as ca
     print("  | .. GPU-device: ", str(ca.get_current_device().name), sep="")
-
     gpus = tf.config.experimental.list_physical_devices()
     for gpu in gpus:
         print("  | .. TensorFlow device: Name '%s', type '%s'"%(gpu.name, gpu.device_type))
 except Exception:
     print("  | .. fetching GPU info failed")
+print("")
     
 
 
@@ -199,179 +199,6 @@ def modelAdapterPredictGenerator(datGen, newBatchSize = None, verbose=False):
     return temp
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-#####################################
-### PeakBot additional methods
-##
-@tf.autograph.experimental.do_not_convert
-def _EICIOU(dummyX, dummyY):
-    ## separate user integration and eic
-    peaks   = dummyX[:, 0:Config.NUMCLASSES]
-    rtInds  = dummyX[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
-    eic     = dummyX[:, (Config.NUMCLASSES + 2):]
-    
-    ## separate predicted values
-    ppeaks  = dummyY[:, 0:Config.NUMCLASSES]
-    prtInds = dummyY[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
-    
-    ## Calculate indices for EICs
-    indices = tf.transpose(tf.reshape(tf.repeat(tf.range(tf.shape(eic)[1], dtype=eic.dtype), repeats=tf.shape(eic)[0]), [tf.shape(eic)[1], tf.shape(eic)[0]]))
-
-    ## Extract area for user integration
-    stripped = tf.where(tf.math.logical_and(tf.math.greater_equal(indices, tf.reshape(tf.repeat(tf.math.floor(rtInds[:,0]), repeats=tf.shape(eic)[1]), tf.shape(eic))), 
-                                            tf.math.less_equal   (indices, tf.reshape(tf.repeat(tf.math.ceil (rtInds[:,1]), repeats=tf.shape(eic)[1]), tf.shape(eic)))), 
-                        eic, tf.zeros_like(eic))
-    maxRow = tf.where(tf.math.equal(stripped, 0), tf.reshape(tf.repeat(tf.reduce_max(stripped, axis=1), repeats=(tf.shape(eic)[1])), [tf.shape(eic)[0], tf.shape(eic)[1]]), stripped)
-    minVal = tf.reduce_min(maxRow, axis=1)
-    stripped = tf.subtract(stripped, tf.reshape(tf.repeat(minVal, repeats=tf.shape(eic)[1]), [tf.shape(eic)[0], tf.shape(eic)[1]]))
-    stripped = tf.where(tf.math.less(stripped, 0), tf.zeros_like(stripped)+0.0001, stripped)
-    inteArea = tf.reduce_sum(stripped, axis=1)
-
-    ## Extract area for PeakBot_MRM integration
-    stripped = tf.where(tf.math.logical_and(tf.math.greater_equal(indices, tf.reshape(tf.repeat(tf.math.floor(prtInds[:,0]), repeats=tf.shape(eic)[1]), tf.shape(eic))), 
-                                            tf.math.less_equal   (indices, tf.reshape(tf.repeat(tf.math.ceil (prtInds[:,1]), repeats=tf.shape(eic)[1]), tf.shape(eic)))), 
-                        eic, tf.zeros_like(eic))
-    maxRow = tf.where(tf.math.equal(stripped, 0), tf.reshape(tf.repeat(tf.reduce_max(stripped, axis=1), repeats=(tf.shape(eic)[1])), [tf.shape(eic)[0], tf.shape(eic)[1]]), stripped)
-    minVal = tf.reduce_min(maxRow, axis=1)
-    stripped = tf.subtract(stripped, tf.reshape(tf.repeat(minVal, repeats=tf.shape(eic)[1]), [tf.shape(eic)[0], tf.shape(eic)[1]]))
-    stripped = tf.where(tf.math.less(stripped, 0), tf.zeros_like(stripped)+0.0001, stripped)
-    pbCalcArea = tf.reduce_sum(stripped, axis=1)
-
-    ## Extract area for overlap of user and PeakBot_MRM integration
-    beginInds = tf.math.floor(tf.math.maximum(rtInds[:,0], prtInds[:,0]))
-    endInds   = tf.math.ceil (tf.math.minimum(rtInds[:,1], prtInds[:,1]))
-    stripped  = tf.where(tf.math.logical_and(tf.math.greater_equal(indices, tf.reshape(tf.repeat(beginInds, repeats=tf.shape(eic)[1]), tf.shape(eic))), 
-                                             tf.math.less_equal   (indices, tf.reshape(tf.repeat(endInds  , repeats=tf.shape(eic)[1]), tf.shape(eic)))), 
-                            eic, tf.zeros_like(eic))
-    maxRow = tf.where(tf.math.equal(stripped, 0), tf.reshape(tf.repeat(tf.reduce_max(stripped, axis=1), repeats=(tf.shape(eic)[1])), [tf.shape(eic)[0], tf.shape(eic)[1]]), stripped)
-    minVal = tf.reduce_min(maxRow, axis=1)
-    stripped = tf.subtract(stripped, tf.reshape(tf.repeat(minVal, repeats=tf.shape(eic)[1]), [tf.shape(eic)[0], tf.shape(eic)[1]]))
-    stripped = tf.where(tf.math.less(stripped, 0), tf.zeros_like(stripped)+0.0001, stripped)
-    overlapArea = tf.reduce_sum(stripped, axis=1)
-    #overlapArea = tf.where(tf.math.equal(tf.argmax(peaks, axis=1), 1), tf.zeros_like(overlapArea), overlapArea)
-
-    ## Calculate IOU
-    iou = tf.divide(overlapArea+0.0001, tf.subtract(tf.add(inteArea, pbCalcArea), overlapArea)+0.0001)
-
-    return iou
-
-@tf.autograph.experimental.do_not_convert
-def EICIOU(dummyX, dummyY):
-    ## separate user integration and eic
-    peaks   = dummyX[:, 0:Config.NUMCLASSES]
-    rtInds  = dummyX[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
-    eic     = dummyX[:, (Config.NUMCLASSES + 2):]
-    
-    ## separate predicted values
-    ppeaks  = dummyY[:, 0:Config.NUMCLASSES]
-    prtInds = dummyY[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
-
-    ## Calculate IOU
-    iou = _EICIOU(dummyX, dummyY)
-    ## set IOU to 0 if gt and prediction of peak do not match
-    iou = tf.where(tf.math.equal(tf.argmax(peaks, axis=1), tf.argmax(ppeaks, axis=1)), iou, tf.zeros_like(iou))
-    ## set IOU to 1 if gt and prediction of peak match and if no peak was detected
-    iou = tf.where(tf.math.logical_and(tf.math.equal(tf.argmax(peaks, axis=1), tf.argmax(ppeaks, axis=1)), tf.argmax(peaks, axis=1) == 1), tf.ones_like(iou), iou)
-    
-    return iou
-
-@tf.autograph.experimental.do_not_convert
-def EICIOUPeaks(dummyX, dummyY):
-    ## separate user integration and eic
-    peaks   = dummyX[:, 0:Config.NUMCLASSES]
-    rtInds  = dummyX[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
-    eic     = dummyX[:, (Config.NUMCLASSES + 2):]
-    
-    ## separate predicted values
-    ppeaks  = dummyY[:, 0:Config.NUMCLASSES]
-    prtInds = dummyY[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
-
-    ## Calculate IOU
-    iou = _EICIOU(dummyX, dummyY)
-    ## Calculate IOU only for peaks and return a mean value
-    iou = tf.where(tf.math.logical_and(tf.math.equal(tf.argmax(peaks, axis=1), tf.argmax(ppeaks, axis=1)), tf.argmax(peaks, axis=1) == 0), iou, tf.zeros_like(iou))
-    ## Calculate mean IOU
-    iou = tf.reduce_sum(iou) / tf.cast(tf.math.count_nonzero(iou), dtype=iou.dtype)
-    iou = tf.where(tf.math.is_nan(iou), tf.zeros_like(iou), iou)
-
-    return iou
-
-@tf.autograph.experimental.do_not_convert
-def EICIOULoss(dummyX, dummyY):
-    ## separate user integration and eic
-    peaks   = dummyX[:, 0:Config.NUMCLASSES]
-    rtInds  = dummyX[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
-    eic     = dummyX[:, (Config.NUMCLASSES + 2):]
-    
-    ## separate predicted values
-    ppeaks  = dummyY[:, 0:Config.NUMCLASSES]
-    prtInds = dummyY[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
-
-    ## get IOUloss 
-    iou = 1 - _EICIOU(dummyX, dummyY)
-    ## Only get IOUloss for true peaks
-    iou = tf.where(tf.math.logical_and(tf.math.equal(tf.argmax(peaks, axis=1), tf.argmax(ppeaks, axis=1)), tf.argmax(peaks, axis=1) == 0), iou, tf.zeros_like(iou))
-    ## Calculate MSE
-    mse = tf.reduce_mean(tf.square(rtInds-prtInds), axis=1)    
-
-    ## Combine iou loss with MSE
-    return mse * tf.sqrt(tf.abs(iou))
-
-
-@tf.autograph.experimental.do_not_convert
-def CCEPeak(dummyX, dummyY):
-    ## separate user integration and eic
-    peaks   = dummyX[:, 0:Config.NUMCLASSES]
-    rtInds  = dummyX[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
-    eic     = dummyX[:, (Config.NUMCLASSES + 2):]
-    
-    ## separate predicted values
-    ppeaks  = dummyY[:, 0:Config.NUMCLASSES]
-    prtInds = dummyY[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
-   
-    cca = tf.keras.losses.CategoricalCrossentropy()(peaks, ppeaks)
-    return cca
-
-@tf.autograph.experimental.do_not_convert
-def CCAPeak(dummyX, dummyY):
-    ## separate user integration and eic
-    peaks   = dummyX[:, 0:Config.NUMCLASSES]
-    rtInds  = dummyX[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
-    eic     = dummyX[:, (Config.NUMCLASSES + 2):]
-    
-    ## separate predicted values
-    ppeaks  = dummyY[:, 0:Config.NUMCLASSES]
-    prtInds = dummyY[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
-   
-    cca = tf.keras.metrics.categorical_accuracy(peaks, ppeaks)
-    return cca
-
-@tf.autograph.experimental.do_not_convert
-def MSERtInds(dummyX, dummyY):
-    ## separate user integration and eic
-    peaks   = dummyX[:, 0:Config.NUMCLASSES]
-    rtInds  = dummyX[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
-    eic     = dummyX[:, (Config.NUMCLASSES + 2):]
-    
-    ## separate predicted values
-    ppeaks  = dummyY[:, 0:Config.NUMCLASSES]
-    prtInds = dummyY[:, Config.NUMCLASSES:(Config.NUMCLASSES + 2)]
-
-    mse = tf.keras.losses.MeanSquaredError()(rtInds, prtInds)
-    return mse
-
-
 def convertGeneratorToPlain(gen, numIters=1):
     x = None
     y = None
@@ -390,99 +217,7 @@ def convertGeneratorToPlain(gen, numIters=1):
     
     return x,y
 
-## modified from https://stackoverflow.com/a/47738812
-## https://github.com/LucaCappelletti94/keras_validation_sets
-class AdditionalValidationSets(tf.keras.callbacks.Callback):
-    def __init__(self, logDir, validation_sets=None, verbose=0, batch_size=None, steps=None, everyNthEpoch=1):
-        """
-        :param validation_sets:
-        a list of 3-tuples (validation_data, validation_targets, validation_set_name)
-        or 4-tuples (validation_data, validation_targets, sample_weights, validation_set_name)
-        :param verbose:
-        verbosity mode, 1 or 0
-        :param batch_size:
-        batch size to be used when evaluating on the additional datasets
-        """
-        super(AdditionalValidationSets, self).__init__()
-        self.logDir = logDir
-        self.validation_sets = []
-        if validation_sets is not None:
-            for validation_set in validation_sets:
-                self.addValidationSet(validation_set)
-        self.verbose = verbose
-        self.batch_size = batch_size
-        self.steps = steps
-        self.everyNthEpoch = everyNthEpoch
-        self.lastEpochNum = 0
-        self.history = []
-        self.printWidths = {}
-        self.maxLenNames = 0
 
-    def addValidationSet(self, validation_set):
-        if len(validation_set) not in [3, 4]:
-            raise ValueError()
-        self.validation_sets.append(validation_set)
-
-
-    @timeit
-    def on_epoch_end(self, epoch, logs=None, ignoreEpoch = False):
-        self.lastEpochNum = epoch
-        hist = None
-        if (self.everyNthEpoch > 0 and epoch%self.everyNthEpoch == 0) or ignoreEpoch:
-            hist={}
-            if self.verbose: print("Additional test datasets (epoch %d): "%(epoch+1))
-            # evaluate on the additional validation sets
-            for validation_set in self.validation_sets:
-                tic("kl234hlkjsfkjh1hlkjhasfdkjlh")
-                outStr = []
-                if len(validation_set) == 2:
-                    validation_data, validation_set_name = validation_set
-                    validation_targets = None
-                    sample_weights = None
-                if len(validation_set) == 3:
-                    validation_data, validation_targets, validation_set_name = validation_set
-                    sample_weights = None
-                elif len(validation_set) == 4:
-                    validation_data, validation_targets, sample_weights, validation_set_name = validation_set
-                else:
-                    raise ValueError()
-
-                results = self.model.evaluate(x=validation_data,
-                                              y=validation_targets,
-                                              verbose=False,
-                                              sample_weight=sample_weights,
-                                              batch_size=self.batch_size,
-                                              steps=self.steps)
-
-                self.maxLenNames = max(self.maxLenNames, len(validation_set_name))
-
-                file_writer = tf.summary.create_file_writer(self.logDir + "/" + validation_set_name)
-                metNames = self.model.metrics_names
-                metVals = results
-                if len(metNames) == 1:
-                    metVals = [metVals]
-                for i, (metric, result) in enumerate(zip(metNames, metVals)):
-                    valuename = "epoch_" + metric
-                    with file_writer.as_default():
-                        tf.summary.scalar(valuename, data=result, step=epoch)
-                    if i > 0: outStr.append(", ")
-                    valuename = metric
-                    if i not in self.printWidths.keys():
-                        self.printWidths[i] = 0
-                    self.printWidths[i] = max(self.printWidths[i], len(valuename))
-                    outStr.append("%s: %.4f"%("%%%ds"%self.printWidths[i]%valuename, result))
-                    hist[validation_set_name + "_" + valuename] = result
-                outStr.append("")
-                outStr.insert(0, "   %%%ds  - %3.0fs - "%(self.maxLenNames, toc("kl234hlkjsfkjh1hlkjhasfdkjlh"))%validation_set_name)
-                if self.verbose: print("".join(outStr))
-            if self.verbose: print("")
-        self.history.append(hist)
-
-    def on_train_begin(self, logs=None):
-        self.on_epoch_end(self.lastEpochNum, logs = logs, ignoreEpoch = True)
-
-    def on_train_end(self, logs=None):
-        self.on_epoch_end(self.lastEpochNum, logs = logs, ignoreEpoch = True)
 
 class PeakBot():
     def __init__(self, name, ):
@@ -528,6 +263,8 @@ class PeakBot():
         ## Encoder
         x = eic
         cLayers = [x]
+        if verbose:
+            print("  | .. Intermediate layer")
         for i in range(len(uNetLayerSizes)):
 
             x = tf.keras.layers.ZeroPadding1D(padding=2)(x)
@@ -555,11 +292,10 @@ class PeakBot():
         rtInds = tf.keras.layers.Dense(2, activation="relu", name="pred.rtInds")(fx)
         outputs.append(rtInds)
         
-        pred = tf.keras.layers.Concatenate(axis=1, name="pred")([peaks, rtInds])#tf.keras.layers.Dense(Config.NUMCLASSES + 2 + Config.RTSLICES, name = "pred", activation = "sigmoid")(fx)
+        pred = tf.keras.layers.Concatenate(axis=1, name="pred")([peaks, rtInds])
         outputs.append(pred)
         
         if verbose:
-            print("  | .. Intermediate layer")
             print("  | .. .. lastUpLayer is", lastUpLayer)
             print("  | .. .. fx          is", fx)
             print("  | .. ")
@@ -572,16 +308,23 @@ class PeakBot():
 
         self.model = tf.keras.models.Model(inputs, outputs)
         
-        losses      = {"pred.peak": "CategoricalCrossentropy", "pred.rtInds": None, "pred": EICIOULoss} # MSERtInds EICIOULoss
-        lossWeights = {"pred.peak": 1                        , "pred.rtInds": None, "pred": 1/200         }
-        metrics     = {"pred.peak": ["categorical_accuracy", tfa.metrics.MatthewsCorrelationCoefficient(num_classes=2)]   , "pred.rtInds": "MSE", "pred": [EICIOU, EICIOUPeaks]}
-        
-        #losses      = {"pred.peak": "CategoricalCrossentropy", "pred.rtInds": "MSE", "pred": None}
-        #lossWeights = {"pred.peak": 1                        , "pred.rtInds": 1/200, "pred": None     }
-        #metrics     = {"pred.peak": ["categorical_accuracy", tfa.metrics.MatthewsCorrelationCoefficient(num_classes=2)]   , "pred.rtInds": None,  "pred": EICIOULoss}
+        losses      = {"pred.peak": "CategoricalCrossentropy", 
+                       "pred.rtInds": None, 
+                       "pred": EICIOULoss # MSERtInds EICIOULoss
+                      }
+        lossWeights = {"pred.peak": 1, 
+                       "pred.rtInds": None, 
+                       "pred": 1/200
+                      }
+        metrics     = {"pred.peak": ["categorical_accuracy", tfa.metrics.MatthewsCorrelationCoefficient(num_classes=2)], 
+                       "pred.rtInds": ["MSE"], 
+                       "pred": [CCAPeaks, MSERtInds, MSERtIndsPeaks, EICIOU, EICIOUPeaks]
+                      }
         
         self.model.compile(optimizer = tf.keras.optimizers.Adam(learning_rate = Config.LEARNINGRATESTART),
-                           loss = losses, loss_weights = lossWeights, metrics = metrics)
+                           loss = losses, 
+                           loss_weights = lossWeights, 
+                           metrics = metrics)
 
     @timeit
     def train(self, datTrain, datVal, logDir = None, callbacks = None, verbose = True):
@@ -723,7 +466,7 @@ def trainPeakBotModel(trainInstancesPath, logBaseDir, modelName = None, valInsta
         hist = valDS.history[-1]
         for valInstance in addValidationInstances:
             se = valInstance["name"]
-            for metric in ["loss", "pred.peak_loss", "pred_loss", "pred.peak_categorical_accuracy", "pred.peak_MatthewsCorrelationCoefficient", "pred.rtInds_MSE", "pred_EICIOU", "pred_EICIOUPeaks"]:
+            for metric in ["loss", "pred_CCAPeaks", "pred.peak_MatthewsCorrelationCoefficient", "pred_MSERtInds", "pred_MSERtIndsPeaks", "pred_EICIOU", "pred_EICIOUPeaks"]:
                 val = hist[se + "_" + metric]
                 newRow = pd.Series({"model": modelName, "set": se, "metric": metric, "value": val})
                 metricesAddValDS = metricesAddValDS.append(newRow, ignore_index=True)
@@ -840,7 +583,7 @@ def evaluatePeakBot(instancesWithGT, modelPath = None, model = None, verbose = T
 
 
 
-def importTargets(targetFile, excludeSubstances = None, includeSubstances = None):
+def loadTargets(targetFile, excludeSubstances = None, includeSubstances = None):
     if excludeSubstances is None:
         excludeSubstances = []
 
@@ -920,7 +663,7 @@ def loadIntegrations(substances, curatedPeaks):
 
  
 
-def loadChromatogramsTo(substances, integrations, samplesPath, expDir, loadFromPickleIfPossible = True,
+def loadChromatograms(substances, integrations, samplesPath, expDir, loadFromPickleIfPossible = True,
                         allowedMZOffset = 0.05, MRMHeader = "- SRM SIC Q1=(\\d+[.]\\d+) Q3=(\\d+[.]\\d+) start=(\\d+[.]\\d+) end=(\\d+[.]\\d+)"):
     ## load chromatograms
     tic("procChroms")
@@ -929,11 +672,11 @@ def loadChromatogramsTo(substances, integrations, samplesPath, expDir, loadFromP
     usedSamples = set()
     if os.path.isfile(os.path.join(expDir, "integrations.pickle")) and loadFromPickleIfPossible:
         with open(os.path.join(expDir, "integrations.pickle"), "rb") as fin:
-            integrations, referencePeaks, noReferencePeaks, usedSamples = pickle.load(fin)
+            integrations, usedSamples = pickle.load(fin)
             print("  | .. Imported integrations from pickle file '%s/integrations.pickle'"%(expDir))
     else:
         print("  | .. This might take a couple of minutes as all samples/integrations/channels/etc. need to be compared and the current implementation are 4 sub-for-loops")
-        for sample in tqdm.tqdm(samples):
+        for sample in tqdm.tqdm(samples, desc="  | .. importing"):
             sampleName = os.path.basename(sample)
             sampleName = sampleName[:sampleName.rfind(".")]
             usedSamples.add(sampleName)
@@ -991,39 +734,40 @@ def loadChromatogramsTo(substances, integrations, samplesPath, expDir, loadFromP
                                 integrations[substance["Name"]][sampleName]["chrom"].append(["%s (%s mode, %s with %.1f energy)"%(entryID, polarity, collisionType, collisionEnergy), 
                                                                                             Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionType, entryID, chrom])
         
-        ## remove all integrations with more than one scanEvent
-        referencePeaks = 0
-        noReferencePeaks = 0
-        for substance in integrations.keys():
-            for sample in integrations[substance].keys():
-                if len(integrations[substance][sample]["chrom"]) == 1:
-                    referencePeaks += 1
-                else:
-                    noReferencePeaks += 1
-                    integrations[substance][sample]["chrom"].clear()
 
         with open (os.path.join(expDir, "integrations.pickle"), "wb") as fout:
-            pickle.dump((integrations, referencePeaks, noReferencePeaks, usedSamples), fout)
+            pickle.dump((integrations, usedSamples), fout)
             print("  | .. Stored integrations to '%s/integrations.pickle'"%expDir)
-        
-    print("  | .. There are %d peaks and %d no peaks"%(referencePeaks, noReferencePeaks))
-    print("  | .. Using %d samples "%(len(usedSamples)))
-    remSubstancesChannelProblems = []
+    
+    ## Remove chromatograms with ambiguously selected chromatograms
+    remSubstancesChannelProblems = set()
     for substance in integrations.keys():
         foundOnce = False
         for sample in integrations[substance].keys():
-            if len(integrations[substance][sample]["chrom"]) > 1:
-                remSubstancesChannelProblems.append(substance)
-                break
-            elif len(integrations[substance][sample]["chrom"]) == 1:
+            if len(integrations[substance][sample]["chrom"]) == 1:
                 foundOnce = True
+            elif len(integrations[substance][sample]["chrom"]) != 1:
+                remSubstancesChannelProblems.add(substance)
+                break
         if not foundOnce:
-            remSubstancesChannelProblems.append(substance)
+            remSubstancesChannelProblems.add(substance)
     if len(remSubstancesChannelProblems):
-        print("  | .. %d substances (%s) were not found as the channel selection was ambiguous"%(len(remSubstancesChannelProblems), ", ".join(sorted(remSubstancesChannelProblems))))
-        print("  | .. These will not be used further")
+        print("  | .. %d substances (%s) were not found as the channel selection was ambiguous. These will not be used further"%(len(remSubstancesChannelProblems), ", ".join(sorted(remSubstancesChannelProblems))))
         for r in remSubstancesChannelProblems:
             del integrations[r]
+    
+    ## remove all integrations with more than one scanEvent
+    referencePeaks = 0
+    noReferencePeaks = 0
+    for substance in integrations.keys():
+        for sample in integrations[substance].keys():
+            if len(integrations[substance][sample]["chrom"]) == 1:
+                referencePeaks += 1
+            else:
+                noReferencePeaks += 1
+                integrations[substance][sample]["chrom"].clear()        
+    print("  | .. There are %d sample.substances with unambiguous chromatograms (and %d sample.substances with ambiguous chromatograms) from %d samples"%(referencePeaks, noReferencePeaks, len(usedSamples)))
+    
     print("  | .. took %.1f seconds"%(toc("procChroms")))
     print("\n")
 
