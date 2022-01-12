@@ -1,7 +1,4 @@
-
-
-
-import peakbot_MRM
+import PeakBotMRM
 
 from collections import OrderedDict
 import csv
@@ -313,10 +310,10 @@ def extractStandardizedEIC(eic, rts, refRT):
     ## Find best rt-reference match and extract EIC as standardized EIC around that rt
     eicrts = np.array([abs(t - refRT) for t in rts])
     bestRTInd = np.argmin(eicrts)
-    rtsS = np.zeros(peakbot_MRM.Config.RTSLICES, dtype=float)
-    eicS = np.zeros(peakbot_MRM.Config.RTSLICES, dtype=float)
+    rtsS = np.zeros(PeakBotMRM.Config.RTSLICES, dtype=float)
+    eicS = np.zeros(PeakBotMRM.Config.RTSLICES, dtype=float)
     for i in range(eicS.shape[0]):
-        cPos = bestRTInd - int(peakbot_MRM.Config.RTSLICES/2.) + i
+        cPos = bestRTInd - int(PeakBotMRM.Config.RTSLICES/2.) + i
         if 0 <= cPos < len(rts):
             rtsS[i] = rts[cPos]
             eicS[i] = eic[cPos]
@@ -332,6 +329,6 @@ def getInteRTIndsOnStandardizedEIC(rtsS, eicS, refRT, peakType, rtStart, rtEnd):
         bestRTStartInd = np.argmin(np.array([abs(t - rtStart) for t in rtsS]))
         bestRTEndInd   = np.argmin(np.array([abs(t - rtEnd) for t in rtsS]))
     else:
-        bestRTStartInd = random.randint(0, int((peakbot_MRM.Config.RTSLICES-1)/2))
-        bestRTEndInd = random.randint(int((peakbot_MRM.Config.RTSLICES-1)/2), peakbot_MRM.Config.RTSLICES-1)
+        bestRTStartInd = random.randint(0, int((PeakBotMRM.Config.RTSLICES-1)/2))
+        bestRTEndInd = random.randint(int((PeakBotMRM.Config.RTSLICES-1)/2), PeakBotMRM.Config.RTSLICES-1)
     return bestRTInd, peakType, bestRTStartInd, bestRTEndInd, rtStart, rtEnd

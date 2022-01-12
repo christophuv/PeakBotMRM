@@ -1,7 +1,6 @@
-
-from peakbot_MRM.core import tic, toc, tocP, tocAddStat, addFunctionRuntime, timeit, printRunTimesSummary
-import peakbot_MRM
-from peakbot_MRM.core import readTSVFile, parseTSVMultiLineHeader, extractStandardizedEIC, getInteRTIndsOnStandardizedEIC
+from PeakBotMRM.core import tic, toc, tocP, tocAddStat, addFunctionRuntime, timeit, printRunTimesSummary
+import PeakBotMRM
+from PeakBotMRM.core import readTSVFile, parseTSVMultiLineHeader, extractStandardizedEIC, getInteRTIndsOnStandardizedEIC
 
 import os
 import pathlib
@@ -25,7 +24,7 @@ def shuffleResultsSampleNames(exportPath, instancePrefix=None,
                               tempFileName="bqu40mcb25473zfhbgwh22534", verbose=True):
 
     if instancePrefix is None:
-        instancePrefix = peakbot_MRM.Config.INSTANCEPREFIX
+        instancePrefix = PeakBotMRM.Config.INSTANCEPREFIX
 
     tic("shuffling")
     files = [os.path.join(exportPath, f) for f in os.listdir(exportPath) if os.path.isfile(os.path.join(exportPath, f))]
@@ -46,7 +45,7 @@ def shuffleResults(exportPath, steps=1E5, samplesToExchange=50,
                    instancePrefix=None, verbose=True):
 
     if instancePrefix is None:
-        instancePrefix = peakbot_MRM.Config.INSTANCEPREFIX
+        instancePrefix = PeakBotMRM.Config.INSTANCEPREFIX
 
     tic("shuffling")
     files = [os.path.join(exportPath, f) for f in os.listdir(exportPath) if os.path.isfile(os.path.join(exportPath, f))]
@@ -120,7 +119,7 @@ def splitDSinto(path, newDS1Path, newDS2Path = None, ratioDS1 = 0.3, instancePre
         pathlib.Path(newDS2Path).mkdir(parents=True, exist_ok=True) 
 
     if instancePrefix is None:
-        instancePrefix = peakbot_MRM.Config.INSTANCEPREFIX
+        instancePrefix = PeakBotMRM.Config.INSTANCEPREFIX
 
     files = [os.path.join(path, f) for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
 
@@ -199,7 +198,7 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
 
     
     print("PeakBot configuration")
-    print(peakbot_MRM.Config.getAsStringFancy())
+    print(PeakBotMRM.Config.getAsStringFancy())
     print("\n")
     
 
@@ -220,9 +219,9 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
     histAll = None
 
 
-    substances               = peakbot_MRM.loadTargets(targetFile, excludeSubstances = excludeSubstances, includeSubstances = includeSubstances)
-    substances, integrations = peakbot_MRM.loadIntegrations(substances, curatedPeaks)
-    substances, integrations = peakbot_MRM.loadChromatograms(substances, integrations, samplesPath, expDir,
+    substances               = PeakBotMRM.loadTargets(targetFile, excludeSubstances = excludeSubstances, includeSubstances = includeSubstances)
+    substances, integrations = PeakBotMRM.loadIntegrations(substances, curatedPeaks)
+    substances, integrations = PeakBotMRM.loadChromatograms(substances, integrations, samplesPath, expDir,
                                                              allowedMZOffset = allowedMZOffset, 
                                                              MRMHeader = MRMHeader)
 
@@ -389,20 +388,20 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
                     if np.sum(eicS) > 0:
                         ## add instance to training data
                         if temp is None:
-                            temp = {"channel.rt"        : np.zeros((peakbot_MRM.Config.BATCHSIZE, peakbot_MRM.Config.RTSLICES), dtype=float),
-                                    "channel.int"       : np.zeros((peakbot_MRM.Config.BATCHSIZE, peakbot_MRM.Config.RTSLICES), dtype=float),
-                                    "inte.peak"         : np.zeros((peakbot_MRM.Config.BATCHSIZE, peakbot_MRM.Config.NUMCLASSES), dtype=int),
-                                    "inte.rtStart"      : np.zeros((peakbot_MRM.Config.BATCHSIZE), dtype=float),
-                                    "inte.rtEnd"        : np.zeros((peakbot_MRM.Config.BATCHSIZE), dtype=float),
-                                    "inte.rtInds"       : np.zeros((peakbot_MRM.Config.BATCHSIZE, 2), dtype=float),
-                                    "inte.area"         : np.zeros((peakbot_MRM.Config.BATCHSIZE), dtype=float),
-                                    "ref.substanceName" : ["" for i in range(peakbot_MRM.Config.BATCHSIZE)],
-                                    "ref.sample"        : ["" for i in range(peakbot_MRM.Config.BATCHSIZE)],
-                                    "ref.rt"            : np.zeros((peakbot_MRM.Config.BATCHSIZE), dtype=float),
-                                    "ref.PeakForm"      : ["" for i in range(peakbot_MRM.Config.BATCHSIZE)], 
-                                    "ref.Rt shifts"     : ["" for i in range(peakbot_MRM.Config.BATCHSIZE)],
-                                    "ref.Note"          : ["" for i in range(peakbot_MRM.Config.BATCHSIZE)],
-                                    "loss.IOU_Area"     : np.ones((peakbot_MRM.Config.BATCHSIZE), dtype=float),}
+                            temp = {"channel.rt"        : np.zeros((PeakBotMRM.Config.BATCHSIZE, PeakBotMRM.Config.RTSLICES), dtype=float),
+                                    "channel.int"       : np.zeros((PeakBotMRM.Config.BATCHSIZE, PeakBotMRM.Config.RTSLICES), dtype=float),
+                                    "inte.peak"         : np.zeros((PeakBotMRM.Config.BATCHSIZE, PeakBotMRM.Config.NUMCLASSES), dtype=int),
+                                    "inte.rtStart"      : np.zeros((PeakBotMRM.Config.BATCHSIZE), dtype=float),
+                                    "inte.rtEnd"        : np.zeros((PeakBotMRM.Config.BATCHSIZE), dtype=float),
+                                    "inte.rtInds"       : np.zeros((PeakBotMRM.Config.BATCHSIZE, 2), dtype=float),
+                                    "inte.area"         : np.zeros((PeakBotMRM.Config.BATCHSIZE), dtype=float),
+                                    "ref.substanceName" : ["" for i in range(PeakBotMRM.Config.BATCHSIZE)],
+                                    "ref.sample"        : ["" for i in range(PeakBotMRM.Config.BATCHSIZE)],
+                                    "ref.rt"            : np.zeros((PeakBotMRM.Config.BATCHSIZE), dtype=float),
+                                    "ref.PeakForm"      : ["" for i in range(PeakBotMRM.Config.BATCHSIZE)], 
+                                    "ref.Rt shifts"     : ["" for i in range(PeakBotMRM.Config.BATCHSIZE)],
+                                    "ref.Note"          : ["" for i in range(PeakBotMRM.Config.BATCHSIZE)],
+                                    "loss.IOU_Area"     : np.ones((PeakBotMRM.Config.BATCHSIZE), dtype=float),}
                             curI = 0
 
                         assert curI < temp["channel.rt"].shape[0]
@@ -430,22 +429,22 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
 
                         curI = curI + 1
                     else:
-                        np.set_printoptions(edgeitems=peakbot_MRM.Config.RTSLICES + 2, 
+                        np.set_printoptions(edgeitems=PeakBotMRM.Config.RTSLICES + 2, 
                             formatter=dict(float=lambda x: "%.3g" % x))
                         print(eicS)
 
                 ## if batch has been filled, export it to a temporary file
-                if curI >= peakbot_MRM.Config.BATCHSIZE:
-                    with open(os.path.join(instanceDir, "%s%d.pickle"%(peakbot_MRM.Config.INSTANCEPREFIX, cur)), "wb") as fout:
+                if curI >= PeakBotMRM.Config.BATCHSIZE:
+                    with open(os.path.join(instanceDir, "%s%d.pickle"%(PeakBotMRM.Config.INSTANCEPREFIX, cur)), "wb") as fout:
                         pickle.dump(temp, fout)
                         temp = None
                         curI = 0
                         cur += 1
-    print("  | .. Exported %d batches each with %d instances."%(cur, peakbot_MRM.Config.BATCHSIZE))
+    print("  | .. Exported %d batches each with %d instances."%(cur, PeakBotMRM.Config.BATCHSIZE))
 
     ## randomize instances
-    peakbot_MRM.train.shuffleResultsSampleNames(instanceDir)
-    peakbot_MRM.train.shuffleResults(instanceDir, steps=1E4, samplesToExchange=12)
+    PeakBotMRM.train.shuffleResultsSampleNames(instanceDir)
+    PeakBotMRM.train.shuffleResults(instanceDir, steps=1E4, samplesToExchange=12)
     print("  | .. Instances shuffled")
     print("  | .. took %.1f seconds"%(toc()))
     print("\n")
@@ -453,7 +452,7 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
 
     ## train new model
     with tempfile.TemporaryDirectory(prefix="PBMRM_training__") as tempTrainDir, tempfile.TemporaryDirectory(prefix="PBMRM_validation__") as tempValDir:
-        peakbot_MRM.train.splitDSinto(instanceDir, 
+        PeakBotMRM.train.splitDSinto(instanceDir, 
                                         newDS1Path = tempTrainDir, newDS2Path = tempValDir, 
                                         copy = True, ratioDS1 = 0.7, verbose = False)
         
@@ -463,7 +462,7 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
         tic()
         print("  | .. Randomly split dataset '%s' into a training and validation dataset with 0.7 and 0.3 parts of the instances "%expDir)
         print("  | .. There are %d training (%s) and %d validation (%s) batches available"%(nTrainBatches, tempTrainDir, nValBatches, tempValDir))
-        print("  | .. With the current configuration (%d batchsize, %d steps per epoch) this will allow for %d epochs of training"%(peakbot_MRM.Config.BATCHSIZE, peakbot_MRM.Config.STEPSPEREPOCH, math.floor(nTrainBatches/peakbot_MRM.Config.STEPSPEREPOCH)))
+        print("  | .. With the current configuration (%d batchsize, %d steps per epoch) this will allow for %d epochs of training"%(PeakBotMRM.Config.BATCHSIZE, PeakBotMRM.Config.STEPSPEREPOCH, math.floor(nTrainBatches/PeakBotMRM.Config.STEPSPEREPOCH)))
         print("  | .. took %.1f seconds"%(toc()))
         print("\n")
         
@@ -471,7 +470,7 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
         addValDS.append({"folder": tempTrainDir, "name": "train", "numBatches": nTrainBatches-1})            
         addValDS.append({"folder": tempValDir  , "name": "val"  , "numBatches": nValBatches  -1})
 
-        pb, hist = peakbot_MRM.trainPeakBotModel(trainInstancesPath = tempTrainDir,
+        pb, hist = PeakBotMRM.trainPeakBotModel(trainInstancesPath = tempTrainDir,
                                                  addValidationInstances = addValDS,
                                                  logBaseDir = logDir,
                                                  everyNthEpoch = -1, 

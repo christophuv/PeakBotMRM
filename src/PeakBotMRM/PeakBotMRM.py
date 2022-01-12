@@ -27,7 +27,7 @@ from .CustomLossesMetrices import *
 class Config(object):
     """Base configuration class"""
 
-    NAME    = "PeakBot_MRM"
+    NAME    = "PeakBotMRM"
     VERSION = "0.9"
 
     RTSLICES       = 256   ## should be of 2^n
@@ -83,7 +83,7 @@ class Config(object):
 
 
 
-print("Initializing PeakBot_MRM")
+print("Initializing PeakBotMRM")
 try:
     import platform
     print("  | .. OS:", platform.platform())
@@ -247,7 +247,7 @@ class PeakBot():
         outputs = []
 
         if verbose:
-            print("  | PeakBot_MRM v %s model"%(self.version))
+            print("  | PeakBotMRM v %s model"%(self.version))
             print("  | .. Desc: Detection of a single LC-HRMS peak in an area")
             print("  | ")
 

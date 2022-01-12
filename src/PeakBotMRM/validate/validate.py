@@ -1,8 +1,3 @@
-
-
-
-
-
 ## General imports
 from re import I
 import tqdm
@@ -18,8 +13,8 @@ import os
 import math
 
 
-import peakbot_MRM
-from peakbot_MRM.core import tic, toc, TabLog, extractStandardizedEIC, getInteRTIndsOnStandardizedEIC
+import PeakBotMRM
+from PeakBotMRM.core import tic, toc, TabLog, extractStandardizedEIC, getInteRTIndsOnStandardizedEIC
 print("\n")
 
 
@@ -53,7 +48,7 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
     print("\n")
     
     print("PeakBot configuration")
-    print(peakbot_MRM.Config.getAsStringFancy())
+    print(PeakBotMRM.Config.getAsStringFancy())
     print("\n")
 
 
@@ -70,9 +65,9 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
         
     metricsTable = {}
 
-    substances               = peakbot_MRM.loadTargets(targetFile, excludeSubstances = excludeSubstances, includeSubstances = includeSubstances)
-    substances, integrations = peakbot_MRM.loadIntegrations(substances, curatedPeaks)
-    substances, integrations = peakbot_MRM.loadChromatograms(substances, integrations, samplesPath, expDir,
+    substances               = PeakBotMRM.loadTargets(targetFile, excludeSubstances = excludeSubstances, includeSubstances = includeSubstances)
+    substances, integrations = PeakBotMRM.loadIntegrations(substances, curatedPeaks)
+    substances, integrations = PeakBotMRM.loadChromatograms(substances, integrations, samplesPath, expDir,
                                                              allowedMZOffset = allowedMZOffset,
                                                              MRMHeader = MRMHeader)
 
@@ -82,8 +77,8 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
     offsetRT1 = 0
     offsetRT2 = 0
     offsetRTMod = 1
-    pbModelPred = peakbot_MRM.loadModel(modelFile, mode="predict", verbose = False)
-    pbModelEval = peakbot_MRM.loadModel(modelFile, mode="training", verbose = False)
+    pbModelPred = PeakBotMRM.loadModel(modelFile, mode="predict", verbose = False)
+    pbModelEval = PeakBotMRM.loadModel(modelFile, mode="training", verbose = False)
     allSubstances = set()
     allSamples = set()
     for substance in tqdm.tqdm(integrations.keys(), desc="  | .. comparing"):
@@ -92,9 +87,9 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
             fig, ((ax1, ax2, ax3, ax4), (ax5, ax6, ax7, ax8)) = plt.subplots(2,4, sharey = "row", sharex = True)
             fig.set_size_inches(15, 16)
 
-        temp = {"channel.int"  : np.zeros((len(integrations[substance]), peakbot_MRM.Config.RTSLICES), dtype=float),
-                "channel.rts"  : np.zeros((len(integrations[substance]), peakbot_MRM.Config.RTSLICES), dtype=float),
-                "inte.peak"    : np.zeros((len(integrations[substance]), peakbot_MRM.Config.NUMCLASSES), dtype=int),
+        temp = {"channel.int"  : np.zeros((len(integrations[substance]), PeakBotMRM.Config.RTSLICES), dtype=float),
+                "channel.rts"  : np.zeros((len(integrations[substance]), PeakBotMRM.Config.RTSLICES), dtype=float),
+                "inte.peak"    : np.zeros((len(integrations[substance]), PeakBotMRM.Config.NUMCLASSES), dtype=int),
                 "inte.rtInds"  : np.zeros((len(integrations[substance]), 2), dtype=float),
                 }
         agreement = np.zeros((4))
@@ -126,8 +121,8 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
                 temp["pred.peak"] = temp["inte.peak"]
                 temp["pred.rtInds"] = temp["inte.rtInds"]
             
-        ppeakTypes, prtStartInds, prtEndInds = peakbot_MRM.runPeakBot(temp, model = pbModelPred, verbose = False)
-        metrics = peakbot_MRM.evaluatePeakBot(temp, model = pbModelEval, verbose = False)
+        ppeakTypes, prtStartInds, prtEndInds = PeakBotMRM.runPeakBot(temp, model = pbModelPred, verbose = False)
+        metrics = PeakBotMRM.evaluatePeakBot(temp, model = pbModelEval, verbose = False)
         
         for samplei, sample in enumerate(integrations[substance].keys()):
             assert len(integrations[substance][sample]["chrom"]) <= 1
@@ -151,8 +146,8 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
                 ppeakType = ppeakType == 0
                 prtStartInd = round(prtStartInds[samplei])
                 prtEndInd = round(prtEndInds[samplei])
-                prtStart = rtsS[min(peakbot_MRM.Config.RTSLICES-1, max(0, prtStartInd))]
-                prtEnd = rtsS[min(peakbot_MRM.Config.RTSLICES-1, max(0, prtEndInd))]
+                prtStart = rtsS[min(PeakBotMRM.Config.RTSLICES-1, max(0, prtStartInd))]
+                prtEnd = rtsS[min(PeakBotMRM.Config.RTSLICES-1, max(0, prtEndInd))]
                 agreement[0] = agreement[0] + (1 if peakType and ppeakType else 0)
                 agreement[1] = agreement[1] + (1 if peakType and not ppeakType else 0)
                 agreement[2] = agreement[2] + (1 if not peakType and ppeakType else 0)
@@ -162,11 +157,11 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
                 integrations[substance][sample]["pred.rtend"] = prtEnd
                 integrations[substance][sample]["pred.foundPeak"] = ppeakType
                 if integrations[substance][sample]["pred.foundPeak"]:
-                    integrations[substance][sample]["pred.area"] = peakbot_MRM.integrateArea(eic, rts, prtStart, prtEnd, method = "linear")
+                    integrations[substance][sample]["pred.area"] = PeakBotMRM.integrateArea(eic, rts, prtStart, prtEnd, method = "linear")
                 else:
                     integrations[substance][sample]["pred.area"] = -1
                 if bestRTStart > 0:
-                    integrations[substance][sample]["area."] = peakbot_MRM.integrateArea(eic, rts, bestRTStart, bestRTEnd, method = "linear")
+                    integrations[substance][sample]["area."] = PeakBotMRM.integrateArea(eic, rts, bestRTStart, bestRTEnd, method = "linear")
                 else:
                     integrations[substance][sample]["area."] = -1
                 

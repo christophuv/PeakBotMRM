@@ -1,6 +1,6 @@
 [tool.flit.metadata]
-module = "peakbot"
-author = "Christoph Bueschl, Juergen Zanghellini"
+module = "PeakBotMRM"
+author = "Christoph Bueschl"
 author-email = "christoph.bueschl [the little e-mail-symbol] univie.ac.at"
 
 [build-system]

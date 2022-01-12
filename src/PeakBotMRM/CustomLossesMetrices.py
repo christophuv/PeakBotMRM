@@ -109,7 +109,7 @@ def equal_error_rate(y_true, y_pred):
 @tf.autograph.experimental.do_not_convert
 def _EICIOU(dummyX, dummyY, numClasses = None):
     if numClasses is None:
-        numClasses = peakbot_MRM.Config.NUMCLASSES
+        numClasses = PeakBotMRM.Config.NUMCLASSES
     
     ## separate user integration and eic
     peaks   = dummyX[:, 0:numClasses]
@@ -134,7 +134,7 @@ def _EICIOU(dummyX, dummyY, numClasses = None):
     stripped = tf.where(tf.math.less(stripped, 0), tf.zeros_like(stripped)+0.0001, stripped)
     inteArea = tf.reduce_sum(stripped, axis=1)
 
-    ## Extract area for PeakBot_MRM integration
+    ## Extract area for PeakBotMRM integration
     stripped   = tf.where(tf.math.logical_and(tf.math.greater_equal(indices, tf.reshape(tf.repeat(tf.math.floor(prtInds[:,0]), repeats=tf.shape(eic)[1]), tf.shape(eic))), 
                                             tf.math.less_equal   (indices, tf.reshape(tf.repeat(tf.math.ceil (prtInds[:,1]), repeats=tf.shape(eic)[1]), tf.shape(eic)))), 
                           eic, 
@@ -145,7 +145,7 @@ def _EICIOU(dummyX, dummyY, numClasses = None):
     stripped   = tf.where(tf.math.less(stripped, 0), tf.zeros_like(stripped)+0.0001, stripped)
     pbCalcArea = tf.reduce_sum(stripped, axis=1)
 
-    ## Extract area for overlap of user and PeakBot_MRM integration
+    ## Extract area for overlap of user and PeakBotMRM integration
     beginInds   = tf.math.floor(tf.math.maximum(rtInds[:,0], prtInds[:,0]))
     endInds     = tf.math.ceil (tf.math.minimum(rtInds[:,1], prtInds[:,1]))
     stripped    = tf.where(tf.math.logical_and(tf.math.greater_equal(indices, tf.reshape(tf.repeat(beginInds, repeats=tf.shape(eic)[1]), tf.shape(eic))), 
@@ -166,7 +166,7 @@ def _EICIOU(dummyX, dummyY, numClasses = None):
 @tf.autograph.experimental.do_not_convert
 def EICIOU(dummyX, dummyY, numClasses = None):
     if numClasses is None:
-        numClasses = peakbot_MRM.Config.NUMCLASSES
+        numClasses = PeakBotMRM.Config.NUMCLASSES
     
     ## separate user integration and eic
     peaks   = dummyX[:, 0:numClasses]
@@ -189,7 +189,7 @@ def EICIOU(dummyX, dummyY, numClasses = None):
 @tf.autograph.experimental.do_not_convert
 def EICIOUPeaks(dummyX, dummyY, numClasses = None):
     if numClasses is None:
-        numClasses = peakbot_MRM.Config.NUMCLASSES
+        numClasses = PeakBotMRM.Config.NUMCLASSES
     
     ## separate user integration and eic
     peaks   = dummyX[:, 0:numClasses]
@@ -215,7 +215,7 @@ def EICIOUPeaks(dummyX, dummyY, numClasses = None):
 @tf.autograph.experimental.do_not_convert
 def EICIOULoss(dummyX, dummyY, numClasses = None):
     if numClasses is None:
-        numClasses = peakbot_MRM.Config.NUMCLASSES
+        numClasses = PeakBotMRM.Config.NUMCLASSES
     
     ## separate user integration and eic
     peaks   = dummyX[:, 0:numClasses]
@@ -240,7 +240,7 @@ def EICIOULoss(dummyX, dummyY, numClasses = None):
 @tf.autograph.experimental.do_not_convert
 def CCAPeaks(dummyX, dummyY, numClasses = None):
     if numClasses is None:
-        numClasses = peakbot_MRM.Config.NUMCLASSES
+        numClasses = PeakBotMRM.Config.NUMCLASSES
     
     ## separate user integration and eic
     peaks   = dummyX[:, 0:numClasses]
@@ -259,7 +259,7 @@ def CCAPeaks(dummyX, dummyY, numClasses = None):
 @tf.autograph.experimental.do_not_convert
 def MSERtInds(dummyX, dummyY, numClasses = None):
     if numClasses is None:
-        numClasses = peakbot_MRM.Config.NUMCLASSES
+        numClasses = PeakBotMRM.Config.NUMCLASSES
     
     ## separate user integration and eic
     peaks   = dummyX[:, 0:numClasses]
@@ -278,7 +278,7 @@ def MSERtInds(dummyX, dummyY, numClasses = None):
 @tf.autograph.experimental.do_not_convert
 def MSERtIndsPeaks(dummyX, dummyY, numClasses = None):
     if numClasses is None:
-        numClasses = peakbot_MRM.Config.NUMCLASSES
+        numClasses = PeakBotMRM.Config.NUMCLASSES
     
     ## separate user integration and eic
     peaks   = dummyX[:, 0:numClasses]
