@@ -1,6 +1,6 @@
 from PeakBotMRM.core import tic, toc, tocP, tocAddStat, addFunctionRuntime, timeit, printRunTimesSummary
 import PeakBotMRM
-from PeakBotMRM.core import readTSVFile, parseTSVMultiLineHeader, extractStandardizedEIC, getInteRTIndsOnStandardizedEIC
+from PeakBotMRM.core import readTSVFile, parseTSVMultiLineHeader, extractStandardizedEIC, scaleStandardizedEIC, getInteRTIndsOnStandardizedEIC
 
 import os
 import pathlib
@@ -94,7 +94,7 @@ def shuffleResults(exportPath, steps=1E5, samplesToExchange=50,
                         a[k][beginA:(beginA + cExchange),:,:,:], b[k][beginB:(beginB + cExchange),:,:,:] = np.copy(b[k][beginB:(beginB + cExchange),:,:,:]), np.copy(a[k][beginA:(beginA + cExchange),:,:,:])
 
                     elif isinstance(a[k], list):
-                        a[k][beginA:(beginA + cExchange)],       b[k][beginB:(beginB + cExchange)]       = b[k][beginB:(beginB + cExchange)],       a[k][beginA:(beginA + cExchange)]
+                        a[k][beginA:(beginA + cExchange)],       b[k][beginB:(beginB + cExchange)]       = b[k][beginB:(beginB + cExchange)],                a[k][beginA:(beginA + cExchange)]
                         
                     else:
                         assert False, "Unknown key in shuffling, aborting"
@@ -110,11 +110,12 @@ def shuffleResults(exportPath, steps=1E5, samplesToExchange=50,
             t.update()
 
 
-def splitDSinto(path, newDS1Path, newDS2Path = None, ratioDS1 = 0.3, instancePrefix = None, tempFileName = "bqu40mcb25473zfhbgwh22534", copy=False, verbose = False):
+def splitDSinto(path, newDS1Path = None, newDS2Path = None, ratioDS1 = 0.3, instancePrefix = None, tempFileName = "bqu40mcb25473zfhbgwh22534", copy=False, verbose = False):
 
     assert 0 <= ratioDS1 <= 1, "parameter ratioDS1 must be 0 <= ratioDS1 <= 1"
     
-    pathlib.Path(newDS1Path).mkdir(parents=True, exist_ok=True) 
+    if newDS1Path is not None:
+        pathlib.Path(newDS1Path).mkdir(parents=True, exist_ok=True) 
     if newDS2Path is not None:
         pathlib.Path(newDS2Path).mkdir(parents=True, exist_ok=True) 
 
@@ -161,6 +162,22 @@ def splitDSinto(path, newDS1Path, newDS2Path = None, ratioDS1 = 0.3, instancePre
         if newDS2Path is not None:
             print("  | .. %s remaining instances to '%s'"%("copied" if copy else "moved", newDS2Path))
 
+def splitDSAccordingToClass(path, newDS1Path, newDS2Path, instancePrefix = None, copy = True, verbose = False):
+    
+    if newDS1Path is not None:
+        pathlib.Path(newDS1Path).mkdir(parents=True, exist_ok=True) 
+    if newDS2Path is not None:
+        pathlib.Path(newDS2Path).mkdir(parents=True, exist_ok=True) 
+
+    if instancePrefix is None:
+        instancePrefix = PeakBotMRM.Config.INSTANCEPREFIX
+
+    files = [os.path.join(path, f) for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
+
+    for fil in files:
+        pass
+    ## TODO finish function
+
 
 def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFile, expDir = None, logDir = None, historyObject = None,
                          MRMHeader = "- SRM SIC Q1=(\\d+[.]\\d+) Q3=(\\d+[.]\\d+) start=(\\d+[.]\\d+) end=(\\d+[.]\\d+)",
@@ -197,7 +214,7 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
     print("\n")
 
     
-    print("PeakBot configuration")
+    print("PeakBotMRM configuration")
     print(PeakBotMRM.Config.getAsStringFancy())
     print("\n")
     
@@ -338,109 +355,124 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
     tic()
     instanceDirObj = tempfile.TemporaryDirectory()
     instanceDir = instanceDirObj.name
-    temp = None
-    cur = 0
-    curI = 0
-    ## iterate all samples and substances
-    if addRandomNoise:
-        print("  | .. Random noise will be added. The range of the randomly generated factors is %.3f - %.3f and the maximum randomly-generated noise added on top of the EICs is %.3f"%(1/(1 + maxRandFactor), 1 + maxRandFactor, maxNoiseLevelAdd))
-    if shiftRTs:
-        print("  | .. Random RT shifts will be added. The range is -%.3f - %.3f minutes"%(maxShift, maxShift))
-    if useEachInstanceNTimes > 1:
-        print("  | .. Each instance will be used %d times augmented with different randomness factors"%(useEachInstanceNTimes))
-    for substance in tqdm.tqdm(integrations.keys(), desc="  | .. augmenting"):
-        for sample in integrations[substance].keys():
-            for repi in range(useEachInstanceNTimes):
-                if len(integrations[substance][sample]["chrom"]) == 1:
-                    
-                    inte = integrations[substance][sample]["chrom"][0]
-                    rts = [t[0] for t in inte[9]]
-                    eic = [t[1] for t in inte[9]]
-                    refRT = substances[substance]["RT"]
-                    ## add uniform Rt shift to EICs
-                    artificialRTShift = np.random.rand(1) * 2 * maxShift - maxShift
-                    
-                    ## standardize EIC
-                    rtsS, eicS = extractStandardizedEIC(eic, rts, refRT + artificialRTShift)
-                    
-                    ## get integration results on standardized area
-                    bestRTInd, peakType, bestRTStartInd, bestRTEndInd, bestRTStart, bestRTEnd = \
-                        getInteRTIndsOnStandardizedEIC(rtsS, eicS, refRT, 
-                                                        integrations[substance][sample]["foundPeak"], 
-                                                        integrations[substance][sample]["rtstart"], 
-                                                        integrations[substance][sample]["rtend"])
-                    
-                    ## add random noise
-                    if addRandomNoise:
-                        ## randomize signal intensitiers
-                        if np.random.rand(1)[0] > 0.5:
-                            eicS = eicS * (1 + np.random.rand(eicS.shape[0]) * maxRandFactor)
+    if os.path.isfile(os.path.join(expDir, "trainingInstances.zip")):
+        shutil.unpack_archive(os.path.join(expDir, "trainingInstances.zip"), instanceDir)
+        print("  | .. Imported training instances from '%s'", os.path.join(expDir, "trainingInstances.zip"))
+    else:
+        temp = None
+        cur = 0
+        curI = 0
+        ## iterate all samples and substances
+        if addRandomNoise:
+            print("  | .. Random noise will be added. The range of the randomly generated factors is %.3f - %.3f and the maximum randomly-generated noise added on top of the EICs is %.3f"%(1/(1 + maxRandFactor), 1 + maxRandFactor, maxNoiseLevelAdd))
+        if shiftRTs:
+            print("  | .. Random RT shifts will be added. The range is -%.3f - %.3f minutes"%(maxShift, maxShift))
+            print("  | .. Chromatographic peaks with a shifted peak apex will first be corrected to the designated RT and then randomly moved for the training instance")
+        if useEachInstanceNTimes > 1:
+            print("  | .. Each instance will be used %d times augmented with different randomness factors"%(useEachInstanceNTimes))
+        for substance in tqdm.tqdm(integrations.keys(), desc="  | .. augmenting"):
+            for sample in integrations[substance].keys():
+                for repi in range(useEachInstanceNTimes):
+                    inte = integrations[substance][sample]
+                    if len(inte["chrom"]) == 1:
+                        
+                        rts = inte["chrom"][0][9]["rts"]
+                        eic = inte["chrom"][0][9]["eic"]
+                        refRT = substances[substance]["RT"]
+
+                        ## add uniform Rt shift to EICs
+                        artificialRTShift = 0
+                        if shiftRTs:
+                            if inte["foundPeak"]:
+                                rtsS, eicS = extractStandardizedEIC(eic, rts, refRT)
+                                eicS[rtsS < inte["rtstart"]] = 0
+                                eicS[rtsS > inte["rtend"]] = 0
+                                apexRT = rtsS[np.argmax(eicS)]
+                                artificialRTShift = apexRT - refRT + np.random.rand(1) * 2 * maxShift - maxShift
+                            else:
+                                artificialRTShift = np.random.rand(1) * 2 * maxShift - maxShift
+                        
+                        ## standardize EIC
+                        rtsS, eicS = extractStandardizedEIC(eic, rts, refRT + artificialRTShift)
+                        
+                        ## get integration results on standardized area
+                        bestRTInd, peakType, bestRTStartInd, bestRTEndInd, bestRTStart, bestRTEnd = \
+                            getInteRTIndsOnStandardizedEIC(rtsS, eicS, refRT, 
+                                                            inte["foundPeak"], 
+                                                            inte["rtstart"], 
+                                                            inte["rtend"])
+                        
+                        ## add random noise
+                        if addRandomNoise:
+                            ## randomize signal intensitiers
+                            if np.random.rand(1)[0] > 0.5:
+                                eicS = eicS * (1 + np.random.rand(eicS.shape[0]) * maxRandFactor)
+                            else:
+                                eicS = eicS / (1 + np.random.rand(eicS.shape[0]) * maxRandFactor)
+                            
+                            ## add noise on top of EIC
+                            eicS = eicS + np.random.rand(eicS.shape[0]) * maxNoiseLevelAdd
+                            
+                            eicS = scaleStandardizedEIC(eicS, rtsS)
+                        
+                        ## test if eic has detected signals
+                        if np.sum(eicS) > 0 and np.all(eicS >= 0):
+                            ## add instance to training data
+                            if temp is None:
+                                temp = {"channel.rt"        : np.zeros((PeakBotMRM.Config.BATCHSIZE, PeakBotMRM.Config.RTSLICES), dtype=float),
+                                        "channel.int"       : np.zeros((PeakBotMRM.Config.BATCHSIZE, PeakBotMRM.Config.RTSLICES), dtype=float),
+                                        "inte.peak"         : np.zeros((PeakBotMRM.Config.BATCHSIZE, PeakBotMRM.Config.NUMCLASSES), dtype=int),
+                                        "inte.rtStart"      : np.zeros((PeakBotMRM.Config.BATCHSIZE), dtype=float),
+                                        "inte.rtEnd"        : np.zeros((PeakBotMRM.Config.BATCHSIZE), dtype=float),
+                                        "inte.rtInds"       : np.zeros((PeakBotMRM.Config.BATCHSIZE, 2), dtype=float),
+                                        "inte.area"         : np.zeros((PeakBotMRM.Config.BATCHSIZE), dtype=float),
+                                        "ref.substanceName" : ["" for i in range(PeakBotMRM.Config.BATCHSIZE)],
+                                        "ref.sample"        : ["" for i in range(PeakBotMRM.Config.BATCHSIZE)],
+                                        "ref.rt"            : np.zeros((PeakBotMRM.Config.BATCHSIZE), dtype=float),
+                                        "ref.PeakForm"      : ["" for i in range(PeakBotMRM.Config.BATCHSIZE)], 
+                                        "ref.Rt shifts"     : ["" for i in range(PeakBotMRM.Config.BATCHSIZE)],
+                                        "ref.Note"          : ["" for i in range(PeakBotMRM.Config.BATCHSIZE)],
+                                        "loss.IOU_Area"     : np.ones((PeakBotMRM.Config.BATCHSIZE), dtype=float),}
+                                curI = 0
+
+                            assert curI < temp["channel.rt"].shape[0]
+                            peakType = 0 if inte["foundPeak"] else 1
+
+                            ## substance data
+                            temp["ref.substanceName"][curI] = substance
+                            temp["ref.sample"       ][curI] = sample
+                            temp["ref.rt"           ][curI] = substances[substance]["RT"]
+                            temp["ref.PeakForm"     ][curI] = substances[substance]["PeakForm"] 
+                            temp["ref.Rt shifts"    ][curI] = substances[substance]["Rt shifts"]
+                            temp["ref.Note"         ][curI] = substances[substance]["Note"]
+
+                            ## analytical raw data
+                            temp["channel.rt"       ][curI,:] = rtsS
+                            temp["channel.int"      ][curI,:] = eicS
+
+                            ## manual integration data
+                            temp["inte.peak"        ][curI, peakType] = 1
+                            temp["inte.rtStart"     ][curI]   = bestRTStart
+                            temp["inte.rtEnd"       ][curI]   = bestRTEnd
+                            temp["inte.rtInds"      ][curI,0] = bestRTStartInd
+                            temp["inte.rtInds"      ][curI,1] = bestRTEndInd                        
+                            temp["inte.area"        ][curI]   = inte["area"]
+
+                            curI = curI + 1
                         else:
-                            eicS = eicS / (1 + np.random.rand(eicS.shape[0]) * maxRandFactor)
-                        
-                        ## add noise on top of EIC
-                        eicS = eicS + np.random.rand(eicS.shape[0]) * maxNoiseLevelAdd
-                        
-                        ## re-scale EIC
-                        eicS = eicS / np.max(eicS)
-                    
-                    ## test if eic has detected signals
-                    if np.sum(eicS) > 0:
-                        ## add instance to training data
-                        if temp is None:
-                            temp = {"channel.rt"        : np.zeros((PeakBotMRM.Config.BATCHSIZE, PeakBotMRM.Config.RTSLICES), dtype=float),
-                                    "channel.int"       : np.zeros((PeakBotMRM.Config.BATCHSIZE, PeakBotMRM.Config.RTSLICES), dtype=float),
-                                    "inte.peak"         : np.zeros((PeakBotMRM.Config.BATCHSIZE, PeakBotMRM.Config.NUMCLASSES), dtype=int),
-                                    "inte.rtStart"      : np.zeros((PeakBotMRM.Config.BATCHSIZE), dtype=float),
-                                    "inte.rtEnd"        : np.zeros((PeakBotMRM.Config.BATCHSIZE), dtype=float),
-                                    "inte.rtInds"       : np.zeros((PeakBotMRM.Config.BATCHSIZE, 2), dtype=float),
-                                    "inte.area"         : np.zeros((PeakBotMRM.Config.BATCHSIZE), dtype=float),
-                                    "ref.substanceName" : ["" for i in range(PeakBotMRM.Config.BATCHSIZE)],
-                                    "ref.sample"        : ["" for i in range(PeakBotMRM.Config.BATCHSIZE)],
-                                    "ref.rt"            : np.zeros((PeakBotMRM.Config.BATCHSIZE), dtype=float),
-                                    "ref.PeakForm"      : ["" for i in range(PeakBotMRM.Config.BATCHSIZE)], 
-                                    "ref.Rt shifts"     : ["" for i in range(PeakBotMRM.Config.BATCHSIZE)],
-                                    "ref.Note"          : ["" for i in range(PeakBotMRM.Config.BATCHSIZE)],
-                                    "loss.IOU_Area"     : np.ones((PeakBotMRM.Config.BATCHSIZE), dtype=float),}
+                            np.set_printoptions(edgeitems=PeakBotMRM.Config.RTSLICES + 2, 
+                                formatter=dict(float=lambda x: "%.3g" % x))
+                            print(eicS)
+
+                    ## if batch has been filled, export it to a temporary file
+                    if curI >= PeakBotMRM.Config.BATCHSIZE:
+                        with open(os.path.join(instanceDir, "%s%d.pickle"%(PeakBotMRM.Config.INSTANCEPREFIX, cur)), "wb") as fout:
+                            pickle.dump(temp, fout)
+                            temp = None
                             curI = 0
-
-                        assert curI < temp["channel.rt"].shape[0]
-                        peakType = 0 if integrations[substance][sample]["foundPeak"] else 1
-
-                        ## analytical data
-                        temp["channel.rt"       ][curI,:] = rtsS
-                        temp["channel.int"      ][curI,:] = eicS
-
-                        ## integration data
-                        temp["inte.peak"        ][curI, peakType] = 1
-                        temp["inte.rtStart"     ][curI]   = bestRTStart
-                        temp["inte.rtEnd"       ][curI]   = bestRTEnd
-                        temp["inte.rtInds"      ][curI,0] = bestRTStartInd
-                        temp["inte.rtInds"      ][curI,1] = bestRTEndInd                        
-                        temp["inte.area"        ][curI]   = integrations[substance][sample]["area"]
-
-                        ## reference data
-                        temp["ref.substanceName"][curI] = substance
-                        temp["ref.sample"       ][curI] = sample
-                        temp["ref.rt"           ][curI] = substances[substance]["RT"]
-                        temp["ref.PeakForm"     ][curI] = substances[substance]["PeakForm"] 
-                        temp["ref.Rt shifts"    ][curI] = substances[substance]["Rt shifts"]
-                        temp["ref.Note"         ][curI] = substances[substance]["Note"]
-
-                        curI = curI + 1
-                    else:
-                        np.set_printoptions(edgeitems=PeakBotMRM.Config.RTSLICES + 2, 
-                            formatter=dict(float=lambda x: "%.3g" % x))
-                        print(eicS)
-
-                ## if batch has been filled, export it to a temporary file
-                if curI >= PeakBotMRM.Config.BATCHSIZE:
-                    with open(os.path.join(instanceDir, "%s%d.pickle"%(PeakBotMRM.Config.INSTANCEPREFIX, cur)), "wb") as fout:
-                        pickle.dump(temp, fout)
-                        temp = None
-                        curI = 0
-                        cur += 1
-    print("  | .. Exported %d batches each with %d instances."%(cur, PeakBotMRM.Config.BATCHSIZE))
+                            cur += 1
+        shutil.make_archive(os.path.join(expDir, "trainingInstances"), "zip", instanceDir)
+    print("  | .. Exported batches each with %d instances (saved to '%s')."%(PeakBotMRM.Config.BATCHSIZE, os.path.join(expDir, "trainingInstances.zip")))
 
     ## randomize instances
     PeakBotMRM.train.shuffleResultsSampleNames(instanceDir)
@@ -451,10 +483,13 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
 
 
     ## train new model
-    with tempfile.TemporaryDirectory(prefix="PBMRM_training__") as tempTrainDir, tempfile.TemporaryDirectory(prefix="PBMRM_validation__") as tempValDir:
+    with tempfile.TemporaryDirectory(prefix="PBMRM_training__") as tempTrainDir, tempfile.TemporaryDirectory(prefix="PBMRM_validation__") as tempValDir, tempfile.TemporaryDirectory(prefix="PBMRM_validationPeak__") as tempValDirClassPeak, tempfile.TemporaryDirectory(prefix="PBMRM_validationBackground__") as tempValDirClassBackground:
         PeakBotMRM.train.splitDSinto(instanceDir, 
-                                        newDS1Path = tempTrainDir, newDS2Path = tempValDir, 
-                                        copy = True, ratioDS1 = 0.7, verbose = False)
+                                     newDS1Path = tempTrainDir, newDS2Path = tempValDir, 
+                                     copy = True, ratioDS1 = 0.7, verbose = False)
+        PeakBotMRM.train.splitDSAccordingToClass(instanceDir, 
+                                                 newDS1Path = tempTrainDir, newDS2Path = tempValDir, 
+                                                 copy = True, verbose = False)
         
         nTrainBatches = len([f for f in os.listdir(tempTrainDir) if os.path.isfile(os.path.join(tempTrainDir, f))])
         nValBatches = len([f for f in os.listdir(tempValDir) if os.path.isfile(os.path.join(tempValDir, f))])         
@@ -470,14 +505,14 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
         addValDS.append({"folder": tempTrainDir, "name": "train", "numBatches": nTrainBatches-1})            
         addValDS.append({"folder": tempValDir  , "name": "val"  , "numBatches": nValBatches  -1})
 
-        pb, hist = PeakBotMRM.trainPeakBotModel(trainInstancesPath = tempTrainDir,
-                                                 addValidationInstances = addValDS,
-                                                 logBaseDir = logDir,
-                                                 everyNthEpoch = -1, 
-                                                 verbose = True)
+        pb, hist = PeakBotMRM.trainPeakBotMRMModel(trainInstancesPath = tempTrainDir,
+                                                   addValidationInstances = addValDS,
+                                                   logBaseDir = logDir,
+                                                   everyNthEpoch = -1, 
+                                                   verbose = True)
 
         pb.saveModelToFile(modelFile)
-        print("Newly trained peakbot saved to file '%s'"%(modelFile))
+        print("Newly trained PeakBotMRM saved to file '%s'"%(modelFile))
 
         if histAll is None:
             histAll = hist

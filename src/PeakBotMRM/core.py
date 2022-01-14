@@ -306,29 +306,39 @@ def parseTSVMultiLineHeader(fi, headerRowCount=1, delimiter = "\t", commentChar 
 
 
 
-def extractStandardizedEIC(eic, rts, refRT):
+def scaleStandardizedEIC(eicS, rtsS, scaleToOne = True, removeConstantOffset = True):
+    if np.sum(eicS) > 0:
+        if removeConstantOffset:
+            eicS = eicS - np.min(eicS)
+        if scaleToOne:
+            eicS = eicS / np.max(eicS)
+    
+    return eicS
+
+def extractStandardizedEIC(eic, rts, refRT, scaleToOne = True, removeConstantOffset = True):
     ## Find best rt-reference match and extract EIC as standardized EIC around that rt
-    eicrts = np.array([abs(t - refRT) for t in rts])
-    bestRTInd = np.argmin(eicrts)
+    bestRTInd = np.argmin(np.abs(rts - refRT))
     rtsS = np.zeros(PeakBotMRM.Config.RTSLICES, dtype=float)
     eicS = np.zeros(PeakBotMRM.Config.RTSLICES, dtype=float)
+
+    temp = bestRTInd - int(PeakBotMRM.Config.RTSLICES/2.)
     for i in range(eicS.shape[0]):
-        cPos = bestRTInd - int(PeakBotMRM.Config.RTSLICES/2.) + i
+        cPos = temp + i
         if 0 <= cPos < len(rts):
-            rtsS[i] = rts[cPos]
-            eicS[i] = eic[cPos]
-    if np.sum(eicS) > 0:
-        eicS = eicS / np.max(eicS)
+            rtsS[i], eicS[i] = rts[cPos], eic[cPos]
+    
+    eicS = scaleStandardizedEIC(eicS, rtsS, scaleToOne, removeConstantOffset)
+    
     return rtsS, eicS
 
 def getInteRTIndsOnStandardizedEIC(rtsS, eicS, refRT, peakType, rtStart, rtEnd):
-    bestRTInd = np.argmin(np.array([abs(t - refRT) for t in rtsS]))        
+    bestRTInd = np.argmin(np.abs(rtsS - refRT))
     bestRTStartInd = -1
     bestRTEndInd = -1
     if peakType:
-        bestRTStartInd = np.argmin(np.array([abs(t - rtStart) for t in rtsS]))
-        bestRTEndInd   = np.argmin(np.array([abs(t - rtEnd) for t in rtsS]))
+        bestRTStartInd = np.argmin(np.abs(rtsS - rtStart))
+        bestRTEndInd   = np.argmin(np.abs(rtsS - rtEnd))
     else:
-        bestRTStartInd = random.randint(0, int((PeakBotMRM.Config.RTSLICES-1)/2))
-        bestRTEndInd = random.randint(int((PeakBotMRM.Config.RTSLICES-1)/2), PeakBotMRM.Config.RTSLICES-1)
+        bestRTStartInd = -1
+        bestRTEndInd = -1
     return bestRTInd, peakType, bestRTStartInd, bestRTEndInd, rtStart, rtEnd

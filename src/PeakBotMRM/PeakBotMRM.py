@@ -34,17 +34,17 @@ class Config(object):
     NUMCLASSES     =   2   ## [isFullPeak, hasCoelutingPeakLeftAndRight, hasCoelutingPeakLeft, hasCoelutingPeakRight, isWall, isBackground]
     FIRSTNAREPEAKS =   1   ## specifies which of the first n classes represent a chromatographic peak (i.e. if classes 0,1,2,3 represent a peak, the value for this parameter must be 4)
 
-    BATCHSIZE     =  16#2# 16
-    STEPSPEREPOCH =  8#4#  8
-    EPOCHS        =  300#7#110
+    BATCHSIZE      =  16
+    STEPSPEREPOCH  =  8
+    EPOCHS         =  300
 
-    DROPOUT        = 0.2
+    DROPOUT        = 0.1
     UNETLAYERSIZES = [32,64,128,256]
 
-    LEARNINGRATESTART              = 0.005
+    LEARNINGRATESTART              = 0.001
     LEARNINGRATEDECREASEAFTERSTEPS = 5
     LEARNINGRATEMULTIPLIER         = 0.9
-    LEARNINGRATEMINVALUE           = 3e-7
+    LEARNINGRATEMINVALUE           = 3e-17
 
     INSTANCEPREFIX = "___PBsample_"
 
@@ -109,9 +109,9 @@ except Exception:
 try:
     from numba import cuda as ca
     print("  | .. GPU-device: ", str(ca.get_current_device().name), sep="")
-    gpus = tf.config.experimental.list_physical_devices()
-    for gpu in gpus:
-        print("  | .. TensorFlow device: Name '%s', type '%s'"%(gpu.name, gpu.device_type))
+    pus = tf.config.experimental.list_physical_devices()
+    for pu in pus:
+        print("  | .. TensorFlow device: Name '%s', type '%s'"%(pu.name, pu.device_type))
 except Exception:
     print("  | .. fetching GPU info failed")
 print("")
@@ -129,7 +129,7 @@ print("")
 #####################################
 ### Data generator methods
 ### Read files from a directory and prepare them
-### for PeakBot training and prediction
+### for PeakBotMRM training and prediction
 ##
 def dataGenerator(folder, instancePrefix = None, verbose=False):
 
@@ -219,9 +219,9 @@ def convertGeneratorToPlain(gen, numIters=1):
 
 
 
-class PeakBot():
+class PeakBotMRM():
     def __init__(self, name, ):
-        super(PeakBot, self).__init__()
+        super(PeakBotMRM, self).__init__()
 
         batchSize = Config.BATCHSIZE
         rts = Config.RTSLICES
@@ -248,44 +248,34 @@ class PeakBot():
 
         if verbose:
             print("  | PeakBotMRM v %s model"%(self.version))
-            print("  | .. Desc: Detection of a single LC-HRMS peak in an area")
+            print("  | .. Desc: Detection of a single LC-HRMS peak in an EIC (peak apeax is approaximately in the center of the EIC)")
             print("  | ")
 
         ## Input: Only LC-HRMS area
         eic = tf.keras.Input(shape=(self.rts, 1), name="channel.int")
-        inputs.append(eic)
-        
-        if verbose:
-            print("  | .. Inputs")
-            print("  | .. .. channel.int is", eic)
-            print("  |")
-
-        ## Encoder
+        inputs.append(eic)   
         x = eic
-        cLayers = [x]
-        if verbose:
-            print("  | .. Intermediate layer")
+
         for i in range(len(uNetLayerSizes)):
+            #x = tf.keras.layers.ZeroPadding1D(padding=1)(x)
+            #x = tf.keras.layers.Conv1D(uNetLayerSizes[i], (3), use_bias=False)(x)
+            #x = tf.keras.layers.BatchNormalization()(x)
+            #x = tf.keras.layers.Activation("relu")(x)
+            #x = tf.keras.layers.MaxPool1D((2))(x)
 
             x = tf.keras.layers.ZeroPadding1D(padding=2)(x)
-            x = tf.keras.layers.Conv1D(uNetLayerSizes[i], (5), use_bias=True)(x)
+            x = tf.keras.layers.Conv1D(uNetLayerSizes[i], (5), use_bias=False, activation="relu")(x)
             x = tf.keras.layers.BatchNormalization()(x)
-            x = tf.keras.layers.Activation("relu")(x)
-            x = tf.keras.layers.Dropout(dropOutRate)(x)
-            
-            x = tf.keras.layers.ZeroPadding1D(padding=1)(x)
-            x = tf.keras.layers.Conv1D(uNetLayerSizes[i], (3), use_bias=True)(x)
-            x = tf.keras.layers.BatchNormalization()(x)
-            x = tf.keras.layers.Activation("relu")(x)
 
+            x = tf.keras.layers.ZeroPadding1D(padding=1)(x)
+            x = tf.keras.layers.Conv1D(uNetLayerSizes[i], (3), use_bias=False, activation="relu")(x)
             x = tf.keras.layers.BatchNormalization()(x)
-            x = tf.keras.layers.MaxPool1D((2))(x)
-            cLayers.append(x)
-        lastUpLayer = x
+
+            x = tf.keras.layers.AveragePooling1D((2))(x)
+            x = tf.keras.layers.Dropout(dropOutRate)(x)
 
         ## Intermediate layer and feature properties (indices and borders)
-        x      = tf.keras.layers.BatchNormalization()(x)
-        fx     = tf.keras.layers.Flatten()(x)
+        fx = tf.keras.layers.Flatten()(x)
         
         peaks  = tf.keras.layers.Dense(Config.NUMCLASSES, activation="sigmoid", name="pred.peak")(fx)
         outputs.append(peaks)
@@ -296,8 +286,13 @@ class PeakBot():
         outputs.append(pred)
         
         if verbose:
-            print("  | .. .. lastUpLayer is", lastUpLayer)
-            print("  | .. .. fx          is", fx)
+            print("  | .. Inputs")
+            print("  | .. .. channel.int is", eic)
+            print("  | .. Unet layers are")
+            print("  | .. .. [%s]"%(", ".join(str(u) for u in uNetLayerSizes)))
+            print("  |")
+            print("  | .. Intermediate layer")
+            print("  | .. .. flattened layer is", fx)
             print("  | .. ")
             print("  | .. Outputs")
             print("  | .. .. pred.peak   is", peaks)
@@ -308,18 +303,18 @@ class PeakBot():
 
         self.model = tf.keras.models.Model(inputs, outputs)
         
-        losses      = {"pred.peak": "CategoricalCrossentropy", 
-                       "pred.rtInds": None, 
-                       "pred": EICIOULoss # MSERtInds EICIOULoss
-                      }
-        lossWeights = {"pred.peak": 1, 
-                       "pred.rtInds": None, 
-                       "pred": 1/200
-                      }
-        metrics     = {"pred.peak": ["categorical_accuracy", tfa.metrics.MatthewsCorrelationCoefficient(num_classes=2)], 
-                       "pred.rtInds": ["MSE"], 
-                       "pred": [CCAPeaks, MSERtInds, MSERtIndsPeaks, EICIOU, EICIOUPeaks]
-                      }
+        losses = {
+            "pred.peak": "CategoricalCrossentropy", 
+            "pred.rtInds": None, 
+            "pred": EICIOULoss } # MSERtInds EICIOULoss
+        lossWeights = {
+            "pred.peak": 1, 
+            "pred.rtInds": None, 
+            "pred": 1/200 }
+        metrics = {
+            "pred.peak": ["categorical_accuracy", tfa.metrics.MatthewsCorrelationCoefficient(num_classes=2)], 
+            "pred.rtInds": ["MSE"], 
+            "pred": [CCAPeaks, MSERtInds, MSERtIndsPeaks, EICIOU, EICIOUPeaks] }
         
         self.model.compile(optimizer = tf.keras.optimizers.Adam(learning_rate = Config.LEARNINGRATESTART),
                            loss = losses, 
@@ -338,7 +333,7 @@ class PeakBot():
             print("  |")
 
         if logDir is None:
-            logDir = os.path.join("logs", "fit", "PeakBot_v" + self.version + "_" + uuid.uuid4().hex)
+            logDir = os.path.join("logs", "fit", "PeakBotMRM_v" + self.version + "_" + uuid.uuid4().hex)
 
         tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir = logDir, histogram_freq = 1, write_graph = True)
         file_writer = tf.summary.create_file_writer(os.path.join(logDir, "scalars"))
@@ -381,7 +376,7 @@ class PeakBot():
 
 
 @timeit
-def trainPeakBotModel(trainInstancesPath, logBaseDir, modelName = None, valInstancesPath = None, addValidationInstances = None, everyNthEpoch = -1, verbose = False):
+def trainPeakBotMRMModel(trainInstancesPath, logBaseDir, modelName = None, valInstancesPath = None, addValidationInstances = None, everyNthEpoch = -1, verbose = False):
     tic("pbTrainNewModel")
 
     ## name new model
@@ -393,7 +388,7 @@ def trainPeakBotModel(trainInstancesPath, logBaseDir, modelName = None, valInsta
     logger = tf.keras.callbacks.CSVLogger(os.path.join(logDir, "clog.tsv"), separator="\t")
 
     if verbose:
-        print("Training new PeakBot model")
+        print("Training new PeakBotMRM model")
         print("  | Model name is '%s'"%(modelName))
         print("  | .. config is")
         print(Config.getAsStringFancy().replace(";", "\n"))
@@ -445,7 +440,7 @@ def trainPeakBotModel(trainInstancesPath, logBaseDir, modelName = None, valInsta
             print("  |")
 
     ## instanciate a new model and set its parameters
-    pb = PeakBot(modelName)
+    pb = PeakBotMRM(modelName)
     pb.buildTFModel(mode="training", verbose = verbose)
 
     ## train the model
@@ -491,7 +486,7 @@ def trainPeakBotModel(trainInstancesPath, logBaseDir, modelName = None, valInsta
 
 
 def loadModel(modelPath, mode, verbose = True):
-    pb = PeakBot("")
+    pb = PeakBotMRM("")
     pb.buildTFModel(mode=mode, verbose = verbose)
     pb.loadFromFile(modelPath)
     return pb
@@ -502,12 +497,12 @@ def loadModel(modelPath, mode, verbose = True):
 
 
 @timeit
-def runPeakBot(instances, modelPath = None, model = None, verbose = True):
-    tic("detecting with peakbot")
+def runPeakBotMRM(instances, modelPath = None, model = None, verbose = True):
+    tic("detecting with PeakBotMRM")
 
     if verbose:
-        print("Detecting peaks with PeakBot")
-        print("  | .. loading PeakBot model '%s'"%(modelPath))
+        print("Detecting peaks with PeakBotMRM")
+        print("  | .. loading PeakBotMRM model '%s'"%(modelPath))
 
     pb = model
     if model is None and modelPath is not None:
@@ -540,12 +535,12 @@ def integrateArea(eic, rts, start, end, method = "linear"):
 
 
 @timeit
-def evaluatePeakBot(instancesWithGT, modelPath = None, model = None, verbose = True):
-    tic("detecting with peakbot")
+def evaluatePeakBotMRM(instancesWithGT, modelPath = None, model = None, verbose = True):
+    tic("detecting with PeakBotMRM")
 
     if verbose:
-        print("Evaluating peaks with PeakBot")
-        print("  | .. loading PeakBot model '%s'"%(modelPath))
+        print("Evaluating peaks with PeakBotMRM")
+        print("  | .. loading PeakBotMRM model '%s'"%(modelPath))
 
     pb = model
     if model is None and modelPath is not None:
@@ -708,7 +703,9 @@ def loadChromatograms(substances, integrations, samplesPath, expDir, loadFromPic
                     if entry.get_element_by_name("collision-induced dissociation") is not None:
                         collisionType = "collision-induced dissociation"
 
-                    chrom = [(time, intensity) for time, intensity in entry.peaks()]
+                    rts = np.array([time for time, intensity in entry.peaks()])
+                    eic = np.array([intensity for time, intensity in entry.peaks()])
+                    chrom = {"rts": rts, "eic": eic}
 
                     allChannels.append([Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionType, entry.ID, chrom])
 
