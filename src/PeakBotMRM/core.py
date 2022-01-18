@@ -306,14 +306,6 @@ def parseTSVMultiLineHeader(fi, headerRowCount=1, delimiter = "\t", commentChar 
 
 
 
-def scaleStandardizedEIC(eicS, rtsS, scaleToOne = True, removeConstantOffset = True):
-    if np.sum(eicS) > 0:
-        if removeConstantOffset:
-            eicS = eicS - np.min(eicS)
-        if scaleToOne:
-            eicS = eicS / np.max(eicS)
-    
-    return eicS
 
 def extractStandardizedEIC(eic, rts, refRT, scaleToOne = True, removeConstantOffset = True):
     ## Find best rt-reference match and extract EIC as standardized EIC around that rt
@@ -326,8 +318,6 @@ def extractStandardizedEIC(eic, rts, refRT, scaleToOne = True, removeConstantOff
         cPos = temp + i
         if 0 <= cPos < len(rts):
             rtsS[i], eicS[i] = rts[cPos], eic[cPos]
-    
-    eicS = scaleStandardizedEIC(eicS, rtsS, scaleToOne, removeConstantOffset)
     
     return rtsS, eicS
 

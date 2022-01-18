@@ -92,6 +92,7 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
                 "inte.peak"    : np.zeros((len(integrations[substance]), PeakBotMRM.Config.NUMCLASSES), dtype=int),
                 "inte.rtInds"  : np.zeros((len(integrations[substance]), 2), dtype=float),
                 }
+        truth = np.zeros((4))
         agreement = np.zeros((4))
         
         for samplei, sample in enumerate(integrations[substance].keys()):
@@ -145,13 +146,14 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
                                                     inte["rtstart"], 
                                                     inte["rtend"])
                     
-                ## test if eic has detected signals                
-                ppeakType = np.argmax(ppeakTypes[samplei,:])
-                ppeakType = ppeakType == 0
+                ## test if eic has detected signals
+                ppeakType = ppeakTypes[samplei] == 0
                 prtStartInd = round(prtStartInds[samplei])
                 prtEndInd = round(prtEndInds[samplei])
                 prtStart = rtsS[min(PeakBotMRM.Config.RTSLICES-1, max(0, prtStartInd))]
                 prtEnd = rtsS[min(PeakBotMRM.Config.RTSLICES-1, max(0, prtEndInd))]
+                truth[0] = truth[0] + (1 if peakType else 0)
+                truth[3] = truth[3] + (1 if not peakType else 0)
                 agreement[0] = agreement[0] + (1 if peakType and ppeakType else 0)
                 agreement[1] = agreement[1] + (1 if peakType and not ppeakType else 0)
                 agreement[2] = agreement[2] + (1 if not peakType and ppeakType else 0)
@@ -161,11 +163,11 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
                 inte["pred.rtend"] = prtEnd
                 inte["pred.foundPeak"] = ppeakType
                 if inte["pred.foundPeak"]:
-                    inte["pred.area"] = PeakBotMRM.integrateArea(eic, rts, prtStart, prtEnd, method = "linear")
+                    inte["pred.area"] = PeakBotMRM.integrateArea(eic, rts, prtStart, prtEnd, method = "linearBetweenBorders")
                 else:
                     inte["pred.area"] = -1
                 if bestRTStart > 0:
-                    inte["area."] = PeakBotMRM.integrateArea(eic, rts, bestRTStart, bestRTEnd, method = "linear")
+                    inte["area."] = PeakBotMRM.integrateArea(eic, rts, bestRTStart, bestRTEnd, method = "linearBetweenBorders")
                 else:
                     inte["area."] = -1
                 
@@ -267,15 +269,15 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
                 ax.set(xlabel = 'time (min)', ylabel = 'abundance')
             for ax in [ax9, ax10, ax11, ax12]:
                 ax.set_ylim(-0.1, 1.1)
-            ax1.set_title('Integration peak\nPrediciton peak', loc="left")
-            ax2.set_title('Integration peak\nPrediction no peak', loc="left")
-            ax3.set_title('Integration no peak\nPrediction peak', loc="left")
-            ax4.set_title('Integration no peak\nPrediction no peak', loc="left")
+            total = agreement[0] + agreement[1] + agreement[2] + agreement[3]
+            ax1.set_title('Integration peak\nPrediciton peak\n%d (%.1f%%, integration %.1f%%)'%(agreement[0], agreement[0]/total*100, truth[0]/total*100), loc="left")
+            ax2.set_title('Integration peak\nPrediction no peak\n%d (%.1f%%)'%(agreement[1], agreement[1]/total*100), loc="left")
+            ax3.set_title('Integration no peak\nPrediction peak\n%d (%.1f%%)'%(agreement[2], agreement[2]/total*100), loc="left")
+            ax4.set_title('Integration no peak\nPrediction no peak\n%d (%.1f%%, integration %.1f%%)'%(agreement[3], agreement[3]/total*100, truth[3]/total*100), loc="left")
             fig.suptitle('%s\n%s\n%s\nGreen EIC and area: prediction; black EIC: manual integration; grey EIC: standardized EIC; light grey EIC: raw data'%(substance, substances[substance]["PeakForm"] + "; " + substances[substance]["Rt shifts"] + "; " + substances[substance]["Note"], "; ".join("%s: %.4g"%(k, v) for k, v in metricsTable[substance].items())), fontsize=14)
 
             plt.tight_layout()
             fig.savefig(os.path.join(expDir, "SubstanceFigures","%s.png"%substance), dpi = 600)
-            print("  | .. plotted substance '%s'"%(substance))
             plt.close(fig)
     print("\n")
 

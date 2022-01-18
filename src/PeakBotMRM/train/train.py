@@ -1,6 +1,6 @@
 from PeakBotMRM.core import tic, toc, tocP, tocAddStat, addFunctionRuntime, timeit, printRunTimesSummary
 import PeakBotMRM
-from PeakBotMRM.core import readTSVFile, parseTSVMultiLineHeader, extractStandardizedEIC, scaleStandardizedEIC, getInteRTIndsOnStandardizedEIC
+from PeakBotMRM.core import readTSVFile, parseTSVMultiLineHeader, extractStandardizedEIC, getInteRTIndsOnStandardizedEIC
 
 import os
 import pathlib
@@ -161,22 +161,6 @@ def splitDSinto(path, newDS1Path = None, newDS2Path = None, ratioDS1 = 0.3, inst
         print("  | .. %s %d files from the dataset '' (now %d instances) to the new dataset ''"%("copied" if copy else "moved", cur, path, newDS1Path))
         if newDS2Path is not None:
             print("  | .. %s remaining instances to '%s'"%("copied" if copy else "moved", newDS2Path))
-
-def splitDSAccordingToClass(path, newDS1Path, newDS2Path, instancePrefix = None, copy = True, verbose = False):
-    
-    if newDS1Path is not None:
-        pathlib.Path(newDS1Path).mkdir(parents=True, exist_ok=True) 
-    if newDS2Path is not None:
-        pathlib.Path(newDS2Path).mkdir(parents=True, exist_ok=True) 
-
-    if instancePrefix is None:
-        instancePrefix = PeakBotMRM.Config.INSTANCEPREFIX
-
-    files = [os.path.join(path, f) for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
-
-    for fil in files:
-        pass
-    ## TODO finish function
 
 
 def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFile, expDir = None, logDir = None, historyObject = None,
@@ -388,7 +372,16 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
                                 eicS[rtsS < inte["rtstart"]] = 0
                                 eicS[rtsS > inte["rtend"]] = 0
                                 apexRT = rtsS[np.argmax(eicS)]
-                                artificialRTShift = apexRT - refRT + np.random.rand(1) * 2 * maxShift - maxShift
+
+                                if False:
+                                    ## option 1: just shift chromatographic peak randomly in a constant window
+                                    artificialRTShift = apexRT - refRT + np.random.rand(1) * 2 * maxShift - maxShift
+                                else:
+                                    ## option 2: shift according to peak boundaries
+                                    widthConstraint = 0.8 ## use entire chrom. peak width (=1) or less (0..1)
+                                    width = (inte["rtend"] - inte["rtstart"]) * widthConstraint
+                                    startRT = inte["rtstart"] + (1 - widthConstraint) / 2. * (inte["rtend"] - inte["rtstart"])
+                                    artificialRTShift = startRT + width * np.random.rand(1) - refRT
                             else:
                                 artificialRTShift = np.random.rand(1) * 2 * maxShift - maxShift
                         
@@ -412,8 +405,6 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
                             
                             ## add noise on top of EIC
                             eicS = eicS + np.random.rand(eicS.shape[0]) * maxNoiseLevelAdd
-                            
-                            eicS = scaleStandardizedEIC(eicS, rtsS)
                         
                         ## test if eic has detected signals
                         if np.sum(eicS) > 0 and np.all(eicS >= 0):
@@ -487,9 +478,6 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
         PeakBotMRM.train.splitDSinto(instanceDir, 
                                      newDS1Path = tempTrainDir, newDS2Path = tempValDir, 
                                      copy = True, ratioDS1 = 0.7, verbose = False)
-        PeakBotMRM.train.splitDSAccordingToClass(instanceDir, 
-                                                 newDS1Path = tempTrainDir, newDS2Path = tempValDir, 
-                                                 copy = True, verbose = False)
         
         nTrainBatches = len([f for f in os.listdir(tempTrainDir) if os.path.isfile(os.path.join(tempTrainDir, f))])
         nValBatches = len([f for f in os.listdir(tempValDir) if os.path.isfile(os.path.join(tempValDir, f))])         

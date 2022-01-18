@@ -1,4 +1,6 @@
 import logging
+import traceback
+import warnings
 
 from .core import *
 
@@ -31,8 +33,7 @@ class Config(object):
     VERSION = "0.9"
 
     RTSLICES       = 256   ## should be of 2^n
-    NUMCLASSES     =   2   ## [isFullPeak, hasCoelutingPeakLeftAndRight, hasCoelutingPeakLeft, hasCoelutingPeakRight, isWall, isBackground]
-    FIRSTNAREPEAKS =   1   ## specifies which of the first n classes represent a chromatographic peak (i.e. if classes 0,1,2,3 represent a peak, the value for this parameter must be 4)
+    NUMCLASSES     =   2   ## [chromatographicPeak, noPeak]
 
     BATCHSIZE      =  16
     STEPSPEREPOCH  =  8
@@ -139,7 +140,6 @@ def dataGenerator(folder, instancePrefix = None, verbose=False):
     ite = 0
     while os.path.isfile(os.path.join(folder, "%s%d.pickle"%(instancePrefix, ite))):
         l = pickle.load(open(os.path.join(folder, "%s%d.pickle"%(instancePrefix, ite)), "rb"))
-        assert all(np.amax(l["channel.int"], (1)) == 1), "EIC is not scaled to a maximum of 1 '%s'"%(str(np.amax(l["channel.int"], (1))))
         yield l
         ite += 1
 
@@ -252,17 +252,31 @@ class PeakBotMRM():
             print("  | ")
 
         ## Input: Only LC-HRMS area
-        eic = tf.keras.Input(shape=(self.rts, 1), name="channel.int")
-        inputs.append(eic)   
+        eic = tf.keras.Input(shape=(Config.RTSLICES), name="channel.int")
+        inputs.append(eic)
+        
+        if verbose:
+            print("  | .. Inputs")
+            print("  | .. .. channel.int is", eic)
+
+        ## Normalize and scale EIC (remove constant baseline and scale to a maximum intensity value of 1)
+        minVal = tf.math.reduce_min(eic, axis=1)
+        minVal = tf.expand_dims(minVal, axis=-1)
+        minVal = tf.repeat(minVal, repeats=[Config.RTSLICES], axis=1)
+        eic = tf.math.subtract(eic, minVal)
+
+        maxVal = tf.math.reduce_max(eic, axis=1)
+        maxVal = tf.where(maxVal == 0, tf.ones_like(maxVal), maxVal)
+        maxVal = tf.expand_dims(maxVal, axis=-1)
+        maxVal = tf.repeat(maxVal, repeats=[Config.RTSLICES], axis=1)
+        eic = tf.math.divide(eic, maxVal)
+
+        ## add "virtual" channel to the EICs for the convolutions
+        eic = tf.expand_dims(eic, axis=-1)
+
+        ## setup convolutions
         x = eic
-
         for i in range(len(uNetLayerSizes)):
-            #x = tf.keras.layers.ZeroPadding1D(padding=1)(x)
-            #x = tf.keras.layers.Conv1D(uNetLayerSizes[i], (3), use_bias=False)(x)
-            #x = tf.keras.layers.BatchNormalization()(x)
-            #x = tf.keras.layers.Activation("relu")(x)
-            #x = tf.keras.layers.MaxPool1D((2))(x)
-
             x = tf.keras.layers.ZeroPadding1D(padding=2)(x)
             x = tf.keras.layers.Conv1D(uNetLayerSizes[i], (5), use_bias=False, activation="relu")(x)
             x = tf.keras.layers.BatchNormalization()(x)
@@ -277,17 +291,16 @@ class PeakBotMRM():
         ## Intermediate layer and feature properties (indices and borders)
         fx = tf.keras.layers.Flatten()(x)
         
+        ## Predictions
         peaks  = tf.keras.layers.Dense(Config.NUMCLASSES, activation="sigmoid", name="pred.peak")(fx)
         outputs.append(peaks)
         rtInds = tf.keras.layers.Dense(2, activation="relu", name="pred.rtInds")(fx)
         outputs.append(rtInds)
-        
+    
         pred = tf.keras.layers.Concatenate(axis=1, name="pred")([peaks, rtInds])
         outputs.append(pred)
         
         if verbose:
-            print("  | .. Inputs")
-            print("  | .. .. channel.int is", eic)
             print("  | .. Unet layers are")
             print("  | .. .. [%s]"%(", ".join(str(u) for u in uNetLayerSizes)))
             print("  |")
@@ -312,7 +325,7 @@ class PeakBotMRM():
             "pred.rtInds": None, 
             "pred": 1/200 }
         metrics = {
-            "pred.peak": ["categorical_accuracy", tfa.metrics.MatthewsCorrelationCoefficient(num_classes=2)], 
+            "pred.peak": ["categorical_accuracy", tfa.metrics.MatthewsCorrelationCoefficient(num_classes=2), accuracy4Peaks, accuracy4NonPeaks], 
             "pred.rtInds": ["MSE"], 
             "pred": [CCAPeaks, MSERtInds, MSERtIndsPeaks, EICIOU, EICIOUPeaks] }
         
@@ -474,6 +487,46 @@ def trainPeakBotMRMModel(trainInstancesPath, logBaseDir, modelName = None, valIn
 
 
 
+@timeit
+def integrateArea(eic, rts, start, end, method = "linearBetweenBorders"):
+    startInd = np.argmin([abs(r-start) for r in rts])
+    endInd = np.argmin([abs(r-end) for r in rts])
+
+    if end <= start:
+        warnings.warn("Warning in peak area calculation: start and end rt of peak are incorrect (start %.2f, end %.2f). An area of 0 will be returned."%(start, end), RuntimeWarning)
+        return 0
+
+
+    area = 0
+    if method.lower() in ["linearbetweenborders", "linear"]:
+        if (rts[endInd]-rts[startInd]) == 0:
+            warnings.warn("Warning in peak area calculation: division by 0 (startInd %.2f, endInd %.2f). An area of 0 will be returned."%(startInd, endInd), RuntimeWarning)
+            return 0
+
+        minV = min(eic[startInd], eic[endInd])
+        maxV = max(eic[startInd], eic[endInd])
+        for i in range(startInd, endInd+1):
+            area = area + eic[i] - ((rts[i]-rts[startInd])/(rts[endInd]-rts[startInd]) * (maxV - minV) + minV)
+
+    elif method.lower() in ["all"]:
+        for i in range(startInd, endInd+1):
+            area = area + eic[i]
+
+    elif method.lower() in ["minbetweenborders"]:
+        minV = np.Inf
+        for i in range(startInd, endInd+1):
+            minV = np.min(minV, eic[i])
+            area = area + eic[i]
+        area = area - minV * (endInd - startInd + 1)
+
+    else:
+        raise RuntimeError("Unknown integration method")
+
+    
+    return area
+
+
+
 
 
 
@@ -493,9 +546,6 @@ def loadModel(modelPath, mode, verbose = True):
 
 
 
-
-
-
 @timeit
 def runPeakBotMRM(instances, modelPath = None, model = None, verbose = True):
     tic("detecting with PeakBotMRM")
@@ -507,30 +557,13 @@ def runPeakBotMRM(instances, modelPath = None, model = None, verbose = True):
     pb = model
     if model is None and modelPath is not None:
         model = loadModel(modelPath, mode = "predict")
-
-    assert all(np.amax(instances["channel.int"], (1)) <= 1), "channel.int is not scaled to a maximum of 1 '%s'"%(str(np.amax(instances["channel.int"], (1))))
     
     pred = pb.model.predict(instances["channel.int"], verbose = verbose)
-    peakTypes = pred[0]
+    peakTypes = np.argmax(pred[0], axis=1)
     rtStartInds = pred[1][:,0]
     rtEndInds = pred[1][:,1]
 
     return peakTypes, rtStartInds, rtEndInds
-
-
-
-@timeit
-def integrateArea(eic, rts, start, end, method = "linear"):
-    startInd = np.argmin([abs(r-start) for r in rts])
-    endInd = np.argmin([abs(r-end) for r in rts])
-
-    area = 0
-    if method == "linear":
-        for i in range(startInd, endInd+1):
-            area = area + eic[i] - ((rts[i]-rts[startInd])/(rts[endInd]-rts[startInd]) * (max(eic[startInd], eic[endInd]) - min(eic[startInd], eic[endInd])) + min(eic[startInd], eic[endInd]))
-    
-    return area
-
 
 
 
@@ -545,8 +578,6 @@ def evaluatePeakBotMRM(instancesWithGT, modelPath = None, model = None, verbose 
     pb = model
     if model is None and modelPath is not None:
         pb = loadModel(modelPath, mode = "training")
-
-    assert all(np.amax(instancesWithGT["channel.int"], (1)) <= 1), "channel.int is not scaled to a maximum of 1 '%s'"%(str(np.amax(instancesWithGT["channel.int"], (1))))
     
     x = {"channel.int": instancesWithGT["channel.int"]}
     y = {"pred"  : np.hstack((instancesWithGT["inte.peak"], instancesWithGT["inte.rtInds"], instancesWithGT["channel.int"])), "pred.peak": instancesWithGT["inte.peak"], "pred.rtInds": instancesWithGT["inte.rtInds"]}
@@ -594,15 +625,16 @@ def loadTargets(targetFile, excludeSubstances = None, includeSubstances = None):
                         "Rt shifts": substance["RT shifts"],
                         "Note"     : substance["Note"],
                         "Pola"     : substance["Ion Polarity"],
-                        "ColE"     : None}) for substance in substances if substance["Name"] not in excludeSubstances and (includeSubstances is None or substance["Name"] in includeSubstances))
+                        "CE"       : None,
+                        "CET"      : None}) for substance in substances if substance["Name"] not in excludeSubstances and (includeSubstances is None or substance["Name"] in includeSubstances))
                 ##TODO include collisionEnergy here
     print("  | .. loaded %d substances"%(len(substances)))
     print("  | .. of these %d have RT shifts"%(sum((1 if substance["Rt shifts"]!="" else 0 for substance in substances.values()))))
     print("  | .. of these %d have abnormal peak forms"%(sum((1 if substance["PeakForm"]!="" else 0 for substance in substances.values()))))
     print("\n")
-    # targets: [{'Name': 'Valine', 'Q1': 176.0, 'Q3': 116.0, 'RT': 1.427}, ...]
 
     return substances
+
 
 
 def loadIntegrations(substances, curatedPeaks):
@@ -657,7 +689,6 @@ def loadIntegrations(substances, curatedPeaks):
 
 
  
-
 def loadChromatograms(substances, integrations, samplesPath, expDir, loadFromPickleIfPossible = True,
                         allowedMZOffset = 0.05, MRMHeader = "- SRM SIC Q1=(\\d+[.]\\d+) Q3=(\\d+[.]\\d+) start=(\\d+[.]\\d+) end=(\\d+[.]\\d+)"):
     ## load chromatograms
@@ -673,6 +704,7 @@ def loadChromatograms(substances, integrations, samplesPath, expDir, loadFromPic
         print("  | .. This might take a couple of minutes as all samples/integrations/channels/etc. need to be compared and the current implementation are 4 sub-for-loops")
         for sample in tqdm.tqdm(samples, desc="  | .. importing"):
             sampleName = os.path.basename(sample)
+            print("\nsample", sampleName)
             sampleName = sampleName[:sampleName.rfind(".")]
             usedSamples.add(sampleName)
 
@@ -686,6 +718,8 @@ def loadChromatograms(substances, integrations, samplesPath, expDir, loadFromPic
                 if isinstance(entry, pymzml.spec.Chromatogram) and entry.ID.startswith("- SRM"):
                     m = re.match(MRMHeader, entry.ID)
                     Q1, Q3, rtstart, rtend = float(m.group(1)), float(m.group(2)), float(m.group(3)), float(m.group(4))
+
+                    assert rtstart < rtend, "Error: start of XIC is not before its end"
 
                     polarity = None
                     if entry.get_element_by_name("negative scan") is not None:
@@ -702,6 +736,8 @@ def loadChromatograms(substances, integrations, samplesPath, expDir, loadFromPic
                     collisionType = None
                     if entry.get_element_by_name("collision-induced dissociation") is not None:
                         collisionType = "collision-induced dissociation"
+                    if collisionType == "collision-induced dissociation":
+                        collisionType = "CID"
 
                     rts = np.array([time for time, intensity in entry.peaks()])
                     eic = np.array([intensity for time, intensity in entry.peaks()])
@@ -713,22 +749,29 @@ def loadChromatograms(substances, integrations, samplesPath, expDir, loadFromPic
             for i, (Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionType, entryID, chrom) in enumerate(allChannels):
                 usedChannel = []
                 useChannel = True
-                ## test if channel is unique ## TODO include collisionEnergy here as well
+                ## test if channel is unique
                 for bi, (bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionType, bentryID, bchrom) in enumerate(allChannels):
-                    if i != bi:
+                    if i != bi:  ## correct, cannot be optimized as both channels (earlier and later) shall not be used in case of a collision
                         if abs(Q1 - bq1) <= allowedMZOffset and abs(Q3 - bq3) <= allowedMZOffset and \
-                            polarity == bpolarity and collisionType == bcollisionType:# TODO include collisionEnergy test here and collisionEnergy == bcollisionEnergy:
+                            ((rtstart <= brtstart <= rtend) or (rtstart <= brtend <= rtend)) and \
+                            polarity == bpolarity and \
+                            collisionType == bcollisionType: # TODO include collisionEnergy test here:
                             useChannel = False
                             unusedChannels.append(entryID)
+                            print("Problematic channel combination found. Both will be skipped (TODO implement CE reference from the reference data)")
+                            print("  channel     Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, pol '%10s', CE %5.1f, Method '%s', Header '%s'"%(Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionType, entryID))
+                            print("  problematic Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, pol '%10s', CE %5.1f, Method '%s', Header '%s'"%(bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionType, bentryID))
+                            print("")
                 
                 ## use channel if it is unique and find the integrated substance(s) for it
                 if useChannel:
-                    for substance in substances.values(): ## TODO include collisionEnergy check here
-                        if abs(substance["Q1"] - Q1) < allowedMZOffset and abs(substance["Q3"] - Q3) <= allowedMZOffset and rtstart <= substance["RT"] <= rtend:
+                    for substance in substances.values(): ## TODO include collisionEnergy and collisionMethod checks here
+                        if abs(substance["Q1"] - Q1) < allowedMZOffset and abs(substance["Q3"] - Q3) <= allowedMZOffset and \
+                            rtstart <= substance["RT"] <= rtend:
                             if substance["Name"] in integrations.keys() and sampleName in integrations[substance["Name"]].keys():
                                 foundTargets.append([substance, entry, integrations[substance["Name"]][sampleName]])
                                 usedChannel.append(substance)
-                                integrations[substance["Name"]][sampleName]["chrom"].append(["%s (%s mode, %s with %.1f energy)"%(entryID, polarity, collisionType, collisionEnergy), 
+                                integrations[substance["Name"]][sampleName]["chrom"].append(["%s (%s mode, %s with %.1f CE)"%(entryID, polarity, collisionType, collisionEnergy), 
                                                                                             Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionType, entryID, chrom])
         
 
@@ -750,6 +793,7 @@ def loadChromatograms(substances, integrations, samplesPath, expDir, loadFromPic
             remSubstancesChannelProblems.add(substance)
     if len(remSubstancesChannelProblems):
         print("  | .. %d substances (%s) were not found as the channel selection was ambiguous. These will not be used further"%(len(remSubstancesChannelProblems), ", ".join(sorted(remSubstancesChannelProblems))))
+        print("  | .. ATTENTION: CE and CET are not yet available (as the reference does not specify these values). Thus, some of the reference compounds cannot be used due to ambiguous channel selection")
         for r in remSubstancesChannelProblems:
             del integrations[r]
     
