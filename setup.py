@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='PeakBotMRM',
-    version='0.4.6',
+    version='0.5.0',
     author='Christoph Bueschl',
     author_email='christoph.bueschl [the little email symbol] univie.ac.at',
     packages=find_packages(),#['peakbot', 'peakbot.train'],
@@ -17,18 +17,19 @@ setup(
         "tensorflow_addons == 0.15.0",
 
         ## other main function libraries
+        "numpy == 1.19.5", 
         "numba == 0.53.1",
-        "pandas == 1.2.3",
-        "matplotlib >= 3.4.2",
-        "plotnine >= 0.8.0",
+        "pandas",
+        "matplotlib",
+        "plotnine",
 
         ## handling of LC-MS data
-        "pymzml == 2.5.0", 
+        "pymzml", 
 
         ## other libraries
-        "tqdm >= 4.61.2",
-        "natsort >= 7.1.1",    
-        "py-cpuinfo >= 8.0.0",
-        "psutil == 5.9.0"
+        "tqdm",
+        "natsort",    
+        "py-cpuinfo",
+        "psutil"
     ],
 )

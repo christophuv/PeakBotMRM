@@ -258,7 +258,11 @@ class PeakBotMRM():
         if verbose:
             print("  | .. Inputs")
             print("  | .. .. channel.int is", eic)
-
+            print("  |")
+            print("  | .. Pre-processing")
+            print("  | .. .. each eic is baseline corrected (signal with minimum abundance) and afterwards scaled to 1 (signal with maximum abundance)")
+            print("  | ")
+        
         ## Normalize and scale EIC (remove constant baseline and scale to a maximum intensity value of 1)
         minVal = tf.math.reduce_min(eic, axis=1)
         minVal = tf.expand_dims(minVal, axis=-1)
