@@ -262,6 +262,9 @@ class PeakBotMRM():
             print("  | .. .. channel.int is", eic)
             print("  | .. .. min/max values", eicValMin)
             print("  |")
+            print("  | .. Pre-processing")
+            print("  | .. .. each eic is baseline corrected (signal with minimum abundance) and afterwards scaled to 1 (signal with maximum abundance)")
+            print("  | ")
         
         ## Normalize and scale EIC (remove constant baseline and scale to a maximum intensity value of 1)
         minVal = eicValMin
