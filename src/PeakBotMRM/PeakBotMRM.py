@@ -36,15 +36,15 @@ class Config(object):
     NUMCLASSES     =   2   ## [chromatographicPeak, noPeak]
 
     BATCHSIZE      =  16
-    STEPSPEREPOCH  =  8
-    EPOCHS         =  300
+    STEPSPEREPOCH  =   8
+    EPOCHS         = 300
 
-    DROPOUT        = 0.1
+    DROPOUT        = 0.2
     UNETLAYERSIZES = [32,64,128,256]
 
-    LEARNINGRATESTART              = 0.001
+    LEARNINGRATESTART              = 0.005
     LEARNINGRATEDECREASEAFTERSTEPS = 5
-    LEARNINGRATEMULTIPLIER         = 0.9
+    LEARNINGRATEMULTIPLIER         = 0.96
     LEARNINGRATEMINVALUE           = 3e-17
 
     INSTANCEPREFIX = "___PBsample_"
@@ -254,28 +254,35 @@ class PeakBotMRM():
         ## Input: Only LC-HRMS area
         eic = tf.keras.Input(shape=(Config.RTSLICES), name="channel.int")
         inputs.append(eic)
+        eicValMin = tf.expand_dims(tf.math.reduce_min(eic, axis=1), axis=-1)
+        eicValMax = tf.expand_dims(tf.math.reduce_max(eic, axis=1), axis=-1)
         
         if verbose:
             print("  | .. Inputs")
             print("  | .. .. channel.int is", eic)
-
+            print("  | .. .. min/max values", eicValMin)
+            print("  |")
+        
         ## Normalize and scale EIC (remove constant baseline and scale to a maximum intensity value of 1)
-        minVal = tf.math.reduce_min(eic, axis=1)
-        minVal = tf.expand_dims(minVal, axis=-1)
+        minVal = eicValMin
         minVal = tf.repeat(minVal, repeats=[Config.RTSLICES], axis=1)
         eic = tf.math.subtract(eic, minVal)
 
-        maxVal = tf.math.reduce_max(eic, axis=1)
-        maxVal = tf.where(maxVal == 0, tf.ones_like(maxVal), maxVal)
-        maxVal = tf.expand_dims(maxVal, axis=-1)
+        maxVal = tf.where(eicValMax == 0, tf.ones_like(eicValMax), eicValMax)
         maxVal = tf.repeat(maxVal, repeats=[Config.RTSLICES], axis=1)
         eic = tf.math.divide(eic, maxVal)
+        
+        if verbose:            
+            print("  | .. Preprocessing")
+            print("  | .. .. normalization and scaling (for each standardized EIC: 1) subtraction of minimum value; 2) division by maximum value")
+            print("  |")
 
-        ## add "virtual" channel to the EICs for the convolutions
+        ## add "virtual" channel to the EICs as required by the convolutions
         eic = tf.expand_dims(eic, axis=-1)
 
         ## setup convolutions
         x = eic
+        print("bofore: x is", x)
         for i in range(len(uNetLayerSizes)):
             x = tf.keras.layers.ZeroPadding1D(padding=2)(x)
             x = tf.keras.layers.Conv1D(uNetLayerSizes[i], (5), use_bias=False, activation="relu")(x)
@@ -285,15 +292,18 @@ class PeakBotMRM():
             x = tf.keras.layers.Conv1D(uNetLayerSizes[i], (3), use_bias=False, activation="relu")(x)
             x = tf.keras.layers.BatchNormalization()(x)
 
-            x = tf.keras.layers.AveragePooling1D((2))(x)
+            x = tf.keras.layers.MaxPooling1D((2))(x)
             x = tf.keras.layers.Dropout(dropOutRate)(x)
 
-        ## Intermediate layer and feature properties (indices and borders)
-        fx = tf.keras.layers.Flatten()(x)
+        ## Intermediate layer
+        x = tf.keras.layers.BatchNormalization()(x)
+        x = tf.keras.layers.Flatten()(x)
         
         ## Predictions
+        fx = x        
         peaks  = tf.keras.layers.Dense(Config.NUMCLASSES, activation="sigmoid", name="pred.peak")(fx)
         outputs.append(peaks)
+        
         rtInds = tf.keras.layers.Dense(2, activation="relu", name="pred.rtInds")(fx)
         outputs.append(rtInds)
     
@@ -323,7 +333,7 @@ class PeakBotMRM():
         lossWeights = {
             "pred.peak": 1, 
             "pred.rtInds": None, 
-            "pred": 1/200 }
+            "pred": 1/1000 }
         metrics = {
             "pred.peak": ["categorical_accuracy", tfa.metrics.MatthewsCorrelationCoefficient(num_classes=2), accuracy4Peaks, accuracy4NonPeaks], 
             "pred.rtInds": ["MSE"], 
@@ -474,7 +484,7 @@ def trainPeakBotMRMModel(trainInstancesPath, logBaseDir, modelName = None, valIn
         hist = valDS.history[-1]
         for valInstance in addValidationInstances:
             se = valInstance["name"]
-            for metric in ["loss", "pred_CCAPeaks", "pred.peak_MatthewsCorrelationCoefficient", "pred_MSERtInds", "pred_MSERtIndsPeaks", "pred_EICIOU", "pred_EICIOUPeaks"]:
+            for metric in ["loss", "pred_CCAPeaks", "pred.peak_MatthewsCorrelationCoefficient", "pred_MSERtInds", "pred_MSERtIndsPeaks", "pred_EICIOU", "pred_EICIOUPeaks", "pred.peak_accuracy4Peaks", "pred.peak_accuracy4NonPeaks"]:
                 val = hist[se + "_" + metric]
                 newRow = pd.Series({"model": modelName, "set": se, "metric": metric, "value": val})
                 metricesAddValDS = metricesAddValDS.append(newRow, ignore_index=True)

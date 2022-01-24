@@ -163,7 +163,7 @@ def splitDSinto(path, newDS1Path = None, newDS2Path = None, ratioDS1 = 0.3, inst
             print("  | .. %s remaining instances to '%s'"%("copied" if copy else "moved", newDS2Path))
 
 
-def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFile, expDir = None, logDir = None, historyObject = None,
+def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFile, expDir = None, logDir = None, historyObject = None, removeHistoryObject = False,
                          MRMHeader = "- SRM SIC Q1=(\\d+[.]\\d+) Q3=(\\d+[.]\\d+) start=(\\d+[.]\\d+) end=(\\d+[.]\\d+)",
                          allowedMZOffset = 0.05, drawRawData = False,
                          addRandomNoise = True, maxRandFactor = 0.1, maxNoiseLevelAdd=0.1, shiftRTs = True, maxShift = 0.15, useEachInstanceNTimes = 5, 
@@ -205,10 +205,17 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
 
     ## administrative
     tic("Overall process")
-    try: 
-        os.remove(historyObject)
-    except:
-        pass
+    histAll = None
+    if removeHistoryObject:
+        try: 
+            os.remove(historyObject)
+        except:
+            pass
+    else:
+        try:
+            histAll = pd.read_pickle(historyObject)
+        except: 
+            pass
     try:
         os.mkdir(expDir)
     except:
@@ -217,7 +224,6 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
         os.mkdir(os.path.join(expDir, "SubstanceFigures"))
     except:
         pass        
-    histAll = None
 
 
     substances               = PeakBotMRM.loadTargets(targetFile, excludeSubstances = excludeSubstances, includeSubstances = includeSubstances)
@@ -517,14 +523,13 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
         df = histAll
         df['ID'] = df.model.str.split('_').str[-1]
         df = df[df["metric"]!="loss"]
-        df = df[df["set"]!="eV"]
         plot = (p9.ggplot(df, p9.aes("set", "value", colour="set"))
                 + p9.geom_violin()
-                + p9.geom_jitter()
+                + p9.geom_jitter(height=0)
                 + p9.facet_wrap("~metric", scales="free_y", ncol=2)
                 + p9.scale_x_discrete(limits=["train", "val"])
                 + p9.ggtitle("Training losses/metrics") + p9.xlab("Training/Validation dataset") + p9.ylab("Value")
                 + p9.theme(legend_position = "none", panel_spacing_x=0.5))
         p9.options.figure_size = (5.2,5)
         p9.ggsave(plot=plot, filename=os.path.join(expDir, "fig_SummaryPlot.png"), width=5.2, height=5, dpi=300)
-    print("\n\n\n\n\n")
+    print("\n\n\n")

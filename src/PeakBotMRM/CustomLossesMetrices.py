@@ -162,14 +162,14 @@ def EICIOULoss(dummyX, dummyY, numClasses = None):
     prtInds = dummyY[:, numClasses:(numClasses + 2)]
 
     ## get IOUloss 
-    iou = 1 - _EICIOU(dummyX, dummyY)
+    iouloss = 1 - _EICIOU(dummyX, dummyY)
     ## Only get IOUloss for true peaks integrated and predicted alike
-    iou = tf.where(tf.math.logical_and(tf.math.equal(tf.argmax(peaks, axis=1), tf.argmax(ppeaks, axis=1)), tf.argmax(peaks, axis=1) == 0), iou, tf.zeros_like(iou))
+    iouloss = tf.where(tf.math.logical_and(tf.math.equal(tf.argmax(peaks, axis=1), tf.argmax(ppeaks, axis=1)), tf.argmax(peaks, axis=1) == 0), iouloss, tf.zeros_like(iouloss))
     ## Calculate MSE
     mse = tf.reduce_mean(tf.square(rtInds-prtInds), axis=1)
     ## Combine iou loss with MSE
-    loss = mse * tf.sqrt(tf.abs(iou))
-    loss = tf.where(iou > 0, loss, tf.zeros_like(iou))
+    loss = mse * tf.sqrt(tf.abs(iouloss))
+    loss = tf.where(iouloss > 0, loss, tf.zeros_like(iouloss))
     
     return loss
 
