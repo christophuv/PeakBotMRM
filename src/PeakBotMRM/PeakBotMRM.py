@@ -1,4 +1,5 @@
 import logging
+from tkinter import N
 import traceback
 import warnings
 
@@ -9,6 +10,7 @@ import os
 import pickle
 import uuid
 import re
+import math
 
 import tensorflow as tf
 import tensorflow_addons as tfa
@@ -132,90 +134,139 @@ print("")
 ### Read files from a directory and prepare them
 ### for PeakBotMRM training and prediction
 ##
-def dataGenerator(folder, instancePrefix = None, verbose=False):
-
+def getSizeOfTraningSet(folder, instancePrefix = None, batchSize = None, verbose=False):
     if instancePrefix is None:
         instancePrefix = Config.INSTANCEPREFIX
-
+    if batchSize is None:
+        batchSize = Config.BATCHSIZE
+        
     ite = 0
+    total = 0
     while os.path.isfile(os.path.join(folder, "%s%d.pickle"%(instancePrefix, ite))):
         l = pickle.load(open(os.path.join(folder, "%s%d.pickle"%(instancePrefix, ite)), "rb"))
-        yield l
+        
+        k = l[[k for k in l.keys()][0]]
+        bs = k.shape[0] if isinstance(k, np.ndarray) else len(k)
+        
+        ite += 1
+        total += bs
+    return math.floor(total/batchSize)
+
+def dataGenerator(folder, instancePrefix = None, batchSize = None, verbose=False):
+    if instancePrefix is None:
+        instancePrefix = Config.INSTANCEPREFIX
+    if batchSize is None:
+        batchSize = Config.BATCHSIZE
+
+    ite = 0
+    l = None
+    while os.path.isfile(os.path.join(folder, "%s%d.pickle"%(instancePrefix, ite))):
+        lc = pickle.load(open(os.path.join(folder, "%s%d.pickle"%(instancePrefix, ite)), "rb"))
+        if l is None:
+            l = lc
+        else:
+            for k in lc.keys():
+                if isinstance(l[k], np.ndarray):
+                    if len(l[k].shape)==1:
+                        l[k] = np.concatenate((l[k], lc[k]))
+                    else:
+                        l[k] = np.vstack((l[k], lc[k]))
+
+                elif isinstance(lc[k], list):
+                    l[k] = l[k] + lc[k]
+        
+        k = l[[k for k in l.keys()][0]]
+        bs = k.shape[0] if isinstance(k, np.ndarray) else len(k)
+        
+        while batchSize <= bs and bs > 0:
+            if batchSize > 0:
+                temp = {}
+                for k in list(l.keys()):
+                    if   isinstance(l[k], np.ndarray) and len(l[k].shape)==1:
+                        temp[k] = l[k][0:batchSize]
+                        
+                    if   isinstance(l[k], np.ndarray) and len(l[k].shape)==2:
+                        temp[k] = l[k][0:batchSize,:]
+                        l[k]
+
+                    elif isinstance(l[k], np.ndarray) and len(l[k].shape)==3:
+                        temp[k] = l[k][0:batchSize,:,:]
+
+                    elif isinstance(l[k], np.ndarray) and len(l[k].shape)==4:
+                        temp[k] = l[k][0:batchSize,:,:,:]
+
+                    elif isinstance(l[k], list):
+                        temp[k] = l[k][0:batchSize]
+                    
+                    l[k] = l[k][batchSize:]
+                    if len(l[k]) == 0:
+                        del l[k]
+                
+                if len(l) == 0:
+                    l = None 
+                    bs = 0
+                else:
+                    k = l[[k for k in l.keys()][0]]
+                    bs = k.shape[0] if isinstance(k, np.ndarray) else len(k)
+                
+            else:
+                temp = l
+                bs = 0
+                l = None
+            
+            yield temp
+            temp = None
+            
         ite += 1
 
-def modelAdapterGenerator(datGen, xKeys, yKeys, newBatchSize = None, verbose=False):
-    ite = 0
-    l = next(datGen)
-    while l is not None:
-
-        if verbose and ite == 0:
-            logging.info("  | Generated data is")
-
-            for k, v in l.items():
-                if type(v).__module__ == "numpy":
-                    logging.info("  | .. gt: %18s numpy: %30s %10s"%(k, v.shape, v.dtype))
-                else:
-                    logging.info("  | .. gt: %18s  type:  %40s"%(k, type(v)))
-            logging.info("  |")
-
-        if newBatchSize is not None:
-            for k in l.keys():
-                if   isinstance(l[k], np.ndarray) and len(l[k].shape)==1:
-                    l[k] = l[k][0:newBatchSize]
-                    
-                if   isinstance(l[k], np.ndarray) and len(l[k].shape)==2:
-                    l[k] = l[k][0:newBatchSize,:]
-
-                elif isinstance(l[k], np.ndarray) and len(l[k].shape)==3:
-                    l[k] = l[k][0:newBatchSize,:,:]
-
-                elif isinstance(l[k], np.ndarray) and len(l[k].shape)==4:
-                    l[k] = l[k][0:newBatchSize,:,:,:]
-
-                elif isinstance(l[k], list):
-                    l[k] = l[k][0:newBatchSize]
-
+def modelAdapterGenerator(datGen, xKeys, yKeys, verbose=False):
+    for l in datGen:
         if "channel.int" in l.keys() and "inte.peak" in l.keys() and "inte.rtInds" in l.keys():
             l["pred"] = np.hstack((l["inte.peak"], l["inte.rtInds"], l["channel.int"]))
         x = dict((xKeys[k],v) for k,v in l.items() if k in xKeys.keys())
         y = dict((yKeys[k],v) for k,v in l.items() if k in yKeys.keys())
 
         yield x,y
-        l = next(datGen)
-        ite += 1
 
-def modelAdapterTrainGenerator(datGen, newBatchSize = None, verbose=False):
+def modelAdapterTrainGenerator(datGen, verbose=False):
     temp = modelAdapterGenerator(datGen, 
                                  {"channel.int":"channel.int"}, 
                                  {"pred": "pred", "inte.peak":"pred.peak", "inte.rtInds": "pred.rtInds"},
-                                 newBatchSize, verbose = verbose)
+                                 verbose = verbose)
     return temp
 
-def modelAdapterPredictGenerator(datGen, newBatchSize = None, verbose=False):
+def modelAdapterPredictGenerator(datGen, verbose=False):
     temp = modelAdapterGenerator(datGen, 
                                  {"channel.int":"channel.int"}, 
                                  {}, 
-                                 newBatchSize, verbose = verbose)
+                                 verbose = verbose)
     return temp
 
 
-def convertGeneratorToPlain(gen, numIters=1):
+def convertGeneratorToPlain(gen):
     x = None
     y = None
-    for i, t in enumerate(gen):
-        if i < numIters:
-            if x is None:
-                x = t[0]
-                y = t[1]
-            else:
-                for k in x.keys():
-                    x[k] = np.concatenate((x[k], t[0][k]), axis=0)
-                for k in y.keys():
-                    y[k] = np.concatenate((y[k], t[1][k]), axis=0)
+    for t in gen:
+        if x is None:
+            x = t[0]
+            y = t[1]
         else:
-            break
-    
-    return x,y
+            for k in x.keys():
+                if isinstance(x[k], list):
+                    x[k].append(t[0][k])
+                elif isinstance(x[k], np.ndarray):
+                    x[k] = np.concatenate((x[k], t[0][k]), axis=0)
+                else:
+                    assert False, "Unknown key, aborting"
+            for k in y.keys():
+                if isinstance(y[k], list):
+                    y[k].append(t[1][k])
+                elif isinstance(y[k], np.ndarray):
+                    y[k] = np.concatenate((y[k], t[1][k]), axis=0)
+                else:
+                    assert False, "Unknown key, aborting"
+                        
+    return x, y
 
 
 
@@ -285,7 +336,6 @@ class PeakBotMRM():
 
         ## setup convolutions
         x = eic
-        print("bofore: x is", x)
         for i in range(len(uNetLayerSizes)):
             x = tf.keras.layers.ZeroPadding1D(padding=2)(x)
             x = tf.keras.layers.Conv1D(uNetLayerSizes[i], (5), use_bias=False, activation="relu")(x)
@@ -338,9 +388,9 @@ class PeakBotMRM():
             "pred.rtInds": None, 
             "pred": 1/1000 }
         metrics = {
-            "pred.peak": ["categorical_accuracy", tfa.metrics.MatthewsCorrelationCoefficient(num_classes=2), accuracy4Peaks, accuracy4NonPeaks], 
+            "pred.peak": ["categorical_accuracy", tfa.metrics.MatthewsCorrelationCoefficient(num_classes=2), Accuracy4Peaks(), Accuracy4NonPeaks()],
             "pred.rtInds": ["MSE"], 
-            "pred": [CCAPeaks, MSERtInds, MSERtIndsPeaks, EICIOU, EICIOUPeaks] }
+            "pred": [EICIOUPeaks()] }
         
         self.model.compile(optimizer = tf.keras.optimizers.Adam(learning_rate = Config.LEARNINGRATESTART),
                            loss = losses, 
@@ -348,9 +398,12 @@ class PeakBotMRM():
                            metrics = metrics)
 
     @timeit
-    def train(self, datTrain, datVal, logDir = None, callbacks = None, verbose = True):
-        epochs = Config.EPOCHS
+    def train(self, datTrain, datVal, epochs = None, logDir = None, callbacks = None, verbose = True):
+        
         steps_per_epoch = Config.STEPSPEREPOCH
+        if epochs is None:
+            epochs = Config.EPOCHS * steps_per_epoch
+        epochs = math.floor(epochs / steps_per_epoch)
 
         if verbose:
             print("  | Fitting model on training data")
@@ -430,10 +483,15 @@ def trainPeakBotMRMModel(trainInstancesPath, logBaseDir, modelName = None, valIn
     lrScheduler = tf.keras.callbacks.LearningRateScheduler(lrSchedule, verbose=False)
 
     ## create generators for training data (and validation data if available)
-    datGenTrain = modelAdapterTrainGenerator(dataGenerator(trainInstancesPath, verbose = verbose), newBatchSize = Config.BATCHSIZE, verbose = verbose)
+    datGenTrain = modelAdapterTrainGenerator(dataGenerator(trainInstancesPath, verbose = verbose), verbose = verbose)
+    epochs = getSizeOfTraningSet(trainInstancesPath)
+    if verbose:
+        print("  | .. There are %d training batches available"%(epochs))
+        print("  |")
+    
     datGenVal   = None
     if valInstancesPath is not None:
-        datGenVal = modelAdapterTrainGenerator(dataGenerator(valInstancesPath  , verbose = verbose), newBatchSize = Config.BATCHSIZE, verbose = verbose)
+        datGenVal = modelAdapterTrainGenerator(dataGenerator(valInstancesPath, verbose = verbose), verbose = verbose)
         datGenVal = tf.data.Dataset.from_tensors(next(datGenVal))
 
     ## add additional validation datasets to monitor model performance during the trainging process
@@ -445,20 +503,21 @@ def trainPeakBotMRMModel(trainInstancesPath, logBaseDir, modelName = None, valIn
         if verbose:
             print("  | Additional validation datasets")
         for valInstance in addValidationInstances:
+            tic("addDS")
             x,y = None, None
             if "folder" in valInstance.keys():
                 print("  | .. - adding", valInstance["folder"])
-                datGen  = modelAdapterTrainGenerator(dataGenerator(valInstance["folder"]),
-                                                     newBatchSize = Config.BATCHSIZE)
-                numBatches = valInstance["numBatches"] if "numBatches" in valInstance.keys() else 1
-                x,y = convertGeneratorToPlain(datGen, numBatches)
+                datGen  = modelAdapterTrainGenerator(dataGenerator(valInstance["folder"], batchSize = -1))
+                x, y = convertGeneratorToPlain(datGen)
+                
             if "x" in valInstance.keys():
                 x = valInstance["x"]
                 y = valInstance["y"]
+                
             if x is not None and y is not None and "name" in valInstance.keys():
                 valDS.addValidationSet((x,y, valInstance["name"]))
                 if verbose:
-                    print("  | .. %s: %d instances"%(valInstance["name"], x["channel.int"].shape[0]))
+                    print("  | .. .. %s: %d instances (adding took %.1f sec)"%(valInstance["name"], x["channel.int"].shape[0], toc("addDS")))
 
             else:
                 raise RuntimeError("Unknonw additional validation dataset")
@@ -473,6 +532,7 @@ def trainPeakBotMRMModel(trainInstancesPath, logBaseDir, modelName = None, valIn
     history = pb.train(
         datTrain = datGenTrain,
         datVal   = datGenVal,
+        epochs   = epochs,
 
         logDir = logDir,
         callbacks = [logger, lrScheduler, valDS],
@@ -487,9 +547,9 @@ def trainPeakBotMRMModel(trainInstancesPath, logBaseDir, modelName = None, valIn
         hist = valDS.history[-1]
         for valInstance in addValidationInstances:
             se = valInstance["name"]
-            for metric in ["loss", "pred_CCAPeaks", "pred.peak_MatthewsCorrelationCoefficient", "pred_MSERtInds", "pred_MSERtIndsPeaks", "pred_EICIOU", "pred_EICIOUPeaks", "pred.peak_accuracy4Peaks", "pred.peak_accuracy4NonPeaks"]:
+            for metric, metName in {"loss":"loss", "pred.peak_MatthewsCorrelationCoefficient":"MCC", "pred_EICIOUPeaks":"Area IOU", "pred.peak_Acc4Peaks": "Sensitivity (peaks)", "pred.peak_Acc4NonPeaks": "Specificity (no peaks)", "pred.peak_categorical_accuracy": "Accuracy"}.items():
                 val = hist[se + "_" + metric]
-                newRow = pd.Series({"model": modelName, "set": se, "metric": metric, "value": val})
+                newRow = pd.Series({"model": modelName, "set": se, "metric": metName, "value": val})
                 metricesAddValDS = metricesAddValDS.append(newRow, ignore_index=True)
 
     if verbose:

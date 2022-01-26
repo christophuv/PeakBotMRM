@@ -224,11 +224,12 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
         
         if substance not in metricsTable.keys():
             metricsTable[substance] = {}
-        metricsTable[substance] = {"CCA"        : metrics["pred.peak_categorical_accuracy"], 
-                                   "MCC"        : metrics["pred.peak_MatthewsCorrelationCoefficient"],
-                                   "RtMSE"      : metrics["pred.rtInds_MSE"], 
-                                   "EICIOUPeaks": metrics["pred_EICIOUPeaks"],
-                                   "EICIOU"     : metrics["pred_EICIOU"]}
+        metricsTable[substance] = {"CCA"          : metrics["pred.peak_categorical_accuracy"], 
+                                   "MCC"          : metrics["pred.peak_MatthewsCorrelationCoefficient"],
+                                   "RtMSE"        : metrics["pred.rtInds_MSE"], 
+                                   "EICIOUPeaks"  : metrics["pred_EICIOUPeaks"],
+                                   "Acc4Peaks"    : metrics["pred.peak_Acc4Peaks"],
+                                   "Acc4NonPeaks" : metrics["pred.peak_Acc4NonPeaks"]}
         if substance in integrations.keys():
             intes = []
             intesD = []

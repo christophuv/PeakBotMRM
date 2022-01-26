@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='PeakBotMRM',
-    version='0.5.0',
+    version='0.9.0',
     author='Christoph Bueschl',
     author_email='christoph.bueschl [the little email symbol] univie.ac.at',
     packages=find_packages(),#['peakbot', 'peakbot.train'],

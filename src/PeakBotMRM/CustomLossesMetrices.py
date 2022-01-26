@@ -14,21 +14,44 @@ import tensorflow_addons as tfa
 import numpy as np
 import tensorflow as tf
 
-def accuracy4Peaks(y_true, y_pred):
-    y_pred = tf.one_hot(tf.math.argmax(y_pred, axis=1), depth=tf.shape(y_true)[1])
-    y_true = tf.one_hot(tf.math.argmax(y_true, axis=1), depth=tf.shape(y_true)[1]) 
-    temp = tf.math.reduce_sum(y_pred[:,0] * y_true[:,0]) / tf.math.reduce_sum(y_true[:,0])
-    temp = tf.where(tf.math.is_nan(temp), tf.zeros_like(temp), temp)
-    return temp
 
-def accuracy4NonPeaks(y_true, y_pred):
-    y_pred = tf.one_hot(tf.math.argmax(y_pred, axis=1), depth=tf.shape(y_true)[1])
-    y_true = tf.one_hot(tf.math.argmax(y_true, axis=1), depth=tf.shape(y_true)[1]) 
-    temp = tf.math.reduce_sum(y_pred[:,1] * y_true[:,1]) / tf.math.reduce_sum(y_true[:,1])
-    temp = tf.where(tf.math.is_nan(temp), tf.zeros_like(temp), temp)
-    return temp
+class Accuracy4Peaks(tf.keras.metrics.Metric):
 
+    def __init__(self, name='Acc4Peaks', **kwargs):
+        super(Accuracy4Peaks, self).__init__(name=name, **kwargs)
+        self.true_positives = self.add_weight(name='tp', initializer='zeros', dtype=tf.int32)
+        self.count = self.add_weight(name='counts', initializer='zeros', dtype=tf.int32)
 
+    def update_state(self, y_true, y_pred, sample_weight=None):    
+        y_pred = tf.math.argmax(y_pred, axis=1)
+        y_true = tf.math.argmax(y_true, axis=1)
+        self.true_positives.assign_add(tf.cast(tf.math.reduce_sum(tf.math.count_nonzero(tf.math.logical_and(y_pred == y_true, y_pred == 0))), dtype=tf.int32))
+        self.count.assign_add(tf.cast(tf.math.reduce_sum(tf.math.count_nonzero(y_true == 0)), dtype=tf.int32))
+
+    def result(self):
+        temp = self.true_positives / self.count
+        temp = tf.where(tf.math.is_nan(temp), tf.zeros_like(temp), temp)
+        return temp
+
+class Accuracy4NonPeaks(tf.keras.metrics.Metric):
+
+    def __init__(self, name='Acc4NonPeaks', **kwargs):
+        super(Accuracy4NonPeaks, self).__init__(name=name, **kwargs)
+        self.true_positives = self.add_weight(name='tp', initializer='zeros', dtype=tf.int32)
+        self.count = self.add_weight(name='counts', initializer='zeros', dtype=tf.int32)
+
+    def update_state(self, y_true, y_pred, sample_weight=None):    
+        y_pred = tf.math.argmax(y_pred, axis=1)
+        y_true = tf.math.argmax(y_true, axis=1)
+        self.true_positives.assign_add(tf.cast(tf.math.reduce_sum(tf.math.count_nonzero(tf.math.logical_and(y_pred == y_true, y_pred == 1))), dtype=tf.int32))
+        self.count.assign_add(tf.cast(tf.math.reduce_sum(tf.math.count_nonzero(y_true == 1)), dtype=tf.int32))
+
+    def result(self):
+        temp = self.true_positives / self.count
+        temp = tf.where(tf.math.is_nan(temp), tf.zeros_like(temp), temp)
+        return temp
+        
+    
 
 
 
@@ -98,54 +121,42 @@ def _EICIOU(dummyX, dummyY, numClasses = None):
 
     return iou
 
-@tf.autograph.experimental.do_not_convert
-def EICIOU(dummyX, dummyY, numClasses = None):
-    if numClasses is None:
-        numClasses = PeakBotMRM.Config.NUMCLASSES
-    
-    ## separate user integration and eic
-    peaks   = dummyX[:, 0:numClasses]
-    rtInds  = dummyX[:, numClasses:(numClasses + 2)]
-    eic     = dummyX[:, (numClasses + 2):]
-    
-    ## separate predicted values
-    ppeaks  = dummyY[:, 0:numClasses]
-    prtInds = dummyY[:, numClasses:(numClasses + 2)]
 
-    ## Calculate IOU
-    iou = _EICIOU(dummyX, dummyY)
-    ## set IOU to 0 if gt and prediction of peak do not match
-    iou = tf.where(tf.math.equal(tf.argmax(peaks, axis=1), tf.argmax(ppeaks, axis=1)), iou, tf.zeros_like(iou))
-    ## Calculate IOU only for peaks
-    iou = tf.where(tf.math.logical_and(tf.math.equal(tf.argmax(peaks, axis=1), tf.argmax(ppeaks, axis=1)), tf.argmax(peaks, axis=1) == 0), iou, tf.zeros_like(iou))
-    
-    return iou
+class EICIOUPeaks(tf.keras.metrics.Metric):
 
-@tf.autograph.experimental.do_not_convert
-def EICIOUPeaks(dummyX, dummyY, numClasses = None):
-    if numClasses is None:
-        numClasses = PeakBotMRM.Config.NUMCLASSES
-    
-    ## separate user integration and eic
-    peaks   = dummyX[:, 0:numClasses]
-    rtInds  = dummyX[:, numClasses:(numClasses + 2)]
-    eic     = dummyX[:, (numClasses + 2):]
-    
-    ## separate predicted values
-    ppeaks  = dummyY[:, 0:numClasses]
-    prtInds = dummyY[:, numClasses:(numClasses + 2)]
+    def __init__(self, name='EICIOUPeaks', numClasses = None, **kwargs):
+        super(EICIOUPeaks, self).__init__(name=name, **kwargs)
+        if numClasses is None:
+            numClasses = PeakBotMRM.Config.NUMCLASSES
+        self.numClasses = numClasses
+        self.ious = self.add_weight(name='ious', initializer='zeros', dtype=tf.float32)
+        self.counts = self.add_weight(name='counts', initializer='zeros', dtype=tf.float32)
 
-    ## Calculate IOU
-    iou = _EICIOU(dummyX, dummyY)
-    ## set IOU to 0 if gt and prediction of peak do not match
-    iou = tf.where(tf.math.equal(tf.argmax(peaks, axis=1), tf.argmax(ppeaks, axis=1)), iou, tf.zeros_like(iou))
-    ## Calculate IOU only for peaks
-    iou = tf.where(tf.math.logical_and(tf.math.equal(tf.argmax(peaks, axis=1), tf.argmax(ppeaks, axis=1)), tf.argmax(peaks, axis=1) == 0), iou, tf.zeros_like(iou))
-    ## Calculate mean IOU and replace nan values with 0
-    iou = tf.reduce_sum(iou) / tf.cast(tf.math.count_nonzero(iou), dtype=iou.dtype)
-    iou = tf.where(tf.math.is_nan(iou), tf.zeros_like(iou), iou)
+    def update_state(self, dummyX, dummyY, sample_weight=None):        
+        ## separate user integration and eic
+        peaks   = dummyX[:, 0:self.numClasses]
+        rtInds  = dummyX[:, self.numClasses:(self.numClasses + 2)]
+        eic     = dummyX[:, (self.numClasses + 2):]
+        
+        ## separate predicted values
+        ppeaks  = dummyY[:, 0:self.numClasses]
+        prtInds = dummyY[:, self.numClasses:(self.numClasses + 2)]
 
-    return iou
+        ## Calculate IOU
+        iou = _EICIOU(dummyX, dummyY)
+        ## set IOU to 0 if gt and prediction of peak do not match
+        iou = tf.where(tf.math.equal(tf.argmax(peaks, axis=1), tf.argmax(ppeaks, axis=1)), iou, tf.zeros_like(iou))
+        ## Calculate IOU only for peaks
+        iou = tf.where(tf.math.logical_and(tf.math.equal(tf.argmax(peaks, axis=1), tf.argmax(ppeaks, axis=1)), tf.argmax(peaks, axis=1) == 0), iou, tf.zeros_like(iou))
+        ## Calculate mean IOU and replace nan values with 0
+        self.ious.assign_add(tf.reduce_sum(iou))
+        self.counts.assign_add(tf.math.count_nonzero(iou, dtype=tf.float32))
+
+    def result(self):
+        temp = self.ious / self.counts
+        temp = tf.where(tf.math.is_nan(temp), tf.zeros_like(temp), temp)
+        return temp
+
 
 @tf.autograph.experimental.do_not_convert
 def EICIOULoss(dummyX, dummyY, numClasses = None):
@@ -172,62 +183,3 @@ def EICIOULoss(dummyX, dummyY, numClasses = None):
     loss = tf.where(iouloss > 0, loss, tf.zeros_like(iouloss))
     
     return loss
-
-@tf.autograph.experimental.do_not_convert
-def CCAPeaks(dummyX, dummyY, numClasses = None):
-    if numClasses is None:
-        numClasses = PeakBotMRM.Config.NUMCLASSES
-    
-    ## separate user integration and eic
-    peaks   = dummyX[:, 0:numClasses]
-    rtInds  = dummyX[:, numClasses:(numClasses + 2)]
-    eic     = dummyX[:, (numClasses + 2):]
-    
-    ## separate predicted values
-    ppeaks  = dummyY[:, 0:numClasses]
-    prtInds = dummyY[:, numClasses:(numClasses + 2)]
-   
-    ## Calculate CategoricalAccuracy
-    cca = tf.keras.metrics.categorical_accuracy(peaks, ppeaks)
-    
-    return cca
-
-@tf.autograph.experimental.do_not_convert
-def MSERtInds(dummyX, dummyY, numClasses = None):
-    if numClasses is None:
-        numClasses = PeakBotMRM.Config.NUMCLASSES
-    
-    ## separate user integration and eic
-    peaks   = dummyX[:, 0:numClasses]
-    rtInds  = dummyX[:, numClasses:(numClasses + 2)]
-    eic     = dummyX[:, (numClasses + 2):]
-    
-    ## separate predicted values
-    ppeaks  = dummyY[:, 0:numClasses]
-    prtInds = dummyY[:, numClasses:(numClasses + 2)]
-
-    ## Calculate MSE
-    mse = tf.keras.losses.MeanSquaredError()(rtInds, prtInds)
-    
-    return mse
-
-@tf.autograph.experimental.do_not_convert
-def MSERtIndsPeaks(dummyX, dummyY, numClasses = None):
-    if numClasses is None:
-        numClasses = PeakBotMRM.Config.NUMCLASSES
-    
-    ## separate user integration and eic
-    peaks   = dummyX[:, 0:numClasses]
-    rtInds  = dummyX[:, numClasses:(numClasses + 2)]
-    eic     = dummyX[:, (numClasses + 2):]
-    
-    ## separate predicted values
-    ppeaks  = dummyY[:, 0:numClasses]
-    prtInds = dummyY[:, numClasses:(numClasses + 2)]
-    
-    ## Calculate MSE
-    mse = tf.keras.losses.MeanSquaredError()(rtInds, prtInds)
-    ## Remove MSE for non peaks
-    mse = tf.where(tf.math.logical_and(tf.math.equal(tf.argmax(peaks, axis=1), tf.argmax(ppeaks, axis=1)), tf.argmax(peaks, axis=1) == 0), mse, tf.zeros_like(mse))
-    
-    return mse

@@ -6,7 +6,6 @@ import time
 import datetime
 
 import numpy as np
-import random
 
 ## General functions
 #Function statistics and runtime
@@ -306,18 +305,27 @@ def parseTSVMultiLineHeader(fi, headerRowCount=1, delimiter = "\t", commentChar 
 
 
 
-
 def extractStandardizedEIC(eic, rts, refRT, scaleToOne = True, removeConstantOffset = True):
     ## Find best rt-reference match and extract EIC as standardized EIC around that rt
     bestRTInd = np.argmin(np.abs(rts - refRT))
     rtsS = np.zeros(PeakBotMRM.Config.RTSLICES, dtype=float)
     eicS = np.zeros(PeakBotMRM.Config.RTSLICES, dtype=float)
-
-    temp = bestRTInd - int(PeakBotMRM.Config.RTSLICES/2.)
+            
+    cpy = False
+    sil, sir, ocl, ocr = rts.shape[0], 0, rts.shape[0], 0
+    temp = bestRTInd - int(PeakBotMRM.Config.RTSLICES/2.)    
     for i in range(eicS.shape[0]):
         cPos = temp + i
         if 0 <= cPos < len(rts):
-            rtsS[i], eicS[i] = rts[cPos], eic[cPos]
+            cpy = True
+            sil = min(sil, i)
+            sir = max(sir, i)
+            ocl = min(ocl, cPos)
+            ocr = max(ocr, cPos)
+    
+    if cpy:
+        rtsS[sil:sir] = np.copy(rts[ocl:ocr])
+        eicS[sil:sir] = np.copy(eic[ocl:ocr])
     
     return rtsS, eicS
 
