@@ -515,14 +515,40 @@ def plotHistory(histObjectFile, plotFile):
             + p9.ggtitle("Training losses/metrics") + p9.xlab("Training/Validation dataset") + p9.ylab("Value")
             + p9.theme(legend_position = "none", axis_text_x=p9.element_text(angle=45)))
     p9.options.figure_size = (5.2, 7)
-    p9.ggsave(plot=plot, filename=plotFile, width=10, height=10, dpi=300)
+    p9.ggsave(plot=plot, filename="%s.png"%(plotFile), width=20, height=12, dpi=300)
+    
+    df = df[[i in ["Sensitivity (peaks)", "Specificity (no peaks)"] for i in df.metric]]
+    df.value = df.apply(lambda x: x.value if x.metric != "Specificity (no peaks)" else 1 - x.value, axis=1)
+    df.metric = df.apply(lambda x: "FPR" if x.metric == "Specificity (no peaks)" else x.metric, axis=1)
+    df.metric = df.apply(lambda x: "TPR" if x.metric == "Sensitivity (peaks)" else x.metric, axis=1)
+    df = df.pivot(index=["model", "set", "comment"], columns="metric", values="value")
+    df.reset_index(inplace=True)
+    
+    if False:
+        for model in set(list(df.model)):
+            for s in set(list(df.set)):
+                df = df.append({"model": model, "set": s, "FPR": 0, "TPR": 0}, ignore_index=True)
+                df = df.append({"model": model, "set": s, "FPR": 1, "TPR": 1}, ignore_index=True)
+        df = df.append({"model": "", "set": "", "FPR": 0, "TPR": 0}, ignore_index=True)
+        df = df.append({"model": "", "set": "", "FPR": 1, "TPR": 1}, ignore_index=True)
+        df = df.sort_values(["FPR", "TPR"])
+    print(df)
+    plot = (p9.ggplot(df, p9.aes("FPR", "TPR", colour="comment", shape="set", group="model"))
+            + p9.geom_point(alpha=0.5)
+            + p9.geom_line(alpha=0.5)
+            + p9.facet_wrap("~comment", ncol=4)
+            + p9.ggtitle("ROC") + p9.xlab("FPR") + p9.ylab("TPR") 
+            #+ p9.scales.xlim(0,1) + p9.scales.ylim(0,1)
+            )
+    p9.options.figure_size = (5.2, 7)
+    p9.ggsave(plot=plot, filename="%s_ROC.png"%(plotFile), width=20, height=12, dpi=300)
 
 
 def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFile, expDir = None, logDir = None, historyObject = None, removeHistoryObject = False,
                          MRMHeader = "- SRM SIC Q1=(\\d+[.]\\d+) Q3=(\\d+[.]\\d+) start=(\\d+[.]\\d+) end=(\\d+[.]\\d+)",
                          allowedMZOffset = 0.05, balanceDataset = False, balanceAugmentations = True,
                          addRandomNoise = True, maxRandFactor = 0.1, maxNoiseLevelAdd=0.1, shiftRTs = True, maxShift = 0.15, useEachInstanceNTimes = 5, 
-                         excludeSubstances = None, includeSubstances = None, checkPeakAttributes = None, 
+                         excludeSubstances = None, includeSubstances = None, checkPeakAttributes = None, showPeakMetrics = True, 
                          comment="None"):
     tic("Overall process")
     
@@ -604,7 +630,8 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
     substances, integrations = PeakBotMRM.loadChromatograms(substances, integrations, samplesPath, expDir,
                                                              allowedMZOffset = allowedMZOffset, 
                                                              MRMHeader = MRMHeader)
-    investigatePeakMetrics(expDir, substances, integrations)
+    if showPeakMetrics:
+        investigatePeakMetrics(expDir, substances, integrations)
     integrations = constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, integrations)
     insOriObj = tempfile.TemporaryDirectory(prefix="PBMRM_oriIns__")
     oriIns = insOriObj.name
@@ -656,6 +683,6 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
 
         ### Summarize the training and validation metrices and losses
         history.to_pickle(historyObject)
-        plotHistory(historyObject, os.path.join(expDir, "fig_SummaryPlot.png"))
+        plotHistory(historyObject, os.path.join(expDir, "fig_SummaryPlot"))
 
     print("\n\n\n")
