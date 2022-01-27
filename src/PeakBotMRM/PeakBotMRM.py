@@ -713,15 +713,15 @@ def loadTargets(targetFile, excludeSubstances = None, includeSubstances = None):
 def loadIntegrations(substances, curatedPeaks):
     ## load integrations
     print("Loading integrations from file '%s'"%(curatedPeaks))
-    headers, temp = parseTSVMultiLineHeader(curatedPeaks, headerRowCount=2, delimiter = ",", commentChar = "#", headerCombineChar = "$")
+    headers, integrationData = parseTSVMultiLineHeader(curatedPeaks, headerRowCount=2, delimiter = ",", commentChar = "#", headerCombineChar = "$")
     headers = dict((k.replace(" (ISTD)", ""), v) for k,v in headers.items())
-    foo = set([head[:head.find("$")] for head in headers if not head.startswith("Sample$")])
-    notUsingSubs = []
+    foo = set([header[:header.find("$")] for header in headers if not header.startswith("Sample$")])
+    notUsingSubstances = []
     for substance in substances.values():
         if substance["Name"] not in foo:
-            notUsingSubs.append(substance["Name"])
-    if len(notUsingSubs) > 0:
-        print("  | .. Not using %d substances (%s) as these are not in the integration matrix"%(len(notUsingSubs), ", ".join(notUsingSubs)))
+            notUsingSubstances.append(substance["Name"])
+    if len(notUsingSubstances) > 0:
+        print("  | .. Not using %d substances (%s) as these are not in the integration matrix"%(len(notUsingSubstances), ", ".join(notUsingSubstances)))
     
     foo = dict((k, v) for k, v in substances.items() if k in foo)
     print("  | .. restricting substances from %d to %d (overlap of substances and integration results)"%(len(substances), len(foo)))
@@ -735,23 +735,23 @@ def loadIntegrations(substances, curatedPeaks):
     foundNoPeaks = 0
     for substance in [substance["Name"] for substance in substances.values()]:
         integrations[substance] = {}
-        for intei, inte in enumerate(temp):
-            area = inte[headers["%s$Area"%(substance)]]
+        for i, integration in enumerate(integrationData):
+            area = integration[headers["%s$Area"%(substance)]]
             if area == "" or float(area) == 0:
-                integrations[substance][inte[headers["Sample$Name"]]] = {"foundPeak": False,
+                integrations[substance][integration[headers["Sample$Name"]]] = {"foundPeak": False,
                                                                         "rtstart"  : -1, 
                                                                         "rtend"    : -1, 
                                                                         "area"     : -1,
                                                                         "chrom"    : [],}
                 foundNoPeaks += 1
             else:
-                integrations[substance][inte[headers["Sample$Name"]]] = {"foundPeak": True,
-                                                                        "rtstart"  : float(inte[headers["%s$Int. Start"%(substance)]]), 
-                                                                        "rtend"    : float(inte[headers["%s$Int. End"  %(substance)]]), 
-                                                                        "area"     : float(inte[headers["%s$Area"      %(substance)]]),
+                integrations[substance][integration[headers["Sample$Name"]]] = {"foundPeak": True,
+                                                                        "rtstart"  : float(integration[headers["%s$Int. Start"%(substance)]]), 
+                                                                        "rtend"    : float(integration[headers["%s$Int. End"  %(substance)]]), 
+                                                                        "area"     : float(integration[headers["%s$Area"      %(substance)]]),
                                                                         "chrom"    : [],}
                 foundPeaks += 1
-            integratedSamples.add(inte[headers["Sample$Name"]])
+            integratedSamples.add(integration[headers["Sample$Name"]])
             totalIntegrations += 1
     print("  | .. parsed %d integrations from %d substances and %d samples."%(totalIntegrations, len(substances), len(integratedSamples)))
     print("  | .. there are %d areas and %d no peaks"%(foundPeaks, foundNoPeaks))
