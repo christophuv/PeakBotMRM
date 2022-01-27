@@ -515,7 +515,7 @@ def plotHistory(histObjectFile, plotFile):
             + p9.ggtitle("Training losses/metrics") + p9.xlab("Training/Validation dataset") + p9.ylab("Value")
             + p9.theme(legend_position = "none", axis_text_x=p9.element_text(angle=45)))
     p9.options.figure_size = (5.2, 7)
-    p9.ggsave(plot=plot, filename="%s.png"%(plotFile), width=20, height=12, dpi=300)
+    p9.ggsave(plot=plot, filename="%s.png"%(plotFile), width=40, height=12, dpi=300, limitsize=False)
     
     df = df[[i in ["Sensitivity (peaks)", "Specificity (no peaks)"] for i in df.metric]]
     df.value = df.apply(lambda x: x.value if x.metric != "Specificity (no peaks)" else 1 - x.value, axis=1)
@@ -541,7 +541,7 @@ def plotHistory(histObjectFile, plotFile):
             #+ p9.scales.xlim(0,1) + p9.scales.ylim(0,1)
             )
     p9.options.figure_size = (5.2, 7)
-    p9.ggsave(plot=plot, filename="%s_ROC.png"%(plotFile), width=20, height=12, dpi=300)
+    p9.ggsave(plot=plot, filename="%s_ROC.png"%(plotFile), width=40, height=40, dpi=300, limitsize=False)
 
 
 def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFile, expDir = None, logDir = None, historyObject = None, removeHistoryObject = False,
@@ -683,6 +683,9 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
 
         ### Summarize the training and validation metrices and losses
         history.to_pickle(historyObject)
-        plotHistory(historyObject, os.path.join(expDir, "fig_SummaryPlot"))
+        try:
+            plotHistory(historyObject, os.path.join(expDir, "fig_SummaryPlot"))
+        except:
+            print("Could not plot results")
 
     print("\n\n\n")
