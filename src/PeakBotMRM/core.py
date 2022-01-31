@@ -305,7 +305,7 @@ def parseTSVMultiLineHeader(fi, headerRowCount=1, delimiter = "\t", commentChar 
 
 
 
-def extractStandardizedEIC(eic, rts, refRT, scaleToOne = True, removeConstantOffset = True):
+def extractStandardizedEIC(eic, rts, refRT):
     ## Find best rt-reference match and extract EIC as standardized EIC around that rt
     bestRTInd = np.argmin(np.abs(rts - refRT))
     rtsS = np.zeros(PeakBotMRM.Config.RTSLICES, dtype=float)

@@ -71,6 +71,7 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
                                                              allowedMZOffset = allowedMZOffset,
                                                              MRMHeader = MRMHeader)
 
+    PeakBotMRM.train.investigatePeakMetrics(expDir, substances, integrations)
 
     print("Evaluating model (using predtrained model from '%s')"%(modelFile))
     offsetEIC = 0.2
