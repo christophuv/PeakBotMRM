@@ -311,7 +311,6 @@ class PeakBotMRM():
         if verbose:
             print("  | .. Inputs")
             print("  | .. .. channel.int is", eic)
-            print("  | .. .. min/max values", eicValMin)
             print("  |")
             print("  | .. Pre-processing")
             print("  | .. .. each eic is baseline corrected (signal with minimum abundance) and afterwards scaled to 1 (signal with maximum abundance)")
@@ -556,12 +555,12 @@ def trainPeakBotMRMModel(trainInstancesPath, logBaseDir, modelName = None, valIn
         print("  |")
         print("  | .. model built and trained successfully (took %.1f seconds)"%toc("pbTrainNewModel"))
 
-    return pb, metricesAddValDS
+    return pb, metricesAddValDS, modelName
 
 
 
 @timeit
-def integrateArea(eic, rts, start, end, method = "linearBetweenBorders"):
+def integrateArea(eic, rts, start, end, method = "minbetweenborders"):
     startInd = np.argmin([abs(r-start) for r in rts])
     endInd = np.argmin([abs(r-end) for r in rts])
 
@@ -586,10 +585,13 @@ def integrateArea(eic, rts, start, end, method = "linearBetweenBorders"):
             area = area + eic[i]
 
     elif method.lower() in ["minbetweenborders"]:
-        minV = np.Inf
+        minV = None
         for i in range(startInd, endInd+1):
-            minV = np.min(minV, eic[i])
+            if minV is None or minV > eic[i]:
+                minV = eic[i]
             area = area + eic[i]
+        if minV is None:
+            minV = 0
         area = area - minV * (endInd - startInd + 1)
 
     else:
@@ -682,12 +684,13 @@ def evaluatePeakBotMRM(instancesWithGT, modelPath = None, model = None, verbose 
 
 
 
-def loadTargets(targetFile, excludeSubstances = None, includeSubstances = None):
+def loadTargets(targetFile, excludeSubstances = None, includeSubstances = None, verbose = True, logPrefix = ""):
     if excludeSubstances is None:
         excludeSubstances = []
 
     ## load targets
-    print("Loading targets from file '%s'"%(targetFile))
+    if verbose: 
+        print(logPrefix, "Loading targets from file '%s'"%(targetFile))
     headers, substances = readTSVFile(targetFile, header = True, delimiter = "\t", convertToMinIfPossible = True, getRowsAsDicts = True)
     substances = dict((substance["Name"], 
                        {"Name"     : substance["Name"].replace(" (ISTD)", ""),
@@ -701,18 +704,20 @@ def loadTargets(targetFile, excludeSubstances = None, includeSubstances = None):
                         "CE"       : None,
                         "CET"      : None}) for substance in substances if substance["Name"] not in excludeSubstances and (includeSubstances is None or substance["Name"] in includeSubstances))
                 ##TODO include collisionEnergy here
-    print("  | .. loaded %d substances"%(len(substances)))
-    print("  | .. of these %d have RT shifts"%(sum((1 if substance["Rt shifts"]!="" else 0 for substance in substances.values()))))
-    print("  | .. of these %d have abnormal peak forms"%(sum((1 if substance["PeakForm"]!="" else 0 for substance in substances.values()))))
-    print("\n")
+    if verbose:
+        print(logPrefix, "  | .. loaded %d substances"%(len(substances)))
+        print(logPrefix, "  | .. of these %d have RT shifts"%(sum((1 if substance["Rt shifts"]!="" else 0 for substance in substances.values()))))
+        print(logPrefix, "  | .. of these %d have abnormal peak forms"%(sum((1 if substance["PeakForm"]!="" else 0 for substance in substances.values()))))
+        print(logPrefix, "\n", logPrefix)
 
     return substances
 
 
 
-def loadIntegrations(substances, curatedPeaks):
+def loadIntegrations(substances, curatedPeaks, verbose = True, logPrefix = ""):
     ## load integrations
-    print("Loading integrations from file '%s'"%(curatedPeaks))
+    if verbose:
+        print(logPrefix, "Loading integrations from file '%s'"%(curatedPeaks))
     headers, integrationData = parseTSVMultiLineHeader(curatedPeaks, headerRowCount=2, delimiter = ",", commentChar = "#", headerCombineChar = "$")
     headers = dict((k.replace(" (ISTD)", ""), v) for k,v in headers.items())
     foo = set([header[:header.find("$")] for header in headers if not header.startswith("Sample$")])
@@ -720,11 +725,12 @@ def loadIntegrations(substances, curatedPeaks):
     for substance in substances.values():
         if substance["Name"] not in foo:
             notUsingSubstances.append(substance["Name"])
-    if len(notUsingSubstances) > 0:
-        print("  | .. Not using %d substances (%s) as these are not in the integration matrix"%(len(notUsingSubstances), ", ".join(notUsingSubstances)))
+    if verbose and len(notUsingSubstances) > 0:
+        print(logPrefix, "  | .. Not using %d substances (%s) as these are not in the integration matrix"%(len(notUsingSubstances), ", ".join(notUsingSubstances)))
     
     foo = dict((k, v) for k, v in substances.items() if k in foo)
-    print("  | .. restricting substances from %d to %d (overlap of substances and integration results)"%(len(substances), len(foo)))
+    if verbose:
+        print(logPrefix, "  | .. restricting substances from %d to %d (overlap of substances and integration results)"%(len(substances), len(foo)))
     substances = foo
 
     ## process integrations
@@ -753,9 +759,10 @@ def loadIntegrations(substances, curatedPeaks):
                 foundPeaks += 1
             integratedSamples.add(integration[headers["Sample$Name"]])
             totalIntegrations += 1
-    print("  | .. parsed %d integrations from %d substances and %d samples."%(totalIntegrations, len(substances), len(integratedSamples)))
-    print("  | .. there are %d areas and %d no peaks"%(foundPeaks, foundNoPeaks))
-    print("\n")
+    if verbose:
+        print(logPrefix, "  | .. parsed %d integrations from %d substances and %d samples."%(totalIntegrations, len(substances), len(integratedSamples)))
+        print(logPrefix, "  | .. there are %d areas and %d no peaks"%(foundPeaks, foundNoPeaks))
+        print(logPrefix, "\n", logPrefix)
     # integrations [['Pyridinedicarboxylic acid Results', 'R100140_METAB02_MCC025_CAL1_20200306', '14.731', '14.731', '0'], ...]
 
     return substances, integrations
@@ -763,21 +770,26 @@ def loadIntegrations(substances, curatedPeaks):
 
  
 def loadChromatograms(substances, integrations, samplesPath, expDir, loadFromPickleIfPossible = True,
-                        allowedMZOffset = 0.05, MRMHeader = "- SRM SIC Q1=(\\d+[.]\\d+) Q3=(\\d+[.]\\d+) start=(\\d+[.]\\d+) end=(\\d+[.]\\d+)"):
+                        allowedMZOffset = 0.05, MRMHeader = "- SRM SIC Q1=(\\d+[.]\\d+) Q3=(\\d+[.]\\d+) start=(\\d+[.]\\d+) end=(\\d+[.]\\d+)",
+                        verbose = True, logPrefix = ""):
     ## load chromatograms
     tic("procChroms")
-    print("Processing chromatograms")
+    if verbose:
+        print(logPrefix, "Processing chromatograms")
     samples = [os.path.join(samplesPath, f) for f in os.listdir(samplesPath) if os.path.isfile(os.path.join(samplesPath, f)) and f.lower().endswith(".mzml")]
     usedSamples = set()
     if os.path.isfile(os.path.join(expDir, "integrations.pickle")) and loadFromPickleIfPossible:
         with open(os.path.join(expDir, "integrations.pickle"), "rb") as fin:
             integrations, usedSamples = pickle.load(fin)
-            print("  | .. Imported integrations from pickle file '%s/integrations.pickle'"%(expDir))
+            if verbose:
+                print(logPrefix, "  | .. Imported integrations from pickle file '%s/integrations.pickle'"%(expDir))
     else:
-        print("  | .. This might take a couple of minutes as all samples/integrations/channels/etc. need to be compared and the current implementation are 4 sub-for-loops")
+        if verbose:
+            print(logPrefix, "  | .. This might take a couple of minutes as all samples/integrations/channels/etc. need to be compared and the current implementation are 4 sub-for-loops")
         for sample in tqdm.tqdm(samples, desc="  | .. importing"):
             sampleName = os.path.basename(sample)
-            print("\nsample", sampleName)
+            if verbose: 
+                print("logPrefix, \nsample", sampleName)
             sampleName = sampleName[:sampleName.rfind(".")]
             usedSamples.add(sampleName)
 
@@ -831,10 +843,11 @@ def loadChromatograms(substances, integrations, samplesPath, expDir, loadFromPic
                             collisionType == bcollisionType: # TODO include collisionEnergy test here:
                             useChannel = False
                             unusedChannels.append(entryID)
-                            print("Problematic channel combination found. Both will be skipped (TODO implement CE reference from the reference data)")
-                            print("  channel     Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, pol '%10s', CE %5.1f, Method '%s', Header '%s'"%(Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionType, entryID))
-                            print("  problematic Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, pol '%10s', CE %5.1f, Method '%s', Header '%s'"%(bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionType, bentryID))
-                            print("")
+                            if verbose: 
+                                print(logPrefix, "Problematic channel combination found. Both will be skipped (TODO implement CE reference from the reference data)")
+                                print(logPrefix, "  channel     Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, pol '%10s', CE %5.1f, Method '%s', Header '%s'"%(Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionType, entryID))
+                                print(logPrefix, "  problematic Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, pol '%10s', CE %5.1f, Method '%s', Header '%s'"%(bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionType, bentryID))
+                                print(logPrefix, )
                 
                 ## use channel if it is unique and find the integrated substance(s) for it
                 if useChannel:
@@ -850,7 +863,8 @@ def loadChromatograms(substances, integrations, samplesPath, expDir, loadFromPic
 
         with open (os.path.join(expDir, "integrations.pickle"), "wb") as fout:
             pickle.dump((integrations, usedSamples), fout)
-            print("  | .. Stored integrations to '%s/integrations.pickle'"%expDir)
+            if verbose:
+                print(logPrefix, "  | .. Stored integrations to '%s/integrations.pickle'"%expDir)
     
     ## Remove chromatograms with ambiguously selected chromatograms
     remSubstancesChannelProblems = set()
@@ -865,8 +879,9 @@ def loadChromatograms(substances, integrations, samplesPath, expDir, loadFromPic
         if not foundOnce:
             remSubstancesChannelProblems.add(substance)
     if len(remSubstancesChannelProblems):
-        print("  | .. %d substances (%s) were not found as the channel selection was ambiguous. These will not be used further"%(len(remSubstancesChannelProblems), ", ".join(sorted(remSubstancesChannelProblems))))
-        print("  | .. ATTENTION: CE and CET are not yet available (as the reference does not specify these values). Thus, some of the reference compounds cannot be used due to ambiguous channel selection")
+        if verbose:
+            print(logPrefix, "  | .. %d substances (%s) were not found as the channel selection was ambiguous. These will not be used further"%(len(remSubstancesChannelProblems), ", ".join(sorted(remSubstancesChannelProblems))))
+            print(logPrefix, "  | .. ATTENTION: CE and CET are not yet available (as the reference does not specify these values). Thus, some of the reference compounds cannot be used due to ambiguous channel selection")
         for r in remSubstancesChannelProblems:
             del integrations[r]
     
@@ -880,9 +895,11 @@ def loadChromatograms(substances, integrations, samplesPath, expDir, loadFromPic
             else:
                 noReferencePeaks += 1
                 integrations[substance][sample]["chrom"].clear()        
-    print("  | .. There are %d sample.substances with unambiguous chromatograms (and %d sample.substances with ambiguous chromatograms) from %d samples"%(referencePeaks, noReferencePeaks, len(usedSamples)))
+    if verbose:
+        print(logPrefix, "  | .. There are %d sample.substances with unambiguous chromatograms (and %d sample.substances with ambiguous chromatograms) from %d samples"%(referencePeaks, noReferencePeaks, len(usedSamples)))
     
-    print("  | .. took %.1f seconds"%(toc("procChroms")))
-    print("\n")
+    if verbose:
+        print(logPrefix, "  | .. took %.1f seconds"%(toc("procChroms")))
+        print(logPrefix, "\n", logPrefix)
 
     return substances, integrations
