@@ -22,7 +22,7 @@ import portalocker
 
 
 
-def shuffleResultsSampleNames(exportPath, instancePrefix=None,
+def shuffleDatasetBatches(exportPath, instancePrefix=None,
                               tempFileName="bqu40mcb25473zfhbgwh22534", verbose=True):
 
     if instancePrefix is None:
@@ -44,7 +44,7 @@ def shuffleResultsSampleNames(exportPath, instancePrefix=None,
         os.rename(files[i], files[i].replace(tempFileName, instancePrefix))
 
 
-def shuffleResults(exportPath, steps=1E5, samplesToExchange=50,
+def shuffleDatasetInstances(exportPath, steps=1E5, samplesToExchange=50,
                    instancePrefix=None, verbose=True):
 
     if instancePrefix is None:
@@ -56,7 +56,7 @@ def shuffleResults(exportPath, steps=1E5, samplesToExchange=50,
         print("  | .. shuffling the test instances (inter-batch shuffling), there are %d files" % (len(files)))
             
 
-    with tqdm.tqdm(total=steps, desc="  | .. shuffling instances", disable=not verbose) as t:
+    with tqdm.tqdm(total=steps, desc="   | .. shuffling instances", disable=not verbose) as t:
         while steps > 0:
             a = None
             b = None
@@ -118,59 +118,37 @@ def shuffleResults(exportPath, steps=1E5, samplesToExchange=50,
                 pickle.dump(b, temp)
 
 
-def splitDSinto(path, newDS1Path = None, newDS2Path = None, ratioDS1 = 0.3, instancePrefix = None, tempFileName = "bqu40mcb25473zfhbgwh22534", copy=False, verbose = False):
-
-    assert 0 <= ratioDS1 <= 1, "parameter ratioDS1 must be 0 <= ratioDS1 <= 1"
-    
-    if newDS1Path is not None:
-        pathlib.Path(newDS1Path).mkdir(parents=True, exist_ok=True) 
-    if newDS2Path is not None:
-        pathlib.Path(newDS2Path).mkdir(parents=True, exist_ok=True) 
+def mergeDataset(exportPath, ds1Path, ds2Path, dropLastBatch = True, instancePrefix=None, verbose=True):
 
     if instancePrefix is None:
         instancePrefix = PeakBotMRM.Config.INSTANCEPREFIX
 
-    files = [os.path.join(path, f) for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
-
-    take = math.floor(len(files)*ratioDS1)
-
-    cur = 0
-    while take > 0:
-
-        randFile = random.randint(0, len(files)-1)
-        if copy:
-            shutil.copy(files[randFile], os.path.join(newDS1Path, "%s%d.pickle"%(instancePrefix, cur)))
-        else:
-            shutil.move(files[randFile], os.path.join(newDS1Path, "%s%d.pickle"%(instancePrefix, cur)))
-        
-        del files[randFile]
-        take = take - 1
-        cur = cur + 1
-
-    if newDS2Path is not None:
-        temp = 0
-        for fil in files:
-            if copy:
-                shutil.copy(fil, os.path.join(newDS2Path, "%s%d.pickle"%(instancePrefix, temp)))
-            else:
-                shutil.move(fil, os.path.join(newDS2Path, "%s%d.pickle"%(instancePrefix, temp)))
-            temp = temp + 1
-
-    if not copy:    
-        files = [os.path.join(path, f) for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
-        for i in range(len(files)):
-            os.rename(files[i], os.path.join(pathlib.Path(files[i]).parent.resolve(), "%s%d.pickle" % (tempFileName, i)))
-        
-        files = [os.path.join(path, f) for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
-        for i in range(len(files)):
-            os.rename(files[i], os.path.join(pathlib.Path(files[i]).parent.resolve(), "%s%d.pickle" % (instancePrefix, i)))
-
+    tic("merging")
+    files = [os.path.join(ds1Path, f) for f in os.listdir(ds1Path) if os.path.isfile(os.path.join(ds1Path, f))]
+    if dropLastBatch: 
+        del files[-1]
     if verbose:
-        print("  | .. %s %d files from the dataset '' (now %d instances) to the new dataset ''"%("copied" if copy else "moved", cur, path, newDS1Path))
-        if newDS2Path is not None:
-            print("  | .. %s remaining instances to '%s'"%("copied" if copy else "moved", newDS2Path))
+        print("  | .. there are %d files in dataset '%s'" % (len(files), ds1Path))
+    
+    cur = 0
+    for fil in files: 
+        shutil.copy(fil, os.path.join(exportPath, "%s%d.pickle"%(instancePrefix, cur)))
+        cur = cur + 1
+    
+    files = [os.path.join(ds2Path, f) for f in os.listdir(ds2Path) if os.path.isfile(os.path.join(ds2Path, f))]
+    if dropLastBatch: 
+        del files[-1]
+    if verbose:
+        print("  | .. there are %d files in dataset '%s'" % (len(files), ds2Path))
+    
+    cur = 0
+    for fil in files: 
+        shutil.copy(fil, os.path.join(exportPath, "%s%d.pickle"%(instancePrefix, cur)))
+        cur = cur + 1
             
-def showSampleOverview(instanceDir, verbose = True, logPrefix = ""):
+
+            
+def showDatasetOverview(instanceDir, verbose = True, logPrefix = ""):
     files = [os.path.join(instanceDir, f) for f in os.listdir(instanceDir) if os.path.isfile(os.path.join(instanceDir, f))]
     
     peaks, backgrounds = 0, 0
@@ -232,7 +210,7 @@ def compileInstanceDataset(substances, integrations, instanceDir, addRandomNoise
         useEachBackgroundInstanceNTimes = int(round(useEachInstanceNTimes / (noPeaks / max(peaks, noPeaks))))
     if verbose:
         print(logPrefix, "  | .. Each peak instance will be used %d times and each background instance %d times"%(useEachPeakInstanceNTimes, useEachBackgroundInstanceNTimes))
-    for substance in tqdm.tqdm(integrations.keys(), desc="  | .. augmenting"):
+    for substance in tqdm.tqdm(integrations.keys(), desc="   | .. augmenting"):
         for sample in integrations[substance].keys():
             inte = integrations[substance][sample]
             if len(inte["chrom"]) == 1:
@@ -355,7 +333,7 @@ def compileSyntheticDataset(substances, integrations, nInstances, instanceDir,
     
     peaks = []
     backgrounds = []
-    for substance in tqdm.tqdm(integrations.keys(), desc="  | .. reference extraction"):
+    for substance in tqdm.tqdm(integrations.keys(), desc="   | .. reference extraction"):
         for sample in integrations[substance].keys():
             key = "%s $ %s"%(substance, sample)
             inte = integrations[substance][sample]
@@ -389,7 +367,9 @@ def compileSyntheticDataset(substances, integrations, nInstances, instanceDir,
     curInstanceInd = 0
     instancesNoPeakInCenter = 0
     instancesPeakInCenter = 0
-    for _ in tqdm.tqdm(range(nInstances), desc="  | .. synthetic generation"):
+    for _ in tqdm.tqdm(range(nInstances), desc="   | .. synthetic generation"):
+        
+        shouldType = random.randint(0, 1)
         
         tryIns = True
         parea = -1
@@ -464,9 +444,14 @@ def compileSyntheticDataset(substances, integrations, nInstances, instanceDir,
                 nPeaks = nPeaks - 1
             
             ## add peak as instance to training set
-            peakType = peakSignalType[int(round(eicS.shape[0]/2))] == 1
+            peakType = 0 if peakSignalType[int(round(eicS.shape[0]/2))] == 1 else 1
             bestRTStartInd , bestRTEndInd, bestRTStart, bestRTEnd, area = -1, -1, -1, -1, -1
-            if peakType:
+            
+            ## discard instance if it was did not match the expected one (shouldType)
+            if shouldType != peakType:
+                continue 
+            
+            if peakType == 0:
                 instancesPeakInCenter = instancesPeakInCenter + 1
                 bestRTStartInd = np.argmin(np.where(peakSignalType == 1))
                 bestRTEndInd = np.argmax(np.where(peakSignalType == 1))
@@ -503,7 +488,6 @@ def compileSyntheticDataset(substances, integrations, nInstances, instanceDir,
                     curInstanceInd = 0
 
                 assert curInstanceInd < curPickleObject["channel.rt"].shape[0]
-                peakType = 0 if peakType else 1
 
                 ## analytical raw data
                 curPickleObject["channel.rt"       ][curInstanceInd,:] = rtsS
@@ -553,8 +537,8 @@ def generateAndExportAugmentedInstancesForTraining(substances, integrations, add
         print(logPrefix, "Exporting augmented instances for training")
     tic()
     compileInstanceDataset(substances, integrations, insDir, addRandomNoise = addRandomNoise, maxRandFactor = maxRandFactor, maxNoiseLevelAdd = maxNoiseLevelAdd, shiftRTs = shiftRTs, maxShift = maxShift, useEachInstanceNTimes = useEachInstanceNTimes, balanceReps = balanceAugmentations, verbose = verbose, logPrefix = logPrefix)
-    shuffleResultsSampleNames(insDir)
-    shuffleResults(insDir, steps=1E4, samplesToExchange=12)
+    shuffleDatasetBatches(insDir)
+    shuffleDatasetInstances(insDir, steps=1E4, samplesToExchange=12)
     if verbose: 
         print(logPrefix, "  | .. took %.1f seconds"%(toc()))
         print(logPrefix, "\n", logPrefix)
@@ -578,7 +562,7 @@ def constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, 
     peaks = []
     noPeaks = []
     notUsed = 0
-    for substance in tqdm.tqdm(substances.values(), desc="  | .. balancing"):
+    for substance in tqdm.tqdm(substances.values(), desc="   | .. balancing"):
         if substance["Name"] in integrations.keys():
             for sample in integrations[substance["Name"]].keys():
                 if integrations[substance["Name"]][sample]["foundPeak"]:
@@ -657,7 +641,7 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
         print(logPrefix, "Peak statistics for '%s'"%(expName))
     tic()
     stats = {"hasPeak":0, "hasNoPeak":0, "peakProperties":[]}
-    for substance in tqdm.tqdm(integrations.keys(), desc="  | .. calculating"):
+    for substance in tqdm.tqdm(integrations.keys(), desc="   | .. calculating"):
         for sample in integrations[substance].keys():
             inte = integrations[substance][sample]
             if substance in substances.keys() and len(inte["chrom"]) == 1:
