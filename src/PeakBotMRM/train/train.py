@@ -145,9 +145,61 @@ def mergeDataset(exportPath, ds1Path, ds2Path, dropLastBatch = True, instancePre
     for fil in files: 
         shutil.copy(fil, os.path.join(exportPath, "%s%d.pickle"%(instancePrefix, cur)))
         cur = cur + 1
-            
 
-            
+
+def splitDataset(path, newDS1Path = None, newDS2Path = None, ratioDS1 = 0.3, instancePrefix = None, tempFileName = "bqu40mcb25473zfhbgwh22534", copy=False, verbose = False):
+
+    assert 0 <= ratioDS1 <= 1, "parameter ratioDS1 must be 0 <= ratioDS1 <= 1"
+    
+    if newDS1Path is not None:
+        pathlib.Path(newDS1Path).mkdir(parents=True, exist_ok=True) 
+    if newDS2Path is not None:
+        pathlib.Path(newDS2Path).mkdir(parents=True, exist_ok=True) 
+
+    if instancePrefix is None:
+        instancePrefix = PeakBotMRM.Config.INSTANCEPREFIX
+
+    files = [os.path.join(path, f) for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
+
+    take = math.floor(len(files)*ratioDS1)
+
+    cur = 0
+    while take > 0:
+
+        randFile = random.randint(0, len(files)-1)
+        if copy:
+            shutil.copy(files[randFile], os.path.join(newDS1Path, "%s%d.pickle"%(instancePrefix, cur)))
+        else:
+            shutil.move(files[randFile], os.path.join(newDS1Path, "%s%d.pickle"%(instancePrefix, cur)))
+        
+        del files[randFile]
+        take = take - 1
+        cur = cur + 1
+
+    if newDS2Path is not None:
+        temp = 0
+        for fil in files:
+            if copy:
+                shutil.copy(fil, os.path.join(newDS2Path, "%s%d.pickle"%(instancePrefix, temp)))
+            else:
+                shutil.move(fil, os.path.join(newDS2Path, "%s%d.pickle"%(instancePrefix, temp)))
+            temp = temp + 1
+
+    if not copy:    
+        files = [os.path.join(path, f) for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
+        for i in range(len(files)):
+            os.rename(files[i], os.path.join(pathlib.Path(files[i]).parent.resolve(), "%s%d.pickle" % (tempFileName, i)))
+        
+        files = [os.path.join(path, f) for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
+        for i in range(len(files)):
+            os.rename(files[i], os.path.join(pathlib.Path(files[i]).parent.resolve(), "%s%d.pickle" % (instancePrefix, i)))
+
+    if verbose:
+        print("  | .. %s %d files from the dataset '' (now %d instances) to the new dataset ''"%("copied" if copy else "moved", cur, path, newDS1Path))
+        if newDS2Path is not None:
+            print("  | .. %s remaining instances to '%s'"%("copied" if copy else "moved", newDS2Path)) 
+
+
 def showDatasetOverview(instanceDir, verbose = True, logPrefix = ""):
     files = [os.path.join(instanceDir, f) for f in os.listdir(instanceDir) if os.path.isfile(os.path.join(instanceDir, f))]
     
@@ -179,8 +231,7 @@ def showDatasetOverview(instanceDir, verbose = True, logPrefix = ""):
         print(logPrefix, "  | .. .. substances used:")
         for s in sorted(substancesUsed.keys()):
             print(logPrefix, "  | .. .. .. %s: %d"%(s, substancesUsed[s]))
-                
-            
+
 
 def compileInstanceDataset(substances, integrations, instanceDir, addRandomNoise=False, maxRandFactor=0.1, maxNoiseLevelAdd=0.1, shiftRTs=False, maxShift=0.1, useEachInstanceNTimes=1, balanceReps = False, exportBatchSize = 1024, includeMetaInfo = False, verbose = True, logPrefix = ""):
     curPickleObject = None
@@ -910,7 +961,7 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
     valInsObj = tempfile.TemporaryDirectory(prefix="PBMRM_validation__")
     valIns = valInsObj.name
     splitRatio = 0.7
-    PeakBotMRM.train.splitDSinto(trainDS, 
+    PeakBotMRM.train.splitDataset(trainDS, 
                                  newDS1Path = traIns, newDS2Path = valIns, 
                                  copy = True, ratioDS1 = splitRatio, verbose = False)
     addValDS.append({"folder": trainDS, "name": "%s_all"%(expName)})
