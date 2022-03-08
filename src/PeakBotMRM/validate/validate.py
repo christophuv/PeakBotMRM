@@ -76,7 +76,7 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
                                                              allowedMZOffset = allowedMZOffset,
                                                              MRMHeader = MRMHeader)
 
-    PeakBotMRM.train.investigatePeakMetrics(expDir, substances, integrations)
+    PeakBotMRM.train.investigatePeakMetrics(expDir, substances, integrations, expName = expName)
 
     print("Evaluating model (using predtrained model from '%s')"%(modelFile))
     offsetEIC = 0.2
@@ -195,10 +195,10 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
                     val = 0
                 elif isPeak and not pisPeak:
                     ## manual integration reports a peak, but prediction does not, 100% incorrect
-                    val = -1
+                    val = -1.00001
                 elif not isPeak and pisPeak:
                     ## manual integration reports not a peak, but prediction does, 100% incorrect
-                    val = 1
+                    val = 1.00001
                 elif isPeak and pisPeak:
                     ## manual and prediction report a peak, x% correct
                     if inte["area."] < inte["pred.area"]:
@@ -206,7 +206,7 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
                     else:
                         val = -min(1, inte["area."] / inte["pred.area"] - 1)
                         
-                if val > 1:
+                if val > 1.001 or val < -1.001:
                     print(substance, sample, isPeak, inte["area."], bestRTStart, bestRTEnd, pisPeak, inte["pred.area"], prtStart, prtEnd)
                 rowInd = perInstanceResultsSubstances.index(substance)
                 colInd = perInstanceResultsSamples.index(sample)
@@ -503,21 +503,25 @@ def validateExperiment(expName, targetFile, curatedPeaks, samplesPath, modelFile
     p9.ggsave(plot=plot, filename=os.path.join(expDir, "fig_comparisonIntegration2.png"), width=10, height=10, dpi=300)
     
     
+    
     ordRow = leaves_list(median(pdist(perInstanceResults, 'euclidean')))
     ordCol = leaves_list(median(pdist(np.transpose(perInstanceResults), 'euclidean')))
     
     df = pd.DataFrame(perInstanceResultsPD, columns = ["substance", "sample", "value", "manualPeak", "manualArea", "manualArea.", "PBPeak", "PBArea"])
     df = df.assign(sampleHC = pd.Categorical(df["sample"], categories = [perInstanceResultsSamples[i] for i in ordCol]))
     df = df.assign(substanceHC = pd.Categorical(df["substance"], categories = [perInstanceResultsSubstances[i] for i in ordRow]))
-    plot = (p9.ggplot(df, p9.aes('substanceHC', 'sampleHC', fill='value'))
-    + p9.geom_tile(p9.aes(width=.95, height=.95))
-    #+ p9.geom_text(p9.aes(label='value'), size=10)
-    + p9.ggtitle("Heatmap of predicted and manually derived integration results.\n0 indicates the perfect agreement (no peak with both approaches and identical peak areas)\n1 indicates higher abundance or only peak with PeakBot while -1 indicates higher abundance or only a peak with the manual integration")
-    )
-    p9.options.figure_size = (10,10)
-    p9.ggsave(plot=plot, filename=os.path.join(expDir, "fig_perInstanceResults.png"), width=10, height=10, dpi=300)
-    
+    df["value"] = round(df["value"], 5)
 
+    plot = (p9.ggplot(df, p9.aes('substanceHC', 'sampleHC', fill='value'))
+        + p9.geom_tile(p9.aes(width=.95, height=.95))
+        + p9.geom_text(p9.aes(label='value'), size=1)
+        + p9.theme(axis_text_x = p9.element_text(rotation=45, hjust=1))
+        + p9.scales.scale_fill_gradientn(["Firebrick", "#440154FF", "#21908CFF", "Ghostwhite", "Ghostwhite", "Ghostwhite", "#21908CFF", "#FDE725FF", "Orange"], [(i+1.001)/2.002 for i in [-1.001, -1, -0.101, -0.1, 0, 0.1, 0.101, 1, 1.001]])
+        + p9.ggtitle(expName + ": Heatmap of predicted and manually derived integration results.\n0 (white) indicates the perfect agreement (manual and prediction for peak/nopeak agree and identical peak areas (+/- 10%) if peaks were detected)\n1.001 (red) indicates a predicted peak but nopeak in the manual integration, while -1.001 (orange) indicates a nopeak in the prediction but a manually integrated peak\ncolors between -1 and 1 indicate the increase (positive) or decrease (negative) of the abundance difference relative manually integrated peak area (in %)\n" + "PBPeak & GTPeak %d (%.1f%%); PBNoPeak & GTNoPeak %d (%.1f%%); PBPeak & GTNoPeak %d (%.1f%%); PBNoPeak & GTPeak %d (%.1f%%)\n"%(sum(df["PBPeak"] & df["manualPeak"]), sum(df["PBPeak"] & df["manualPeak"]) / df.shape[0] * 100, sum(~df["PBPeak"] & ~df["manualPeak"]), sum(~df["PBPeak"] & ~df["manualPeak"])/ df.shape[0] * 100, sum(df["PBPeak"] & ~df["manualPeak"]), sum(df["PBPeak"] & ~df["manualPeak"]) / df.shape[0] * 100, sum(~df["PBPeak"] & df["manualPeak"]), sum(~df["PBPeak"] & df["manualPeak"]) / df.shape[0] * 100) + str(round(df[df["PBPeak"] & df["manualPeak"]]["value"].describe(percentiles=[0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]),2,)).replace("\n", "; ").replace("  ", " ").replace("  ", " ").replace("  ", " ").replace("  ", " "))
+        )
+    p9.options.figure_size = (50, 20)
+    p9.ggsave(plot=plot, filename=os.path.join(expDir, "fig_perInstanceResults.pdf"), width=50, height=20, limitsize=False)
+    
     TabLog().exportToFile(os.path.join(expDir, "results.tsv"))
     print("All calculations took %.1f seconds"%(toc("Overall process")))
 

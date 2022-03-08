@@ -336,16 +336,33 @@ class PeakBotMRM():
         ## setup convolutions
         x = eic
         for i in range(len(uNetLayerSizes)):
-            x = tf.keras.layers.ZeroPadding1D(padding=2)(x)
-            x = tf.keras.layers.Conv1D(uNetLayerSizes[i], (5), use_bias=False, activation="relu")(x)
-            x = tf.keras.layers.BatchNormalization()(x)
+            if True:
+                
+                x = tf.keras.layers.ZeroPadding1D(padding=2)(x)
+                x = tf.keras.layers.Conv1D(uNetLayerSizes[i], (5), use_bias=False, activation="relu")(x)
+                x = tf.keras.layers.BatchNormalization()(x)
 
-            x = tf.keras.layers.ZeroPadding1D(padding=1)(x)
-            x = tf.keras.layers.Conv1D(uNetLayerSizes[i], (3), use_bias=False, activation="relu")(x)
-            x = tf.keras.layers.BatchNormalization()(x)
+                x = tf.keras.layers.ZeroPadding1D(padding=1)(x)
+                x = tf.keras.layers.Conv1D(uNetLayerSizes[i], (3), use_bias=False, activation="relu")(x)
+                x = tf.keras.layers.BatchNormalization()(x)
 
-            x = tf.keras.layers.MaxPooling1D((2))(x)
-            x = tf.keras.layers.Dropout(dropOutRate)(x)
+                x = tf.keras.layers.MaxPooling1D((2))(x)
+                x = tf.keras.layers.Dropout(dropOutRate)(x)
+            else:
+                width = 7
+                x = tf.keras.layers.Conv1D(uNetLayerSizes[i], (2*width+1), padding="same", use_bias=False, activation="relu")(x)
+                x = tf.keras.layers.BatchNormalization()(x)
+                
+                width = 2
+                x = tf.keras.layers.Conv1D(uNetLayerSizes[i], (2*width+1), padding="same", use_bias=False, activation="relu")(x)
+                x = tf.keras.layers.BatchNormalization()(x)
+                
+                width = 1
+                x = tf.keras.layers.Conv1D(uNetLayerSizes[i], (2*width+1), padding="same", use_bias=False, activation="relu")(x)
+                x = tf.keras.layers.BatchNormalization()(x)
+
+                x = tf.keras.layers.MaxPooling1D((2))(x)
+                x = tf.keras.layers.Dropout(dropOutRate)(x)
 
         ## Intermediate layer
         x = tf.keras.layers.BatchNormalization()(x)
