@@ -81,25 +81,48 @@ def _EICIOU(dummyX, dummyY, numClasses = None):
     ## Calculate indices for EICs
     indices = tf.transpose(tf.reshape(tf.repeat(tf.range(tf.shape(eic)[1], dtype=eic.dtype), repeats=tf.shape(eic)[0]), [tf.shape(eic)[1], tf.shape(eic)[0]]))
 
+    if PeakBotMRM.Config.UPDATEPEAKBORDERSTOMIN:
+        ## Update borders to be min values in left and right side of the peak's apex
+        stripped = tf.where(tf.math.logical_and(tf.math.greater_equal(indices, tf.reshape(tf.repeat(tf.math.floor(rtInds[:,0]), repeats=tf.shape(eic)[1]), shape=tf.shape(eic))), 
+                                                tf.math.less_equal   (indices, tf.reshape(tf.repeat(tf.math.ceil (rtInds[:,1]), repeats=tf.shape(eic)[1]), shape=tf.shape(eic)))), 
+                            eic, 
+                            tf.zeros_like(eic))
+        maxInd   = tf.cast(tf.math.argmax(stripped, axis=1), dtype=tf.float32)
+        
+        strippeL = tf.where(tf.math.logical_and(tf.math.greater_equal(indices, tf.reshape(tf.repeat(tf.math.floor(rtInds[:,0]), repeats=tf.shape(eic)[1]), shape=tf.shape(eic))), 
+                                                tf.math.less_equal   (indices, tf.reshape(tf.repeat(tf.math.ceil (maxInd     ), repeats=tf.shape(eic)[1]), shape=tf.shape(eic)))), 
+                            eic, 
+                            tf.reshape(tf.repeat(tf.math.reduce_max(eic, axis=1), repeats=tf.shape(eic)[1]), shape=tf.shape(eic)))
+        minIndL  = tf.reshape(tf.cast(tf.math.argmin(strippeL, axis=1), dtype=tf.float32), shape=(tf.shape(eic)[0],1))
+        
+        strippeR = tf.where(tf.math.logical_and(tf.math.greater_equal(indices, tf.reshape(tf.repeat(tf.math.floor(maxInd     ), repeats=tf.shape(eic)[1]), shape=tf.shape(eic))), 
+                                                tf.math.less_equal   (indices, tf.reshape(tf.repeat(tf.math.ceil (rtInds[:,1]), repeats=tf.shape(eic)[1]), shape=tf.shape(eic)))), 
+                            eic, 
+                            tf.reshape(tf.repeat(tf.math.reduce_max(eic, axis=1), repeats=tf.shape(eic)[1]), shape=tf.shape(eic)))
+        minIndR  = tf.reshape(tf.cast(tf.math.argmin(strippeR, axis=1), dtype=tf.float32), shape=(tf.shape(eic)[0],1))
+        prtInds = tf.concat([minIndL, minIndR], axis=1)
+
     ## Extract area for user integration
     stripped = tf.where(tf.math.logical_and(tf.math.greater_equal(indices, tf.reshape(tf.repeat(tf.math.floor(rtInds[:,0]), repeats=tf.shape(eic)[1]), tf.shape(eic))), 
                                             tf.math.less_equal   (indices, tf.reshape(tf.repeat(tf.math.ceil (rtInds[:,1]), repeats=tf.shape(eic)[1]), tf.shape(eic)))), 
                         eic, 
                         tf.zeros_like(eic))
-    maxRow   = tf.where(tf.math.equal(stripped, 0), tf.reshape(tf.repeat(tf.reduce_max(stripped, axis=1), repeats=(tf.shape(eic)[1])), [tf.shape(eic)[0], tf.shape(eic)[1]]), stripped)
+    maxRow   = tf.where(tf.math.equal(stripped, 0), 
+                        tf.reshape(tf.repeat(tf.reduce_max(stripped, axis=1), repeats=(tf.shape(eic)[1])), tf.shape(eic)), 
+                        stripped)
     minVal   = tf.reduce_min(maxRow, axis=1)
-    stripped = tf.subtract(stripped, tf.reshape(tf.repeat(minVal, repeats=tf.shape(eic)[1]), [tf.shape(eic)[0], tf.shape(eic)[1]]))
+    stripped = tf.subtract(stripped, tf.reshape(tf.repeat(minVal, repeats=tf.shape(eic)[1]), tf.shape(eic)))
     stripped = tf.where(tf.math.less(stripped, 0), tf.zeros_like(stripped)+0.0001, stripped)
     inteArea = tf.reduce_sum(stripped, axis=1)
 
     ## Extract area for PeakBotMRM integration
     stripped   = tf.where(tf.math.logical_and(tf.math.greater_equal(indices, tf.reshape(tf.repeat(tf.math.floor(prtInds[:,0]), repeats=tf.shape(eic)[1]), tf.shape(eic))), 
-                                            tf.math.less_equal   (indices, tf.reshape(tf.repeat(tf.math.ceil (prtInds[:,1]), repeats=tf.shape(eic)[1]), tf.shape(eic)))), 
+                                              tf.math.less_equal   (indices, tf.reshape(tf.repeat(tf.math.ceil (prtInds[:,1]), repeats=tf.shape(eic)[1]), tf.shape(eic)))), 
                           eic, 
                           tf.zeros_like(eic))
-    maxRow     = tf.where(tf.math.equal(stripped, 0), tf.reshape(tf.repeat(tf.reduce_max(stripped, axis=1), repeats=(tf.shape(eic)[1])), [tf.shape(eic)[0], tf.shape(eic)[1]]), stripped)
+    maxRow     = tf.where(tf.math.equal(stripped, 0), tf.reshape(tf.repeat(tf.reduce_max(stripped, axis=1), repeats=(tf.shape(eic)[1])), tf.shape(eic)), stripped)
     minVal     = tf.reduce_min(maxRow, axis=1)
-    stripped   = tf.subtract(stripped, tf.reshape(tf.repeat(minVal, repeats=tf.shape(eic)[1]), [tf.shape(eic)[0], tf.shape(eic)[1]]))
+    stripped   = tf.subtract(stripped, tf.reshape(tf.repeat(minVal, repeats=tf.shape(eic)[1]), tf.shape(eic)))
     stripped   = tf.where(tf.math.less(stripped, 0), tf.zeros_like(stripped)+0.0001, stripped)
     pbCalcArea = tf.reduce_sum(stripped, axis=1)
 
@@ -107,12 +130,12 @@ def _EICIOU(dummyX, dummyY, numClasses = None):
     beginInds   = tf.math.floor(tf.math.maximum(rtInds[:,0], prtInds[:,0]))
     endInds     = tf.math.ceil (tf.math.minimum(rtInds[:,1], prtInds[:,1]))
     stripped    = tf.where(tf.math.logical_and(tf.math.greater_equal(indices, tf.reshape(tf.repeat(beginInds, repeats=tf.shape(eic)[1]), tf.shape(eic))), 
-                                             tf.math.less_equal   (indices, tf.reshape(tf.repeat(endInds  , repeats=tf.shape(eic)[1]), tf.shape(eic)))), 
+                                               tf.math.less_equal   (indices, tf.reshape(tf.repeat(endInds  , repeats=tf.shape(eic)[1]), tf.shape(eic)))), 
                            eic, 
                            tf.zeros_like(eic))
-    maxRow      = tf.where(tf.math.equal(stripped, 0), tf.reshape(tf.repeat(tf.reduce_max(stripped, axis=1), repeats=(tf.shape(eic)[1])), [tf.shape(eic)[0], tf.shape(eic)[1]]), stripped)
+    maxRow      = tf.where(tf.math.equal(stripped, 0), tf.reshape(tf.repeat(tf.reduce_max(stripped, axis=1), repeats=(tf.shape(eic)[1])), tf.shape(eic)), stripped)
     minVal      = tf.reduce_min(maxRow, axis=1)
-    stripped    = tf.subtract(stripped, tf.reshape(tf.repeat(minVal, repeats=tf.shape(eic)[1]), [tf.shape(eic)[0], tf.shape(eic)[1]]))
+    stripped    = tf.subtract(stripped, tf.reshape(tf.repeat(minVal, repeats=tf.shape(eic)[1]), tf.shape(eic)))
     stripped    = tf.where(tf.math.less(stripped, 0), tf.zeros_like(stripped)+0.0001, stripped)
     overlapArea = tf.reduce_sum(stripped, axis=1)
 

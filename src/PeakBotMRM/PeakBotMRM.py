@@ -50,6 +50,8 @@ class Config(object):
     LEARNINGRATEMINVALUE           = 3e-17
 
     INSTANCEPREFIX = "___PBsample_"
+    
+    UPDATEPEAKBORDERSTOMIN = True
 
     @staticmethod
     def getAsStringFancy():
@@ -332,47 +334,27 @@ class PeakBotMRM():
 
         ## add "virtual" channel to the EICs as required by the convolutions
         eic = tf.expand_dims(eic, axis=-1)
-
-        ## setup convolutions
+        
         x = eic
         for i in range(len(uNetLayerSizes)):
-            if True:
-                
-                x = tf.keras.layers.ZeroPadding1D(padding=2)(x)
-                x = tf.keras.layers.Conv1D(uNetLayerSizes[i], (5), use_bias=False, activation="relu")(x)
-                x = tf.keras.layers.BatchNormalization()(x)
-
-                x = tf.keras.layers.ZeroPadding1D(padding=1)(x)
-                x = tf.keras.layers.Conv1D(uNetLayerSizes[i], (3), use_bias=False, activation="relu")(x)
-                x = tf.keras.layers.BatchNormalization()(x)
-
-                x = tf.keras.layers.MaxPooling1D((2))(x)
-                x = tf.keras.layers.Dropout(dropOutRate)(x)
-            else:
-                width = 7
+            for width in [2, 1]:
                 x = tf.keras.layers.Conv1D(uNetLayerSizes[i], (2*width+1), padding="same", use_bias=False, activation="relu")(x)
                 x = tf.keras.layers.BatchNormalization()(x)
                 
-                width = 2
-                x = tf.keras.layers.Conv1D(uNetLayerSizes[i], (2*width+1), padding="same", use_bias=False, activation="relu")(x)
-                x = tf.keras.layers.BatchNormalization()(x)
-                
-                width = 1
-                x = tf.keras.layers.Conv1D(uNetLayerSizes[i], (2*width+1), padding="same", use_bias=False, activation="relu")(x)
-                x = tf.keras.layers.BatchNormalization()(x)
-
-                x = tf.keras.layers.MaxPooling1D((2))(x)
-                x = tf.keras.layers.Dropout(dropOutRate)(x)
+            x = tf.keras.layers.MaxPooling1D((2))(x)
+            x = tf.keras.layers.Dropout(dropOutRate)(x)
 
         ## Intermediate layer
         x = tf.keras.layers.BatchNormalization()(x)
         x = tf.keras.layers.Flatten()(x)
         
         ## Predictions
-        fx = x        
+        fx = x
+        ## Result type
         peaks  = tf.keras.layers.Dense(Config.NUMCLASSES, activation="sigmoid", name="pred.peak")(fx)
         outputs.append(peaks)
         
+        ## Peak borders
         rtInds = tf.keras.layers.Dense(2, activation="relu", name="pred.rtInds")(fx)
         outputs.append(rtInds)
     
@@ -577,14 +559,13 @@ def trainPeakBotMRMModel(trainInstancesPath, logBaseDir, modelName = None, valIn
 
 
 @timeit
-def integrateArea(eic, rts, start, end, method = "minbetweenborders"):
+def integrateArea(eic, rts, start, end, updateToMinPeakBorders = True, method = "minbetweenborders"):
     startInd = np.argmin([abs(r-start) for r in rts])
     endInd = np.argmin([abs(r-end) for r in rts])
 
     if end <= start:
         warnings.warn("Warning in peak area calculation: start and end rt of peak are incorrect (start %.2f, end %.2f). An area of 0 will be returned."%(start, end), RuntimeWarning)
         return 0
-
 
     area = 0
     if method.lower() in ["linearbetweenborders", "linear"]:
@@ -645,6 +626,8 @@ def runPeakBotMRM(instances, modelPath = None, model = None, verbose = True):
     if verbose:
         print("Detecting peaks with PeakBotMRM")
         print("  | .. loading PeakBotMRM model '%s'"%(modelPath))
+        if Config.UPDATEPEAKBORDERSTOMIN:
+            print("  | .. ATTENTION: peak bounds will be updated to minimum values in the predicted area")
 
     pb = model
     if model is None and modelPath is not None:
@@ -652,8 +635,32 @@ def runPeakBotMRM(instances, modelPath = None, model = None, verbose = True):
     
     pred = pb.model.predict(instances["channel.int"], verbose = verbose)
     peakTypes = np.argmax(pred[0], axis=1)
-    rtStartInds = pred[1][:,0]
-    rtEndInds = pred[1][:,1]
+    rtStartInds = np.floor(np.array(pred[1][:,0])).astype(int)
+    rtEndInds = np.ceil(np.array(pred[1][:,1])).astype(int)
+    
+    if Config.UPDATEPEAKBORDERSTOMIN:
+        for i in range(pred[1].shape[0]):
+            if peakTypes[i] == 0 and rtStartInds[i] < rtEndInds[i]:
+                eic = np.copy(instances["channel.int"][i])
+                eic[:rtStartInds[i]] = 0
+                eic[rtEndInds[i]:] = 0
+                maxInd = np.argmax(eic)
+                
+                eic = np.copy(instances["channel.int"][i])
+                mVal = np.max(eic)
+                eic[:rtStartInds[i]] = mVal * 1.1
+                eic[(maxInd-1):] = mVal * 1.1
+                minIndL = np.argmin(eic)
+                
+                eic = np.copy(instances["channel.int"][i])
+                mVal = np.max(eic)
+                eic[:(maxInd+1)] = mVal * 1.1
+                eic[(rtEndInds[i]+1):] = mVal * 1.1
+                minIndR = np.argmin(eic)
+                
+                #print("Updating eic bounds from ", rtStartInds[i], maxInd, rtEndInds[i], " to ", minIndL, minIndR)
+                rtStartInds[i] = minIndL
+                rtEndInds[i] = minIndR
 
     return peakTypes, rtStartInds, rtEndInds
 
