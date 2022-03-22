@@ -1,3 +1,4 @@
+from cmath import log
 from http.client import REQUESTED_RANGE_NOT_SATISFIABLE
 from PeakBotMRM.core import tic, toc, tocP, tocAddStat, addFunctionRuntime, timeit, printRunTimesSummary
 import PeakBotMRM
@@ -26,7 +27,7 @@ import portalocker
 
 
 def shuffleDatasetBatches(exportPath, instancePrefix=None,
-                              tempFileName="bqu40mcb25473zfhbgwh22534", verbose=True):
+                          tempFileName="bqu40mcb25473zfhbgwh22534", verbose=True):
 
     if instancePrefix is None:
         instancePrefix = PeakBotMRM.Config.INSTANCEPREFIX
@@ -34,7 +35,7 @@ def shuffleDatasetBatches(exportPath, instancePrefix=None,
     tic("shuffling")
     files = [os.path.join(exportPath, f) for f in os.listdir(exportPath) if os.path.isfile(os.path.join(exportPath, f))]
     if verbose:
-        print("  | .. shuffling the test instances (batch name shuffling), there are %d files" % (len(files)))
+        print("  | .. shuffling the test instances (batch name shuffling), there are %d batches" % (len(files)))
 
     random.shuffle(files)
     for i in range(len(files)):
@@ -48,7 +49,7 @@ def shuffleDatasetBatches(exportPath, instancePrefix=None,
 
 
 def shuffleDatasetInstances(exportPath, steps=1E5, samplesToExchange=50,
-                   instancePrefix=None, verbose=True):
+                            instancePrefix=None, verbose=True):
 
     if instancePrefix is None:
         instancePrefix = PeakBotMRM.Config.INSTANCEPREFIX
@@ -56,10 +57,10 @@ def shuffleDatasetInstances(exportPath, steps=1E5, samplesToExchange=50,
     tic("shuffling")
     files = [os.path.join(exportPath, f) for f in os.listdir(exportPath) if os.path.isfile(os.path.join(exportPath, f))]
     if verbose:
-        print("  | .. shuffling the test instances (inter-batch shuffling), there are %d files" % (len(files)))
+        print("  | .. shuffling the test instances (inter-batch shuffling), there are %d batches" % (len(files)))
             
 
-    with tqdm.tqdm(total=steps, desc="   | .. shuffling instances", disable=not verbose) as t:
+    with tqdm.tqdm(total=steps, desc="  | .. shuffling instances", disable=not verbose) as t:
         while steps > 0:
             a = None
             b = None
@@ -131,7 +132,8 @@ def mergeDataset(exportPath, ds1Path, ds2Path, dropLastBatch = True, instancePre
     if dropLastBatch: 
         del files[-1]
     if verbose:
-        print("  | .. there are %d files in dataset '%s'" % (len(files), ds1Path))
+        print("  | .. there are %d batches in dataset '%s'" % (len(files), ds1Path))
+        print("  | .. there are %d batches in dataset '%s'" % (len(files), ds2Path))
     
     cur = 0
     for fil in files: 
@@ -142,12 +144,36 @@ def mergeDataset(exportPath, ds1Path, ds2Path, dropLastBatch = True, instancePre
     if dropLastBatch: 
         del files[-1]
     if verbose:
-        print("  | .. there are %d files in dataset '%s'" % (len(files), ds2Path))
+        print("  | .. there are %d batches in the merged dataset '%s'" % (len(files), ds2Path))
     
     cur = 0
     for fil in files: 
         shutil.copy(fil, os.path.join(exportPath, "%s%d.pickle"%(instancePrefix, cur)))
         cur = cur + 1
+
+
+def addDatasetTo(dsFromPath, dsToPath, dropLastBatch = True, instancePrefix=None, verbose=True):
+
+    if instancePrefix is None:
+        instancePrefix = PeakBotMRM.Config.INSTANCEPREFIX
+
+    tic("merging")
+    files = [os.path.join(dsFromPath, f) for f in os.listdir(dsFromPath) if os.path.isfile(os.path.join(dsFromPath, f))]
+    if dropLastBatch: 
+        del files[-1]
+    if verbose:
+        print("  | .. there are %d batches in dataset '%s'" % (len(files), dsToPath))
+        print("  | .. there are %d batches in dataset '%s'" % (len(files), dsFromPath))
+    
+    cur = len([os.path.join(dsToPath, f) for f in os.listdir(dsToPath) if os.path.isfile(os.path.join(dsToPath, f))])
+    if dropLastBatch:
+        cur = max(0, cur - 1)
+    for fil in files: 
+        shutil.copy(fil, os.path.join(dsToPath, "%s%d.pickle"%(instancePrefix, cur)))
+        cur = cur + 1
+    if verbose:
+        print("  | .. %d batches have been added to the dataset '%s'" % (len(files), dsToPath))
+    
 
 
 def splitDataset(path, newDS1Path = None, newDS2Path = None, ratioDS1 = 0.3, instancePrefix = None, tempFileName = "bqu40mcb25473zfhbgwh22534", copy=False, verbose = False):
@@ -238,7 +264,9 @@ def showDatasetOverview(instanceDir, verbose = True, logPrefix = ""):
 
 def compileInstanceDataset(substances, integrations, instanceDir, addRandomNoise=False, maxRandFactor=0.1, maxNoiseLevelAdd=0.1, shiftRTs=False, maxShift=0.1, useEachInstanceNTimes=1, balanceReps = False, exportBatchSize = 1024, includeMetaInfo = False, verbose = True, logPrefix = ""):
     curPickleObject = None
-    curPickleID = 0
+    curPickleID = len([f for f in os.listdir(instanceDir) if os.path.isfile(os.path.join(instanceDir, f))])
+    if curPickleID > 0 and verbose:
+        print(logPrefix, "  | .. Instance directory already contains %d batchfiles. Continuing with ID %d"%(curPickleID-1, curPickleID))
     curInstanceInd = 0
     if addRandomNoise and verbose:
         print(logPrefix, "  | .. Random noise will be added. The range of the randomly generated factors is %.3f - %.3f and the maximum randomly-generated noise added on top of the EICs is %.3f"%(1/(1 + maxRandFactor), 1 + maxRandFactor, maxNoiseLevelAdd))
@@ -264,7 +292,7 @@ def compileInstanceDataset(substances, integrations, instanceDir, addRandomNoise
         useEachBackgroundInstanceNTimes = int(round(useEachInstanceNTimes / (noPeaks / max(peaks, noPeaks))))
     if verbose:
         print(logPrefix, "  | .. Each peak instance will be used %d times and each background instance %d times"%(useEachPeakInstanceNTimes, useEachBackgroundInstanceNTimes))
-    for substance in tqdm.tqdm(integrations.keys(), desc="   | .. augmenting"):
+    for substance in tqdm.tqdm(integrations.keys(), desc="  | .. augmenting"):
         for sample in integrations[substance].keys():
             inte = integrations[substance][sample]
             if len(inte["chrom"]) == 1:
@@ -390,7 +418,7 @@ def compileSyntheticDataset(substances, integrations, nInstances, instanceDir,
     peaks = []
     backgrounds = []
     minPInt, maxPInt, minBgInt, maxBgInt = 1E20, 0, 1E20, 0
-    for substance in tqdm.tqdm(integrations.keys(), desc="   | .. reference extraction"):
+    for substance in tqdm.tqdm(integrations.keys(), desc="  | .. reference extraction"):
         for sample in integrations[substance].keys():
             key = "%s $ %s"%(substance, sample)
             inte = integrations[substance][sample]
@@ -438,11 +466,13 @@ def compileSyntheticDataset(substances, integrations, nInstances, instanceDir,
         print(logPrefix, "  | .. using %d peaks and %d backgrounds for synthetic dataset generation of %d instances"%(len(peaks), len(backgrounds), nInstances))
     
     curPickleObject = None
-    curPickleID = 0
+    curPickleID = len([f for f in os.listdir(instanceDir) if os.path.isfile(os.path.join(instanceDir, f))])
+    if curPickleID > 0 and verbose:
+        print(logPrefix, "  | .. Instance directory already contains %d batchfiles. Continuing with ID %d"%(curPickleID-1, curPickleID))
     curInstanceInd = 0
     instancesNoPeakInCenter = 0
     instancesPeakInCenter = 0
-    for _ in tqdm.tqdm(range(nInstances), desc="   | .. synthetic generation"):
+    for _ in tqdm.tqdm(range(nInstances), desc="  | .. synthetic generation"):
         
         shouldType = random.randint(0, 1)
         
@@ -623,7 +653,7 @@ def compileSyntheticDataset(substances, integrations, nInstances, instanceDir,
         print(logPrefix, "  | .. Exported %d batches each with %d instances."%(curPickleID, exportBatchSize))
         print(logPrefix, "  | .. there are %d instances with a peak in their center and %d instances with no peak in their center"%(instancesPeakInCenter, instancesNoPeakInCenter))
         print(logPrefix, "  | .. took %.1f seconds"%(toc()))
-        print(logPrefix, "\n", logPrefix)
+        print(logPrefix)
 
 
 def generateAndExportAugmentedInstancesForTraining(substances, integrations, addRandomNoise, maxRandFactor, maxNoiseLevelAdd, shiftRTs, maxShift, useEachInstanceNTimes, balanceAugmentations, insDir, verbose = True, logPrefix = ""):
@@ -635,7 +665,7 @@ def generateAndExportAugmentedInstancesForTraining(substances, integrations, add
     shuffleDatasetInstances(insDir, steps=1E4, samplesToExchange=12)
     if verbose: 
         print(logPrefix, "  | .. took %.1f seconds"%(toc()))
-        print(logPrefix, "\n", logPrefix)
+        print(logPrefix)
 
 
 def exportOriginalInstancesForValidation(substances, integrations, insOriDir, verbose = True, logPrefix = ""):
@@ -645,7 +675,7 @@ def exportOriginalInstancesForValidation(substances, integrations, insOriDir, ve
     compileInstanceDataset(substances, integrations, insOriDir, addRandomNoise = False, shiftRTs = False, verbose = verbose, logPrefix = logPrefix)
     if verbose: 
         print(logPrefix, "  | .. took %.1f seconds"%(toc()))
-        print(logPrefix, "\n", logPrefix)
+        print(logPrefix)
 
 
 
@@ -656,7 +686,7 @@ def constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, 
     peaks = []
     noPeaks = []
     notUsed = 0
-    for substance in tqdm.tqdm(substances.values(), desc="   | .. balancing"):
+    for substance in tqdm.tqdm(substances.values(), desc="  | .. balancing"):
         if substance["Name"] in integrations.keys():
             for sample in integrations[substance["Name"]].keys():
                 if integrations[substance["Name"]][sample]["foundPeak"]:
@@ -724,7 +754,7 @@ def constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, 
         else:
             print(logPrefix, "  | .. dataset not balanced with %d peaks and %d backgrounds"%(len(peaks), len(noPeaks)))
         print(logPrefix, "  | .. took %.1f seconds"%(toc()))
-        print(logPrefix, "\n", logPrefix)
+        print(logPrefix)
     return integrations
 
 
@@ -740,7 +770,7 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
     ysample = []
     ysubstance = []
     xcur = 0
-    for substance in tqdm.tqdm(integrations.keys(), desc="   | .. calculating"):
+    for substance in tqdm.tqdm(integrations.keys(), desc="  | .. calculating"):
         for sample in integrations[substance].keys():
             inte = integrations[substance][sample]
             if substance in substances.keys() and len(inte["chrom"]) == 1:
@@ -857,19 +887,19 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
             df.to_pickle(os.path.join(expDir, "pacmap.pd.pickle"))
             plot = (p9.ggplot(df, p9.aes("x", "y", color="label"))
                     + p9.geom_point(alpha = 0.1 if s == "allSubstances" else 1)
-                    + p9.ggtitle("PCAMAP of EICs") + p9.xlab("PACMAP 1") + p9.ylab("PACMAP 2"))
+                    + p9.ggtitle("PaCMAP of EICs") + p9.xlab("PaCMAP 1") + p9.ylab("PaCMAP 2"))
             p9.options.figure_size = (5.2,5)
-            p9.ggsave(plot=plot, filename=os.path.join(expDir, "fig_peakStats_PACMAP_%s.png"%(expName)), width=5.2, height=5, dpi=300)
+            p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_peakStats_PaACMAP.png"%(expName)), width=5.2, height=5, dpi=300)
             p9.options.figure_size = (5.2,5)
-            p9.ggsave(plot=(plot + p9.facet_wrap("~label")), filename=os.path.join(expDir, "SubstanceFigures", "%s_PACMAP_%s.png"%(s, expName)), width=5.2, height=5, dpi=300)
+            p9.ggsave(plot=(plot + p9.facet_wrap("~label")), filename=os.path.join(expDir, "SubstanceFigures", "%s_PACMAP_%s.png"%(expName, s)), width=5.2, height=5, dpi=300)
             
             plot = (p9.ggplot(df, p9.aes("x", "y", color="sample"))
                     + p9.geom_point(alpha = 0.1 if s == "allSubstances" else 1)
                     + p9.facet_wrap("~label")
                     + p9.theme(legend_position="bottom")
-                    + p9.ggtitle("PCAMAP of EICs (color: substance)") + p9.xlab("PACMAP 1") + p9.ylab("PACMAP 2"))
+                    + p9.ggtitle("PaCMAP of EICs (color: substance)") + p9.xlab("PaCMAP 1") + p9.ylab("PaCMAP 2"))
             p9.options.figure_size = (10,8)
-            p9.ggsave(plot=(plot + p9.facet_wrap("~label")), filename=os.path.join(expDir, "SubstanceFigures", "%s_PACMAPfacLabSub_%ss.png"%(s, expName)), width=10, height=8, dpi=300)
+            p9.ggsave(plot=(plot + p9.facet_wrap("~label")), filename=os.path.join(expDir, "SubstanceFigures", "%s_PACMAPfacLabSub_%s.png"%(expName, s)), width=10, height=8, dpi=300)
         
     ## UMAP embedding (deactivated due to problems with the library)
     if False:        
@@ -917,9 +947,9 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
                 + p9.geom_point(alpha = 0.1)
                 + p9.ggtitle("UMAP of EICs") + p9.xlab("UMAP 1") + p9.ylab("UMAP 2"))
         p9.options.figure_size = (5.2,5)
-        p9.ggsave(plot=plot, filename=os.path.join(expDir, "fig_peakStats_UMAP_%s.png"%(expName)), width=5.2, height=5, dpi=300)
+        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_peakStats_UMAP.png"%(expName)), width=5.2, height=5, dpi=300)
         p9.options.figure_size = (5.2,5)
-        p9.ggsave(plot=(plot + p9.facet_wrap("~label")), filename=os.path.join(expDir, "fig_peakStats_UMAPfacLab_%s.png"%(expName)), width=5.2, height=5, dpi=300)
+        p9.ggsave(plot=(plot + p9.facet_wrap("~label")), filename=os.path.join(expDir, "%s_peakStats_UMAPfacLab.png"%(expName)), width=5.2, height=5, dpi=300)
         
 
         # Fit and transform the data
@@ -933,14 +963,14 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
                 + p9.geom_point(alpha = 0.1)
                 + p9.ggtitle("UMAP of EICs") + p9.xlab("UMAP 1") + p9.ylab("UMAP 2"))
         p9.options.figure_size = (5.2,5)
-        p9.ggsave(plot=plot, filename=os.path.join(expDir, "fig_peakStats_UMAPsup_%s.png"%(expName)), width=5.2, height=5, dpi=300)
+        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_peakStats_UMAPsup.png"%(expName)), width=5.2, height=5, dpi=300)
         p9.options.figure_size = (5.2,5)
-        p9.ggsave(plot=(plot + p9.facet_wrap("~label")), filename=os.path.join(expDir, "fig_peakStats_UMAPsupfacLab_%s.png"%(expName)), width=5.2, height=5, dpi=300)
+        p9.ggsave(plot=(plot + p9.facet_wrap("~label")), filename=os.path.join(expDir, "%s_peakStats_UMAPsupfacLab.png"%(expName)), width=5.2, height=5, dpi=300)
         
         
     tf = pd.DataFrame(stats["peakProperties"], columns = ["sample", "type", "value"])
     if verbose:
-        print(logPrefix, "  | .. There are %d peaks and %d Nopeaks. An overview of the peak stats has been saved to '%s'"%(stats["hasPeak"], stats["hasNoPeak"], os.path.join(expDir, "fig_peakStats.png")))
+        print(logPrefix, "  | .. There are %d peaks and %d Nopeaks. An overview of the peak stats has been saved to '%s'"%(stats["hasPeak"], stats["hasNoPeak"], os.path.join(expDir, "%s_peakStat.png"%(expName))))
         print(logPrefix, "  | .. .. The distribution of the peaks' properties (offset of apex to expected rt, left and right extends relative to peak apex, peak widths) are: (in minutes)")
         print(logPrefix, tf.groupby("type").describe(percentiles=[0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]))
         
@@ -956,7 +986,7 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
             + p9.ggtitle("Peak metrics") + p9.xlab("retention time (minutes)") + p9.ylab("Frequency")
             + p9.theme(legend_position = "none", panel_spacing_x=0.5))
     p9.options.figure_size = (5.2,5)
-    p9.ggsave(plot=plot, filename=os.path.join(expDir, "fig_peakStats_1_%s.png"%(expName)), width=5.2, height=5, dpi=300)
+    p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_peakStats_1.png"%(expName)), width=5.2, height=5, dpi=300)
     
     df = tf.copy()
     df.drop(df[df.type != "peakWidthScans"].index, inplace=True)
@@ -966,7 +996,7 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
             + p9.ggtitle("Peak metrics") + p9.xlab("peak width (scans)") + p9.ylab("Frequency")
             + p9.theme(legend_position = "none", panel_spacing_x=0.5))
     p9.options.figure_size = (5.2,5)
-    p9.ggsave(plot=plot, filename=os.path.join(expDir, "fig_peakStats_2_%s.png"%(expName)), width=5.2, height=5, dpi=300)
+    p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_peakStats_2.png"%(expName)), width=5.2, height=5, dpi=300)
     
     df = tf.copy()
     df.drop(df[df.type == "apexReferenceOffset"].index, inplace=True)
@@ -985,12 +1015,12 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
             + p9.ggtitle("Peak metrics") + p9.xlab("-") + p9.ylab("Frequency")
             + p9.theme(legend_position = "none", panel_spacing_x=0.5))
     p9.options.figure_size = (5.2,5)
-    p9.ggsave(plot=plot, filename=os.path.join(expDir, "fig_peakStats_3_%s.png"%(expName)), width=5.2, height=5, dpi=300)
+    p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_peakStats_3.png"%(expName)), width=5.2, height=5, dpi=300)
     
     if verbose:
-        print(logPrefix, "  | .. plotted peak metrics to file '%s'"%(os.path.join(expDir, "fig_peakStat_%s.png"%(expName))))
+        print(logPrefix, "  | .. plotted peak metrics to file '%s'"%(os.path.join(expDir, "%s_peakStat.png"%(expName))))
         print(logPrefix, "  | .. took %.1f seconds"%toc())
-        print(logPrefix, "\n", logPrefix)
+        print(logPrefix)
 
 
 def plotHistory(histObjectFile, plotFile, verbose = True, logPrefix = ""):
@@ -1054,12 +1084,12 @@ def plotHistory(histObjectFile, plotFile, verbose = True, logPrefix = ""):
         p9.ggsave(plot=p, filename="%s_ROC_zoomed_%s.png"%(plotFile, k), width=20, height=20, dpi=300, limitsize=False)
 
 
-def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFile, expDir = None, logDir = None, historyFile = None, 
+def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, logDir = None, historyFile = None, 
                          MRMHeader = "- SRM SIC Q1=(\\d+[.]\\d+) Q3=(\\d+[.]\\d+) start=(\\d+[.]\\d+) end=(\\d+[.]\\d+)",
                          allowedMZOffset = 0.05, balanceDataset = False, balanceAugmentations = True,
                          addRandomNoise = True, maxRandFactor = 0.1, maxNoiseLevelAdd=0.1, shiftRTs = True, maxShift = 0.15, useEachInstanceNTimes = 5, 
-                         excludeSubstances = None, includeSubstances = None, checkPeakAttributes = None, showPeakMetrics = True, 
-                         comment="None", useDSForTraining = "augmented", otherValidationDatasets = None,
+                         checkPeakAttributes = None, showPeakMetrics = True, 
+                         comment="None", useDSForTraining = "augmented", 
                          verbose = True, logPrefix = ""):
     tic("Overall process")
     
@@ -1069,8 +1099,6 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
         logDir = os.path.join(expDir, "log")
     if historyFile is None:
         historyFile = os.path.join(expDir, "History.pandas.pickle")
-    if excludeSubstances is None:
-        excludeSubstances = []
     
     try:
         if not os.path.isdir(expDir):
@@ -1089,9 +1117,6 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
     print("Training model from experiment")
     print("  | .. Parameters")
     print("  | .. .. expName: '%s'"%(expName))
-    print("  | .. .. targetFile: '%s'"%(targetFile))
-    print("  | .. .. curatedPeaks: '%s'"%(curatedPeaks))
-    print("  | .. .. samplesPath: '%s'"%(samplesPath))
     print("  | .. .. modelFile: '%s'"%(modelFile))
     print("  | .. .. expDir: '%s'"%(expDir))
     print("  | .. .. logDir: '%s'"%(logDir))
@@ -1125,29 +1150,43 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
     print(PeakBotMRM.Config.getAsStringFancy())
     print("\n")
     
-    
-    substances               = PeakBotMRM.loadTargets(targetFile, excludeSubstances = excludeSubstances, includeSubstances = includeSubstances)
-    substances, integrations = PeakBotMRM.loadIntegrations(substances, curatedPeaks)
-    substances, integrations = PeakBotMRM.loadChromatograms(substances, integrations, samplesPath, expDir,
-                                                             allowedMZOffset = allowedMZOffset, 
-                                                             MRMHeader = MRMHeader)
-    if showPeakMetrics:
-        investigatePeakMetrics(expDir, substances, integrations, expName = expName)
-    
-    integrations = constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, integrations)
-    
-    addValDS = []
-    
-    insOriObj = tempfile.TemporaryDirectory(prefix="PBMRM_oriIns__")
+    validationDSs = []
+    insOriObj = tempfile.TemporaryDirectory(prefix="PBMRM_oriIns_ALL__")
     oriIns = insOriObj.name
-    exportOriginalInstancesForValidation(substances, integrations, oriIns)
-    addValDS.append({"folder": oriIns, "name": "%s_ori"%(expName)})
-    
-    insObj = tempfile.TemporaryDirectory(prefix="PBMRM_aug__")
+    insObj = tempfile.TemporaryDirectory(prefix="PBMRM_aug_ALL__")
     augIns = insObj.name
-    generateAndExportAugmentedInstancesForTraining(substances, integrations, addRandomNoise, maxRandFactor, maxNoiseLevelAdd, 
-                                                   shiftRTs, maxShift, useEachInstanceNTimes, balanceAugmentations, augIns)
-    addValDS.append({"folder": augIns, "name": "%s_aug"%(expName)})
+    for trainDS in trainDSs:
+            
+        print("Adding training dataset '%s'"%(trainDS["DSName"]))
+        
+        substances               = PeakBotMRM.loadTargets(trainDS["targetFile"], 
+                                                          excludeSubstances = trainDS["excludeSubstances"], 
+                                                          includeSubstances = trainDS["includeSubstances"], logPrefix = "  | ..")
+        substances, integrations = PeakBotMRM.loadIntegrations(substances, trainDS["curatedPeaks"], logPrefix = "  | ..")
+        substances, integrations = PeakBotMRM.loadChromatograms(substances, integrations, trainDS["samplesPath"],
+                                                                allowedMZOffset = allowedMZOffset, 
+                                                                MRMHeader = MRMHeader, logPrefix = "  | ..")
+        if showPeakMetrics:
+            investigatePeakMetrics(expDir, substances, integrations, expName = "%s"%(expName, trainDS["DSName"]), logPrefix = "  | ..")
+        
+        integrations = constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, integrations, logPrefix = "  | ..")
+        
+        
+        insOriObjDS = tempfile.TemporaryDirectory(prefix="PBMRM_oriIns_%s__"%(trainDS["DSName"]))
+        oriInsDS = insOriObjDS.name
+        exportOriginalInstancesForValidation(substances, integrations, oriInsDS, logPrefix = "  | ..")
+        validationDSs.append({"folder": oriInsDS, "name": "%s_%s_ori"%(expName, trainDS["DSName"]), "_object": insOriObjDS})
+        addDatasetTo(oriInsDS, oriIns)
+        
+        
+        insObjDS = tempfile.TemporaryDirectory(prefix="PBMRM_aug_%s__"%(trainDS["DSName"]))
+        augInsDS = insObjDS.name
+        generateAndExportAugmentedInstancesForTraining(substances, integrations, addRandomNoise, maxRandFactor, maxNoiseLevelAdd, 
+                                                       shiftRTs, maxShift, useEachInstanceNTimes, balanceAugmentations, augInsDS, logPrefix = "  | ..")
+        validationDSs.append({"folder": augInsDS, "name": "%s_%s_aug"%(expName, trainDS["DSName"]), "_object": insObjDS})
+        addDatasetTo(augInsDS, augIns)
+        
+        print("")
 
     #insSynObj = tempfile.TemporaryDirectory(prefix="PBMRM_syn__")
     #synIns = insSynObj.name
@@ -1157,27 +1196,29 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
     #                        exportBatchSize = 1024, includeMetaInfo = False)
     
     ## add other datasets for validation metrics
-    if otherValidationDatasets is not None:
-        for od in otherValidationDatasets:
+    if valDSs is not None:
+        for valDS in valDSs:
             
-            print("Adding additional validation dataset '%s'"%(od["vexpName"]))
+            print("Adding additional validation dataset '%s'"%(valDS["DSName"]))
             
-            substances               = PeakBotMRM.loadTargets(od["targetFile"], excludeSubstances = od["excludeSubstances"], includeSubstances = od["includeSubstances"], logPrefix = "  | .. ")
-            substances, integrations = PeakBotMRM.loadIntegrations(substances, od["curatedPeaks"], logPrefix = "  | .. ")
-            substances, integrations = PeakBotMRM.loadChromatograms(substances, integrations, od["samplesPath"], od["expDir"],
+            substances               = PeakBotMRM.loadTargets(valDS["targetFile"], 
+                                                              excludeSubstances = valDS["excludeSubstances"], 
+                                                              includeSubstances = valDS["includeSubstances"], logPrefix = "  | ..")
+            substances, integrations = PeakBotMRM.loadIntegrations(substances, valDS["curatedPeaks"], logPrefix = "  | ..")
+            substances, integrations = PeakBotMRM.loadChromatograms(substances, integrations, valDS["samplesPath"],
                                                                     allowedMZOffset = allowedMZOffset, 
-                                                                    MRMHeader = MRMHeader,
-                                                                    logPrefix = "  | .. ")
+                                                                    MRMHeader = MRMHeader, logPrefix = "  | ..")
             if showPeakMetrics:
-                investigatePeakMetrics(od["expDir"], substances, integrations, expName = od["vexpName"], logPrefix = "  | .. ")
+                investigatePeakMetrics(expDir, substances, integrations, expName = "%s"%(expName, valDS["DSName"]), logPrefix = "  | ..")
             
-            integrations = constrainAndBalanceDataset(False, checkPeakAttributes, substances, integrations, logPrefix = "  | .. ")
+            integrations = constrainAndBalanceDataset(False, checkPeakAttributes, substances, integrations, logPrefix = "  | ..")
             
-            tempObj = tempfile.TemporaryDirectory(prefix="PBMRM_oriIns__")
+            tempObj = tempfile.TemporaryDirectory(prefix="PBMRM_oriIns_%s__"%(valDS["DSName"]))
             path = tempObj.name
-            exportOriginalInstancesForValidation(substances, integrations, path, logPrefix = "  | .. ")
-            addValDS.append({"folder": path, "object": tempObj, "name": "%s_ori"%(od["vexpName"])})
+            exportOriginalInstancesForValidation(substances, integrations, path)
+            validationDSs.append({"folder": path, "_object": tempObj, "name": "%s_ori"%(valDS["DSName"])})
     
+            print("")
 
     ## prepare/split training dataset into train and validation set
     print("Dataset for training")
@@ -1192,6 +1233,8 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
     #elif useDSForTraining.lower() == "synthetic":
     #    print("  | .. using the synthetic dataset")
     #    trainDS = synIns
+    shuffleDatasetBatches(trainDS)
+    shuffleDatasetInstances(trainDS)
     if trainDS is None:
         raise RuntimeError("Unknown dataset specified for training. Valid options are useDSForTraining = 'augmented', 'original', 'synthetic'")
     traInsObj = tempfile.TemporaryDirectory(prefix="PBMRM_training__")
@@ -1202,9 +1245,8 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
     PeakBotMRM.train.splitDataset(trainDS, 
                                  newDS1Path = traIns, newDS2Path = valIns, 
                                  copy = True, ratioDS1 = splitRatio, verbose = False)
-    addValDS.append({"folder": trainDS, "name": "%s_all"%(expName)})
-    addValDS.append({"folder": traIns, "name": "%s_train"%(expName)})
-    addValDS.append({"folder": valIns, "name": "%s_val"%(expName)})
+    validationDSs.append({"folder": traIns, "name": "%s_train"%(expName)})
+    validationDSs.append({"folder": valIns, "name": "%s_val"%(expName)})
     nTraIns = len([f for f in os.listdir(traIns) if os.path.isfile(os.path.join(traIns, f))])
     nValIns = len([f for f in os.listdir(valIns) if os.path.isfile(os.path.join(valIns, f))])
     print("  | .. Randomly split dataset '%s' into a training and validation dataset with %.1f and %.1f parts of the instances "%(expDir, splitRatio, 1-splitRatio))
@@ -1215,7 +1257,7 @@ def trainPeakBotMRMModel(expName, targetFile, curatedPeaks, samplesPath, modelFi
     ## Train new peakbotMRM model
     pb, chist, modelName = PeakBotMRM.trainPeakBotMRMModel(modelName = os.path.basename(modelFile), 
                                                            trainInstancesPath = traIns,
-                                                           addValidationInstances = addValDS,
+                                                           addValidationInstances = validationDSs,
                                                            logBaseDir = logDir,
                                                            everyNthEpoch = -1, 
                                                            verbose = True)

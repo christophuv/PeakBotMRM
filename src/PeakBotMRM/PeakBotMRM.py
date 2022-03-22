@@ -725,7 +725,7 @@ def loadTargets(targetFile, excludeSubstances = None, includeSubstances = None, 
         print(logPrefix, "  | .. loaded %d substances"%(len(substances)))
         print(logPrefix, "  | .. of these %d have RT shifts"%(sum((1 if substance["Rt shifts"]!="" else 0 for substance in substances.values()))))
         print(logPrefix, "  | .. of these %d have abnormal peak forms"%(sum((1 if substance["PeakForm"]!="" else 0 for substance in substances.values()))))
-        print(logPrefix, "\n", logPrefix)
+        print(logPrefix)
 
     return substances
 
@@ -779,14 +779,14 @@ def loadIntegrations(substances, curatedPeaks, verbose = True, logPrefix = ""):
     if verbose:
         print(logPrefix, "  | .. parsed %d integrations from %d substances and %d samples."%(totalIntegrations, len(substances), len(integratedSamples)))
         print(logPrefix, "  | .. there are %d areas and %d no peaks"%(foundPeaks, foundNoPeaks))
-        print(logPrefix, "\n", logPrefix)
+        print(logPrefix)
     # integrations [['Pyridinedicarboxylic acid Results', 'R100140_METAB02_MCC025_CAL1_20200306', '14.731', '14.731', '0'], ...]
 
     return substances, integrations
 
 
  
-def loadChromatograms(substances, integrations, samplesPath, expDir, loadFromPickleIfPossible = True,
+def loadChromatograms(substances, integrations, samplesPath, loadFromPickleIfPossible = True,
                         allowedMZOffset = 0.05, MRMHeader = "- SRM SIC Q1=(\\d+[.]\\d+) Q3=(\\d+[.]\\d+) start=(\\d+[.]\\d+) end=(\\d+[.]\\d+)",
                         verbose = True, logPrefix = ""):
     ## load chromatograms
@@ -795,11 +795,11 @@ def loadChromatograms(substances, integrations, samplesPath, expDir, loadFromPic
         print(logPrefix, "Processing chromatograms")
     samples = [os.path.join(samplesPath, f) for f in os.listdir(samplesPath) if os.path.isfile(os.path.join(samplesPath, f)) and f.lower().endswith(".mzml")]
     usedSamples = set()
-    if os.path.isfile(os.path.join(expDir, "integrations.pickle")) and loadFromPickleIfPossible:
-        with open(os.path.join(expDir, "integrations.pickle"), "rb") as fin:
+    if os.path.isfile(os.path.join(samplesPath, "integrations.pickle")) and loadFromPickleIfPossible:
+        with open(os.path.join(samplesPath, "integrations.pickle"), "rb") as fin:
             integrations, usedSamples = pickle.load(fin)
             if verbose:
-                print(logPrefix, "  | .. Imported integrations from pickle file '%s/integrations.pickle'"%(expDir))
+                print(logPrefix, "  | .. Imported integrations from pickle file '%s/integrations.pickle'"%(os.path.join(samplesPath, "integrations.pickle")))
     else:
         if verbose:
             print(logPrefix, "  | .. This might take a couple of minutes as all samples/integrations/channels/etc. need to be compared and the current implementation are 4 sub-for-loops")
@@ -878,10 +878,10 @@ def loadChromatograms(substances, integrations, samplesPath, expDir, loadFromPic
                                                                                             Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionType, entryID, chrom])
         
 
-        with open (os.path.join(expDir, "integrations.pickle"), "wb") as fout:
+        with open(os.path.join(samplesPath, "integrations.pickle"), "wb") as fout:
             pickle.dump((integrations, usedSamples), fout)
             if verbose:
-                print(logPrefix, "  | .. Stored integrations to '%s/integrations.pickle'"%expDir)
+                print(logPrefix, "  | .. Stored integrations to '%s/integrations.pickle'"%os.path.join(samplesPath, "integrations.pickle"))
     
     ## Remove chromatograms with ambiguously selected chromatograms
     remSubstancesChannelProblems = set()
@@ -917,6 +917,6 @@ def loadChromatograms(substances, integrations, samplesPath, expDir, loadFromPic
     
     if verbose:
         print(logPrefix, "  | .. took %.1f seconds"%(toc("procChroms")))
-        print(logPrefix, "\n", logPrefix)
+        print(logPrefix)
 
     return substances, integrations
