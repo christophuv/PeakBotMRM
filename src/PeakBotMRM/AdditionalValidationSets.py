@@ -89,7 +89,7 @@ class AdditionalValidationSets(tf.keras.callbacks.Callback):
                     outStr.append("%s: %.4f"%("%%%ds"%self.printWidths[i]%valuename, result))
                     hist[validation_set_name + "_" + valuename] = result
                 outStr.append("")
-                outStr.insert(0, "   %%%ds - %d instances - %3.0fs - "%(self.maxLenNames, validation_data["channel.int"].shape[0], toc("kl234hlkjsfkjh1hlkjhasfdkjlh"))%validation_set_name)
+                outStr.insert(0, "   %%%ds - %8d instances - %3.0fs - "%(self.maxLenNames, validation_data["channel.int"].shape[0], toc("kl234hlkjsfkjh1hlkjhasfdkjlh"))%validation_set_name)
                 if self.verbose: print("".join(outStr))
             if self.verbose: print("")
         self.history.append(hist)

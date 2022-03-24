@@ -470,7 +470,7 @@ def validateExperiment(expName, valDSs, modelFile,
         + p9.ggtitle("Comparison of provided manual integration results and PeakBot integration based on the manual integration peak borders")
         )
         p9.options.figure_size = (10,10)
-        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_comparisonManualIntegration1.png"%(valDS["DSName"])), width=10, height=10, dpi=300)
+        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_comparisonManualIntegration1.png"%(valDS["DSName"])), width=10, height=10, dpi=300, verbose=False)
         
         ## show correlation between areas integrated with XXX method and PeakBot's method using the manual integration peak borders
         plot = (p9.ggplot(df, p9.aes('np.log2(manualArea)', 'np.log2(manualAreaDOT / manualArea)'))
@@ -479,7 +479,7 @@ def validateExperiment(expName, valDSs, modelFile,
         + p9.ggtitle("Comparison of provided manual integration results and PeakBot integration based on the manual integration peak borders")
         )
         p9.options.figure_size = (10,10)
-        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_comparisonManualIntegration2.png"%(valDS["DSName"])), width=10, height=10, dpi=300)
+        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_comparisonManualIntegration2.png"%(valDS["DSName"])), width=10, height=10, dpi=300, verbose=False)
         
         
         
@@ -490,7 +490,7 @@ def validateExperiment(expName, valDSs, modelFile,
         + p9.ggtitle("Comparison of manual integration with the PeakBot algorithm and PeakBot's predicted borders")
         )
         p9.options.figure_size = (10,10)
-        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_comparisonIntegration1.png"%(valDS["DSName"])), width=10, height=10, dpi=300)
+        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_comparisonIntegration1.png"%(valDS["DSName"])), width=10, height=10, dpi=300, verbose=False)
         
         ## show correlation between areas integrated with XXX method and PeakBot's method using the manual integration peak borders
         plot = (p9.ggplot(df, p9.aes('np.log2(manualAreaDOT)', 'np.log2(manualAreaDOT / PBArea)'))
@@ -499,7 +499,7 @@ def validateExperiment(expName, valDSs, modelFile,
         + p9.ggtitle("Comparison of manual integration with the PeakBot algorithm and PeakBot's predicted borders")
         )
         p9.options.figure_size = (10,10)
-        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_comparisonIntegration2.png"%(valDS["DSName"])), width=10, height=10, dpi=300)
+        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_comparisonIntegration2.png"%(valDS["DSName"])), width=10, height=10, dpi=300, verbose=False)
         
         
         
@@ -519,7 +519,7 @@ def validateExperiment(expName, valDSs, modelFile,
             + p9.ggtitle(expName + ": Heatmap of predicted and manually derived integration results.\n0 (white) indicates the perfect agreement (manual and prediction for peak/nopeak agree and identical peak areas (+/- 10%) if peaks were detected)\n1.001 (red) indicates a predicted peak but nopeak in the manual integration, while -1.001 (orange) indicates a nopeak in the prediction but a manually integrated peak\ncolors between -1 and 1 indicate the increase (positive) or decrease (negative) of the abundance difference relative manually integrated peak area (in %)\n" + "PBPeak & GTPeak %d (%.1f%%); PBNoPeak & GTNoPeak %d (%.1f%%); PBPeak & GTNoPeak %d (%.1f%%); PBNoPeak & GTPeak %d (%.1f%%)\n"%(sum(df["PBPeak"] & df["manualPeak"]), sum(df["PBPeak"] & df["manualPeak"]) / df.shape[0] * 100, sum(~df["PBPeak"] & ~df["manualPeak"]), sum(~df["PBPeak"] & ~df["manualPeak"])/ df.shape[0] * 100, sum(df["PBPeak"] & ~df["manualPeak"]), sum(df["PBPeak"] & ~df["manualPeak"]) / df.shape[0] * 100, sum(~df["PBPeak"] & df["manualPeak"]), sum(~df["PBPeak"] & df["manualPeak"]) / df.shape[0] * 100) + str(round(df[df["PBPeak"] & df["manualPeak"]]["value"].describe(percentiles=[0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]),2,)).replace("\n", "; ").replace("  ", " ").replace("  ", " ").replace("  ", " ").replace("  ", " "))
             )
         p9.options.figure_size = (50, 20)
-        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_perInstanceResults.pdf"%(valDS["DSName"])), width=50, height=20, limitsize=False)
+        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_perInstanceResults.pdf"%(valDS["DSName"])), width=50, height=20, limitsize=False, verbose=False)
         
     TabLog().exportToFile(os.path.join(expDir, "results.tsv"))
     print("All calculations took %.1f seconds"%(toc("Overall process")))

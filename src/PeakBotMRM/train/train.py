@@ -18,6 +18,7 @@ import pickle
 import tqdm
 import random
 random.seed(2021)
+
 import math
 import shutil
 import pathlib
@@ -26,248 +27,22 @@ import portalocker
 
 
 
-def shuffleDatasetBatches(exportPath, instancePrefix=None,
-                          tempFileName="bqu40mcb25473zfhbgwh22534", verbose=True):
 
-    if instancePrefix is None:
-        instancePrefix = PeakBotMRM.Config.INSTANCEPREFIX
-
-    tic("shuffling")
-    files = [os.path.join(exportPath, f) for f in os.listdir(exportPath) if os.path.isfile(os.path.join(exportPath, f))]
-    if verbose:
-        print("  | .. shuffling the test instances (batch name shuffling), there are %d batches" % (len(files)))
-
-    random.shuffle(files)
-    for i in range(len(files)):
-        os.rename(files[i], os.path.join(pathlib.Path(files[i]).parent.resolve(), "%s%d.pickle" % (tempFileName, i)))
-
-
-    files = [os.path.join(exportPath, f) for f in os.listdir(exportPath) if os.path.isfile(os.path.join(exportPath, f))]
-    random.shuffle(files)
-    for i in range(len(files)):
-        os.rename(files[i], files[i].replace(tempFileName, instancePrefix))
-
-
-def shuffleDatasetInstances(exportPath, steps=1E5, samplesToExchange=50,
-                            instancePrefix=None, verbose=True):
-
-    if instancePrefix is None:
-        instancePrefix = PeakBotMRM.Config.INSTANCEPREFIX
-
-    tic("shuffling")
-    files = [os.path.join(exportPath, f) for f in os.listdir(exportPath) if os.path.isfile(os.path.join(exportPath, f))]
-    if verbose:
-        print("  | .. shuffling the test instances (inter-batch shuffling), there are %d batches" % (len(files)))
-            
-
-    with tqdm.tqdm(total=steps, desc="  | .. shuffling instances", disable=not verbose) as t:
-        while steps > 0:
-            a = None
-            b = None
-
-            filea = files[random.randint(0, len(files) - 1)]
-            fileb = files[random.randint(0, len(files) - 1)]
-
-            if filea == fileb:
-                continue
-
-            with open(filea, "rb") as temp:
-                a = pickle.load(temp)
-            with open(fileb, "rb") as temp:
-                b = pickle.load(temp)
-
-            samplesA = a["channel.rt"].shape[0]
-            samplesB = b["channel.rt"].shape[0]
-            
-            ministeps = math.floor(min(samplesA, samplesB) / min(min(samplesA/2, samplesB/2), samplesToExchange)) + 1
-            
-            while ministeps > 0 and steps > 0:
-
-                cExchange = random.randint(1, min(min(samplesA/2, samplesB/2), samplesToExchange))
-
-                beginA = random.randint(0, samplesA - cExchange)
-                beginB = random.randint(0, samplesB - cExchange)
-
-                if cExchange > 0:
-                    assert beginA >= 0 and beginB >= 0 and (beginA + cExchange) <= samplesA and (beginB + cExchange) <= samplesB and filea != fileb
-
-                    for k in a.keys():
-                        if   isinstance(a[k], np.ndarray) and len(a[k].shape) == 1:
-                            a[k][beginA:(beginA + cExchange)],       b[k][beginB:(beginB + cExchange)]       = np.copy(b[k][beginB:(beginB + cExchange)]),       np.copy(a[k][beginA:(beginA + cExchange)])
-
-                        elif isinstance(a[k], np.ndarray) and len(a[k].shape) == 2:
-                            a[k][beginA:(beginA + cExchange),:],     b[k][beginB:(beginB + cExchange),:]     = np.copy(b[k][beginB:(beginB + cExchange),:]),     np.copy(a[k][beginA:(beginA + cExchange),:])
-
-                        elif isinstance(a[k], np.ndarray) and len(a[k].shape) == 3:
-                            a[k][beginA:(beginA + cExchange),:,:],   b[k][beginB:(beginB + cExchange),:,:]   = np.copy(b[k][beginB:(beginB + cExchange),:,:]),   np.copy(a[k][beginA:(beginA + cExchange),:,:])
-
-                        elif isinstance(a[k], np.ndarray) and len(a[k].shape) == 4:
-                            a[k][beginA:(beginA + cExchange),:,:,:], b[k][beginB:(beginB + cExchange),:,:,:] = np.copy(b[k][beginB:(beginB + cExchange),:,:,:]), np.copy(a[k][beginA:(beginA + cExchange),:,:,:])
-
-                        elif isinstance(a[k], list):
-                            a[k][beginA:(beginA + cExchange)],       b[k][beginB:(beginB + cExchange)]       = b[k][beginB:(beginB + cExchange)],                a[k][beginA:(beginA + cExchange)]
-                            
-                        else:
-                            assert False, "Unknown key in shuffling, aborting"
-
-                    assert samplesA == a["channel.rt"].shape[0] and samplesB == b["channel.rt"].shape[0]
-
-                    steps = steps - 1
-                    ministeps = ministeps - 1
-                    t.update()
-
-            with open(filea, "wb") as temp:
-                pickle.dump(a, temp)
-            with open(fileb, "wb") as temp:
-                pickle.dump(b, temp)
-
-
-def mergeDataset(exportPath, ds1Path, ds2Path, dropLastBatch = True, instancePrefix=None, verbose=True):
-
-    if instancePrefix is None:
-        instancePrefix = PeakBotMRM.Config.INSTANCEPREFIX
-
-    tic("merging")
-    files = [os.path.join(ds1Path, f) for f in os.listdir(ds1Path) if os.path.isfile(os.path.join(ds1Path, f))]
-    if dropLastBatch: 
-        del files[-1]
-    if verbose:
-        print("  | .. there are %d batches in dataset '%s'" % (len(files), ds1Path))
-        print("  | .. there are %d batches in dataset '%s'" % (len(files), ds2Path))
-    
-    cur = 0
-    for fil in files: 
-        shutil.copy(fil, os.path.join(exportPath, "%s%d.pickle"%(instancePrefix, cur)))
-        cur = cur + 1
-    
-    files = [os.path.join(ds2Path, f) for f in os.listdir(ds2Path) if os.path.isfile(os.path.join(ds2Path, f))]
-    if dropLastBatch: 
-        del files[-1]
-    if verbose:
-        print("  | .. there are %d batches in the merged dataset '%s'" % (len(files), ds2Path))
-    
-    cur = 0
-    for fil in files: 
-        shutil.copy(fil, os.path.join(exportPath, "%s%d.pickle"%(instancePrefix, cur)))
-        cur = cur + 1
-
-
-def addDatasetTo(dsFromPath, dsToPath, dropLastBatch = True, instancePrefix=None, verbose=True):
-
-    if instancePrefix is None:
-        instancePrefix = PeakBotMRM.Config.INSTANCEPREFIX
-
-    tic("merging")
-    files = [os.path.join(dsFromPath, f) for f in os.listdir(dsFromPath) if os.path.isfile(os.path.join(dsFromPath, f))]
-    if dropLastBatch: 
-        del files[-1]
-    if verbose:
-        print("  | .. there are %d batches in dataset '%s'" % (len(files), dsToPath))
-        print("  | .. there are %d batches in dataset '%s'" % (len(files), dsFromPath))
-    
-    cur = len([os.path.join(dsToPath, f) for f in os.listdir(dsToPath) if os.path.isfile(os.path.join(dsToPath, f))])
-    if dropLastBatch:
-        cur = max(0, cur - 1)
-    for fil in files: 
-        shutil.copy(fil, os.path.join(dsToPath, "%s%d.pickle"%(instancePrefix, cur)))
-        cur = cur + 1
-    if verbose:
-        print("  | .. %d batches have been added to the dataset '%s'" % (len(files), dsToPath))
-    
-
-
-def splitDataset(path, newDS1Path = None, newDS2Path = None, ratioDS1 = 0.3, instancePrefix = None, tempFileName = "bqu40mcb25473zfhbgwh22534", copy=False, verbose = False):
-
-    assert 0 <= ratioDS1 <= 1, "parameter ratioDS1 must be 0 <= ratioDS1 <= 1"
-    
-    if newDS1Path is not None:
-        pathlib.Path(newDS1Path).mkdir(parents=True, exist_ok=True) 
-    if newDS2Path is not None:
-        pathlib.Path(newDS2Path).mkdir(parents=True, exist_ok=True) 
-
-    if instancePrefix is None:
-        instancePrefix = PeakBotMRM.Config.INSTANCEPREFIX
-
-    files = [os.path.join(path, f) for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
-
-    take = math.floor(len(files)*ratioDS1)
-
-    cur = 0
-    while take > 0:
-
-        randFile = random.randint(0, len(files)-1)
-        if copy:
-            shutil.copy(files[randFile], os.path.join(newDS1Path, "%s%d.pickle"%(instancePrefix, cur)))
-        else:
-            shutil.move(files[randFile], os.path.join(newDS1Path, "%s%d.pickle"%(instancePrefix, cur)))
-        
-        del files[randFile]
-        take = take - 1
-        cur = cur + 1
-
-    if newDS2Path is not None:
-        temp = 0
-        for fil in files:
-            if copy:
-                shutil.copy(fil, os.path.join(newDS2Path, "%s%d.pickle"%(instancePrefix, temp)))
-            else:
-                shutil.move(fil, os.path.join(newDS2Path, "%s%d.pickle"%(instancePrefix, temp)))
-            temp = temp + 1
-
-    if not copy:    
-        files = [os.path.join(path, f) for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
-        for i in range(len(files)):
-            os.rename(files[i], os.path.join(pathlib.Path(files[i]).parent.resolve(), "%s%d.pickle" % (tempFileName, i)))
-        
-        files = [os.path.join(path, f) for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
-        for i in range(len(files)):
-            os.rename(files[i], os.path.join(pathlib.Path(files[i]).parent.resolve(), "%s%d.pickle" % (instancePrefix, i)))
-
-    if verbose:
-        print("  | .. %s %d files from the dataset '' (now %d instances) to the new dataset ''"%("copied" if copy else "moved", cur, path, newDS1Path))
-        if newDS2Path is not None:
-            print("  | .. %s remaining instances to '%s'"%("copied" if copy else "moved", newDS2Path)) 
-
-
-def showDatasetOverview(instanceDir, verbose = True, logPrefix = ""):
-    files = [os.path.join(instanceDir, f) for f in os.listdir(instanceDir) if os.path.isfile(os.path.join(instanceDir, f))]
-    
-    peaks, backgrounds = 0, 0
-    samplesUsed = {}
-    substancesUsed = {}
-    
-    for f in files:
-        with open(f, "rb") as temp:
-            a = pickle.load(temp)
-            
-            peaks = peaks + np.sum(a["inte.peak"][:,0])
-            backgrounds +=  np.sum(a["inte.peak"][:,0])
-            
-            for s in a["ref.sample"]:
-                if s not in samplesUsed.keys():
-                    samplesUsed[s] = 0
-                samplesUsed[s] = samplesUsed[s] + 1
-            for s in a["ref.substanceName"]:
-                if s not in substancesUsed.keys():
-                    substancesUsed[s] = 0
-                substancesUsed[s] = substancesUsed[s] + 1
-                
-    if verbose: 
-        print(logPrefix, "  | .. .. There are %d peaks and %d peackgrounds in the dataset. "%(peaks, backgrounds))
-        print(logPrefix, "  | .. .. samples used:")
-        for s in sorted(samplesUsed.keys()):
-            print(logPrefix, "  | .. .. .. %s: %d"%(s, samplesUsed[s]))
-        print(logPrefix, "  | .. .. substances used:")
-        for s in sorted(substancesUsed.keys()):
-            print(logPrefix, "  | .. .. .. %s: %d"%(s, substancesUsed[s]))
-
-
-def compileInstanceDataset(substances, integrations, instanceDir, addRandomNoise=False, maxRandFactor=0.1, maxNoiseLevelAdd=0.1, shiftRTs=False, maxShift=0.1, useEachInstanceNTimes=1, balanceReps = False, exportBatchSize = 1024, includeMetaInfo = False, verbose = True, logPrefix = ""):
-    curPickleObject = None
-    curPickleID = len([f for f in os.listdir(instanceDir) if os.path.isfile(os.path.join(instanceDir, f))])
-    if curPickleID > 0 and verbose:
-        print(logPrefix, "  | .. Instance directory already contains %d batchfiles. Continuing with ID %d"%(curPickleID-1, curPickleID))
+def compileInstanceDataset(substances, integrations, experimentName, dataset = None, 
+                           addRandomNoise=False, maxRandFactor=0.1, maxNoiseLevelAdd=0.1, 
+                           shiftRTs=False, maxShift=0.1, useEachInstanceNTimes=1, balanceReps = False, 
+                           verbose = True, logPrefix = ""):
+    template = None    
     curInstanceInd = 0
+    totalInstances = 0
+    if dataset is None:
+        dataset = PeakBotMRM.MemoryDataset()
+        if dataset.data != None:
+            totalInstances = dataset.data["channel.rt"].shape[0]
+    elif verbose:
+        print(logPrefix, "  | .. %d instances already present in the dataset. Appending..."%(dataset.data["channel.rt"].shape[0]))
+    
+    
     if addRandomNoise and verbose:
         print(logPrefix, "  | .. Random noise will be added. The range of the randomly generated factors is %.3f - %.3f and the maximum randomly-generated noise added on top of the EICs is %.3f"%(1/(1 + maxRandFactor), 1 + maxRandFactor, maxNoiseLevelAdd))
     if shiftRTs:
@@ -275,6 +50,7 @@ def compileInstanceDataset(substances, integrations, instanceDir, addRandomNoise
         print(logPrefix, "  | .. Chromatographic peaks with a shifted peak apex will first be corrected to the designated RT and then randomly moved for the training instance")
     if verbose: 
         print(logPrefix, "  | .. Each instance shall be used %d times and the peak/background classes shall%s be balanced"%(useEachInstanceNTimes, "" if balanceReps else " not"))
+    
     useEachPeakInstanceNTimes = useEachInstanceNTimes
     useEachBackgroundInstanceNTimes = useEachInstanceNTimes
     if balanceReps:
@@ -292,7 +68,7 @@ def compileInstanceDataset(substances, integrations, instanceDir, addRandomNoise
         useEachBackgroundInstanceNTimes = int(round(useEachInstanceNTimes / (noPeaks / max(peaks, noPeaks))))
     if verbose:
         print(logPrefix, "  | .. Each peak instance will be used %d times and each background instance %d times"%(useEachPeakInstanceNTimes, useEachBackgroundInstanceNTimes))
-    for substance in tqdm.tqdm(integrations.keys(), desc="  | .. augmenting"):
+    for substance in tqdm.tqdm(integrations.keys(), desc=logPrefix + "   | .. augmenting"):
         for sample in integrations[substance].keys():
             inte = integrations[substance][sample]
             if len(inte["chrom"]) == 1:
@@ -339,345 +115,73 @@ def compileInstanceDataset(substances, integrations, instanceDir, addRandomNoise
                     ## test if eic has detected signals
                     if np.sum(eicS) > 0 and np.all(eicS >= 0):
                         ## add instance to training data
-                        if curPickleObject is None:
-                            curPickleObject = {"channel.rt"        : np.zeros((exportBatchSize, PeakBotMRM.Config.RTSLICES), dtype=float),
-                                    "channel.int"       : np.zeros((exportBatchSize, PeakBotMRM.Config.RTSLICES), dtype=float),
-                                    "inte.peak"         : np.zeros((exportBatchSize, PeakBotMRM.Config.NUMCLASSES), dtype=int),
-                                    "inte.rtStart"      : np.zeros((exportBatchSize), dtype=float),
-                                    "inte.rtEnd"        : np.zeros((exportBatchSize), dtype=float),
-                                    "inte.rtInds"       : np.zeros((exportBatchSize, 2), dtype=float),
-                                    "inte.area"         : np.zeros((exportBatchSize), dtype=float),
-                                }
-                            if includeMetaInfo:
-                                curPickleObject = {**curPickleObject, 
-                                        **{"ref.substanceName" : ["" for i in range(exportBatchSize)],
-                                           "ref.sample"        : ["" for i in range(exportBatchSize)],
-                                           "ref.rt"            : np.zeros((exportBatchSize), dtype=float),
-                                           "ref.PeakForm"      : ["" for i in range(exportBatchSize)], 
-                                           "ref.Rt shifts"     : ["" for i in range(exportBatchSize)],
-                                           "ref.Note"          : ["" for i in range(exportBatchSize)],
-                                           "loss.IOU_Area"     : np.ones((exportBatchSize), dtype=float),
-                                        }
-                                }
-                                
+                        if template is None or curInstanceInd >= template["channel.rt"].shape[0]:
+                            template = PeakBotMRM.getDatasetTemplate()
                             curInstanceInd = 0
 
-                        assert curInstanceInd < curPickleObject["channel.rt"].shape[0]
-                        peakType = 0 if inte["foundPeak"] else 1
-
                         ## analytical raw data
-                        curPickleObject["channel.rt"       ][curInstanceInd,:] = rtsS
-                        curPickleObject["channel.int"      ][curInstanceInd,:] = eicS
+                        template["channel.rt"       ][curInstanceInd,:] = rtsS
+                        template["channel.int"      ][curInstanceInd,:] = eicS
 
                         ## manual integration data
-                        curPickleObject["inte.peak"        ][curInstanceInd, peakType] = 1
-                        curPickleObject["inte.rtStart"     ][curInstanceInd]   = bestRTStart
-                        curPickleObject["inte.rtEnd"       ][curInstanceInd]   = bestRTEnd
-                        curPickleObject["inte.rtInds"      ][curInstanceInd,0] = bestRTStartInd
-                        curPickleObject["inte.rtInds"      ][curInstanceInd,1] = bestRTEndInd                        
-                        curPickleObject["inte.area"        ][curInstanceInd]   = inte["area"]
+                        template["inte.peak"        ][curInstanceInd, 0 if inte["foundPeak"] else 1] = 1
+                        template["inte.rtStart"     ][curInstanceInd]   = bestRTStart
+                        template["inte.rtEnd"       ][curInstanceInd]   = bestRTEnd
+                        template["inte.rtInds"      ][curInstanceInd,0] = bestRTStartInd
+                        template["inte.rtInds"      ][curInstanceInd,1] = bestRTEndInd                        
+                        template["inte.area"        ][curInstanceInd]   = inte["area"]
 
-                        if includeMetaInfo:
+                        if PeakBotMRM.Config.INCLUDEMETAINFORMATION:
                             ## substance data
-                            curPickleObject["ref.substanceName"][curInstanceInd] = substance
-                            curPickleObject["ref.sample"       ][curInstanceInd] = sample
-                            curPickleObject["ref.rt"           ][curInstanceInd] = substances[substance]["RT"]
-                            curPickleObject["ref.PeakForm"     ][curInstanceInd] = substances[substance]["PeakForm"] 
-                            curPickleObject["ref.Rt shifts"    ][curInstanceInd] = substances[substance]["Rt shifts"]
-                            curPickleObject["ref.Note"         ][curInstanceInd] = substances[substance]["Note"]
+                            template["ref.substance" ][curInstanceInd] = substance
+                            template["ref.sample"    ][curInstanceInd] = sample
+                            template["ref.experiment"][curInstanceInd] = experimentName + ";" + sample + ";" + substance
+                            template["ref.rt"        ][curInstanceInd] = substances[substance]["RT"]
+                            template["ref.PeakForm"  ][curInstanceInd] = substances[substance]["PeakForm"] 
+                            template["ref.Rt shifts" ][curInstanceInd] = substances[substance]["Rt shifts"]
+                            template["ref.Note"      ][curInstanceInd] = substances[substance]["Note"]
+                            template["loss.IOU_Area" ][curInstanceInd] = 1
                         
-                        curInstanceInd = curInstanceInd + 1
+                        curInstanceInd += 1
+                        totalInstances += 1
                     else:
                         np.set_printoptions(edgeitems=PeakBotMRM.Config.RTSLICES + 2, 
                             formatter=dict(float=lambda x: "%.3g" % x))
                         print(eicS)
 
                     ## if batch has been filled, export it to a temporary file
-                    if curInstanceInd >= exportBatchSize:
-                        with open(os.path.join(instanceDir, "%s%d.pickle"%(PeakBotMRM.Config.INSTANCEPREFIX, curPickleID)), "wb") as fout:
-                            pickle.dump(curPickleObject, fout)
-                            curPickleObject = None
-                            curInstanceInd = 0
-                            curPickleID += 1
-    if verbose:
-        print(logPrefix, "  | .. Exported batches each with %d."%(exportBatchSize))
-
-
-def compileSyntheticDataset(substances, integrations, nInstances, instanceDir, 
-                            maxPeaksPerInstance = 3, maxBackgroundsPerInstance = 2, 
-                            onlyUsePeaksIn = None, onlyUseBackgroundsIn = None, 
-                            exportBatchSize = 1024, includeMetaInfo = False, 
-                            minPeakIntensity = -1, maxPeakIntensity = -1,
-                            minBackgroundIntensity = -1, maxBackgroundIntensity = -1, 
-                            verbose = True, logPrefix = ""):
-    tic()
-        
-    if verbose: 
-        print(logPrefix, "  | Generating synthetic dataset")
-    
-    peaks = []
-    backgrounds = []
-    minPInt, maxPInt, minBgInt, maxBgInt = 1E20, 0, 1E20, 0
-    for substance in tqdm.tqdm(integrations.keys(), desc="  | .. reference extraction"):
-        for sample in integrations[substance].keys():
-            key = "%s $ %s"%(substance, sample)
-            inte = integrations[substance][sample]
-            
-            if substance in substances.keys() and len(inte["chrom"]) == 1:
-                rts = inte["chrom"][0][9]["rts"]
-                eic = inte["chrom"][0][9]["eic"]
-                
-                if inte["foundPeak"] and (onlyUsePeaksIn is None or key in onlyUsePeaksIn):
-                    startInd = np.argmin(np.abs(rts - inte["rtstart"]))
-                    endInd = np.argmin(np.abs(rts - inte["rtend"]))
-                    minInt = np.min(eic[startInd:endInd])
-                    peaks.append({"rtstart": inte["rtstart"],
-                                  "rtend": inte["rtend"],
-                                  "eiccropped": eic[startInd:endInd] - minInt,
-                                  "rtscropped": rts[startInd:endInd],
-                                  "area" : inte["area"],
-                                  "substance": substance,
-                                  "sample": sample})
-                    
-                    minPInt = min(minPInt, np.min(eic[startInd:endInd]))
-                    maxPInt = max(maxPInt, np.max(eic[startInd:endInd] - minInt))
-                    
-                if not inte["foundPeak"] and (onlyUseBackgroundsIn is None or key in onlyUseBackgroundsIn):
-                    minInt = np.min(eic[startInd:endInd])
-                    backgrounds.append({"eic": eic - minInt,
-                                        "rts": rts,
-                                        "substance": substance,
-                                        "sample": sample})
-                    
-                    minBgInt = min(minBgInt, np.min(eic[eic>0]))
-                    maxBgInt = max(maxBgInt, np.max(eic - minInt))
-    
-    if minPeakIntensity == -1:
-        minPeakIntensity = minPInt
-    if maxPeakIntensity == -1:
-        maxPeakIntensity = maxPInt
-    if minBackgroundIntensity == -1:
-        minBackgroundIntensity = minBgInt
-    if maxBackgroundIntensity == -1:
-        maxBackgroundIntensity = maxBgInt
-    
-    if verbose: 
-        print(logPrefix, "  | .. min/max peak intensity %.1f %.1f; min/max background intensity %.1f %.1f"%(minPeakIntensity, maxPeakIntensity, minBackgroundIntensity, maxBackgroundIntensity))
-        print(logPrefix, "  | .. using %d peaks and %d backgrounds for synthetic dataset generation of %d instances"%(len(peaks), len(backgrounds), nInstances))
-    
-    curPickleObject = None
-    curPickleID = len([f for f in os.listdir(instanceDir) if os.path.isfile(os.path.join(instanceDir, f))])
-    if curPickleID > 0 and verbose:
-        print(logPrefix, "  | .. Instance directory already contains %d batchfiles. Continuing with ID %d"%(curPickleID-1, curPickleID))
-    curInstanceInd = 0
-    instancesNoPeakInCenter = 0
-    instancesPeakInCenter = 0
-    for _ in tqdm.tqdm(range(nInstances), desc="  | .. synthetic generation"):
-        
-        shouldType = random.randint(0, 1)
-        
-        tryIns = True
-        parea = -1
-        while tryIns:
-            try:
-                ## initialize empty EIC
-                eicS = np.zeros(PeakBotMRM.Config.RTSLICES, dtype=float)
-                rtsS = np.zeros(PeakBotMRM.Config.RTSLICES, dtype=float)
-                peakSignalType = np.zeros(PeakBotMRM.Config.RTSLICES, dtype=int)
-                
-                rtsSSet = False
-                            
-                ## randomly select a number of backgrounds and peaks for the synthetic instance
-                nPeaks = np.random.randint(0, maxPeaksPerInstance+1)
-                nBackgrounds = np.random.randint(1, maxBackgroundsPerInstance)
-                
-                ## populate synthetic instance with backgrounds
-                while nBackgrounds > 0:
-                    ## randoly select a background to be used
-                    bgI = np.random.randint(0, len(backgrounds))
-                    eic = backgrounds[bgI]["eic"]
-                    rts = backgrounds[bgI]["rts"]
-                    
-                    ## randomly select center rt from background
-                    if eic.shape[0] <= PeakBotMRM.Config.RTSLICES:
-                        a = PeakBotMRM.Config.RTSLICES - eic.shape[0]
-                        eicS[a:(a+eic.shape[0])] = eicS[a:(a+eic.shape[0])] + eic
-                        if not rtsSSet:
-                            rtsS[a:(a+eic.shape[0])] = rts
-                            rtsSSet = True
-                    else:
-                        refInd = np.random.randint(math.ceil(PeakBotMRM.Config.RTSLICES/2), eic.shape[0] - math.floor(PeakBotMRM.Config.RTSLICES/2))
-                        rtsSB, eicSB = extractStandardizedEIC(eic, rts, rts[refInd])
-                        eicS = eicS + eicSB
-                        if not rtsSSet:
-                            rtsS = rtsSB
-                            rtsSSet = True
-                    
-                    nBackgrounds = nBackgrounds - 1
-                    
-                scaling = np.random.random() * maxBackgroundIntensity
-                eicS = eicS / np.max(eicS) * scaling + minBackgroundIntensity
-                eicS[eicS <= 0] = np.min(eicS[eicS > 0])
-                    
-                ## populate synthetic instance with peaks
-                peaksPop = 0
-                while nPeaks > 0:
-                    ## randomly select a peak to be used and a position to add peak at 
-                    pI = np.random.randint(0, len(peaks))
-                    peakEIC = peaks[pI]["eiccropped"]
-                    addAtInd = np.random.randint(math.ceil(PeakBotMRM.Config.RTSLICES*0.1), math.floor(PeakBotMRM.Config.RTSLICES*0.9))
-                    addstartEIC = max(addAtInd - math.floor(peakEIC.shape[0]/2), 0)
-                    addendEIC = min(addAtInd + math.ceil(peakEIC.shape[0]/2), PeakBotMRM.Config.RTSLICES)
-                    peakUseStart = max(math.floor(peakEIC.shape[0]/2) - addAtInd, 0)
-                    peakUseEnd = min(peakEIC.shape[0], PeakBotMRM.Config.RTSLICES - addAtInd + math.floor(peakEIC.shape[0]/2))
-                    
-                    ## try and add peak at particular position
-                    scaling = np.random.random() * maxPeakIntensity
-                    eicSTemp = np.copy(eicS)
-                    peakSignalTypeTemp = np.copy(peakSignalType)
-                    eicSTemp[addstartEIC:addendEIC] = eicS[addstartEIC:addendEIC] + peakEIC[peakUseStart:peakUseEnd] / np.max(peakEIC[peakUseStart:peakUseEnd]) * scaling + minPeakIntensity
-                    peakSignalTypeTemp[addstartEIC:addendEIC] = peakSignalTypeTemp[addstartEIC:addendEIC] + 2**peaksPop
-                    
-                    ## if there are overlapping peaks diretly in the eics center, discard the addition
-                    ## TODO test for not too much overlap
-                    if peakSignalTypeTemp[int(round(eicSTemp.shape[0]/2))] > 1:
-                        continue
-                    
-                    eicS = eicSTemp
-                    peakSignalType = peakSignalTypeTemp
-                    
-                    if peakSignalTypeTemp[int(round(eicSTemp.shape[0]/2))] == 1:
-                        parea = peaks[pI]["area"] / max(peakEIC[peakUseStart:peakUseEnd]) * scaling
-                    else:
-                        parea = -1
-                    
-                    peaksPop = peaksPop + 1
-                    nPeaks = nPeaks - 1
-                
-                ## add peak as instance to training set
-                peakType = 0 if peakSignalType[int(round(eicS.shape[0]/2))] == 1 else 1
-                bestRTStartInd , bestRTEndInd, bestRTStart, bestRTEnd, area = -1, -1, -1, -1, -1
-                
-                ## discard instance if it was did not match the expected one (shouldType)
-                if shouldType != peakType:
-                    continue 
-                
-                if peakType == 0:
-                    instancesPeakInCenter = instancesPeakInCenter + 1
-                    bestRTStartInd = np.argmin(np.where(peakSignalType == 1))
-                    bestRTEndInd = np.argmax(np.where(peakSignalType == 1))
-                    bestRTStart = rtsS[bestRTStartInd]
-                    bestRTEnd = rtsS[bestRTEndInd]
-                    area = parea
-                else: 
-                    instancesNoPeakInCenter = instancesNoPeakInCenter + 1
-                
-                ## test if eic has detected signals
-                if np.sum(eicS) > 0 and np.all(eicS >= 0):
-                    if False:        
-                        df = pd.DataFrame({"intensity": [i for ind, i in enumerate(eicS) if rtsS[ind] > 0], "retentionTime": [i for ind, i in enumerate(rtsS) if i > 0], "type": ["eic" for ind, i in enumerate(peakSignalType) if rtsS[ind] > 0]})
-                        df = pd.concat([df, pd.DataFrame({"intensity": [i for ind, i in enumerate(peakSignalType) if rtsS[ind] > 0], "retentionTime": [i for ind, i in enumerate(rtsS) if i > 0], "type": ["peaktype" for ind, i in enumerate(peakSignalType) if rtsS[ind] > 0]})])
-                        plot = (p9.ggplot(df, p9.aes("retentionTime", "intensity"))
-                            + p9.geom_line()
-                            + p9.geom_vline(xintercept = rtsS[int(round(eicS.shape[0]/2))])
-                            + p9.facet_wrap("~type", scales="free_y", ncol=1)
-                            + p9.ggtitle("EIC: Peak type: %s, peak %.1f - %.1f"%(peakType, bestRTStart, bestRTEnd)) + p9.xlab("Retention time") + p9.ylab("Intensity"))
-                        p9.options.figure_size = (10,10)
-                        p9.ggsave(plot=plot, filename=os.path.join("/home/users/cbueschl/PeakBotMRM/PeakBotMRM_examples/R100140_METAB02", "instance_%s.png"%(curInstanceInd)), width=10, height=10, dpi=72)
-                    
-                    ## add instance to training data
-                    if curPickleObject is None: 
-                        curPickleObject = {"channel.rt"        : np.zeros((exportBatchSize, PeakBotMRM.Config.RTSLICES), dtype=float),
-                                "channel.int"       : np.zeros((exportBatchSize, PeakBotMRM.Config.RTSLICES), dtype=float),
-                                "inte.peak"         : np.zeros((exportBatchSize, PeakBotMRM.Config.NUMCLASSES), dtype=int),
-                                "inte.rtStart"      : np.zeros((exportBatchSize), dtype=float),
-                                "inte.rtEnd"        : np.zeros((exportBatchSize), dtype=float),
-                                "inte.rtInds"       : np.zeros((exportBatchSize, 2), dtype=float),
-                                "inte.area"         : np.zeros((exportBatchSize), dtype=float),
-                            }
-                        if includeMetaInfo:
-                            curPickleObject = {**curPickleObject, 
-                                    **{"ref.substanceName" : ["" for i in range(exportBatchSize)],
-                                        "ref.sample"        : ["" for i in range(exportBatchSize)],
-                                        "ref.rt"            : np.zeros((exportBatchSize), dtype=float),
-                                        "ref.PeakForm"      : ["" for i in range(exportBatchSize)], 
-                                        "ref.Rt shifts"     : ["" for i in range(exportBatchSize)],
-                                        "ref.Note"          : ["" for i in range(exportBatchSize)],
-                                        "loss.IOU_Area"     : np.ones((exportBatchSize), dtype=float),
-                                    }
-                            }
-                            
+                    if curInstanceInd >= template["channel.rt"].shape[0]:
+                        dataset.addData(template)
+                        template = None
                         curInstanceInd = 0
-
-                    assert curInstanceInd < curPickleObject["channel.rt"].shape[0]
-
-                    ## analytical raw data
-                    curPickleObject["channel.rt"       ][curInstanceInd,:] = rtsS
-                    curPickleObject["channel.int"      ][curInstanceInd,:] = eicS
-
-                    ## manual integration data
-                    curPickleObject["inte.peak"        ][curInstanceInd, peakType] = 1
-                    curPickleObject["inte.rtStart"     ][curInstanceInd]   = bestRTStart
-                    curPickleObject["inte.rtEnd"       ][curInstanceInd]   = bestRTEnd
-                    curPickleObject["inte.rtInds"      ][curInstanceInd,0] = bestRTStartInd
-                    curPickleObject["inte.rtInds"      ][curInstanceInd,1] = bestRTEndInd                        
-                    curPickleObject["inte.area"        ][curInstanceInd]   = area
-
-                    if includeMetaInfo:
-                        ## substance data
-                        curPickleObject["ref.substanceName"][curInstanceInd] = substance
-                        curPickleObject["ref.sample"       ][curInstanceInd] = sample
-                        curPickleObject["ref.rt"           ][curInstanceInd] = -1
-                        curPickleObject["ref.PeakForm"     ][curInstanceInd] = ""
-                        curPickleObject["ref.Rt shifts"    ][curInstanceInd] = ""
-                        curPickleObject["ref.Note"         ][curInstanceInd] = ""
-                    
-                    curInstanceInd = curInstanceInd + 1
-                else:
-                    np.set_printoptions(edgeitems=PeakBotMRM.Config.RTSLICES + 2, 
-                        formatter=dict(float=lambda x: "%.3g" % x))
-                    print(eicS)
-
-                ## if batch has been filled, export it to a temporary file
-                if curInstanceInd >= exportBatchSize:
-                    with open(os.path.join(instanceDir, "%s%d.pickle"%(PeakBotMRM.Config.INSTANCEPREFIX, curPickleID)), "wb") as fout:
-                        pickle.dump(curPickleObject, fout)
-                        curPickleObject = None
-                        curInstanceInd = 0
-                        curPickleID += 1
-                        
-                tryIns = False
-            except:
-                pass
+    dataset.addData(template)
+    dataset.removeOtherThan(0, totalInstances)
     if verbose:
-        print(logPrefix, "  | .. Exported %d batches each with %d instances."%(curPickleID, exportBatchSize))
-        print(logPrefix, "  | .. there are %d instances with a peak in their center and %d instances with no peak in their center"%(instancesPeakInCenter, instancesNoPeakInCenter))
-        print(logPrefix, "  | .. took %.1f seconds"%(toc()))
-        print(logPrefix)
+        print(logPrefix, "  | .. Exported %d instances."%(dataset.getElements()))
+        
+    return dataset
 
-
-def generateAndExportAugmentedInstancesForTraining(substances, integrations, addRandomNoise, maxRandFactor, maxNoiseLevelAdd, shiftRTs, maxShift, useEachInstanceNTimes, balanceAugmentations, insDir, verbose = True, logPrefix = ""):
+def generateAndExportAugmentedInstancesForTraining(substances, integrations, experimentName, 
+                                                   addRandomNoise, maxRandFactor, maxNoiseLevelAdd, 
+                                                   shiftRTs, maxShift, useEachInstanceNTimes, balanceAugmentations, dataset = None, verbose = True, logPrefix = ""):
     if verbose: 
         print(logPrefix, "Exporting augmented instances for training")
     tic()
-    compileInstanceDataset(substances, integrations, insDir, addRandomNoise = addRandomNoise, maxRandFactor = maxRandFactor, maxNoiseLevelAdd = maxNoiseLevelAdd, shiftRTs = shiftRTs, maxShift = maxShift, useEachInstanceNTimes = useEachInstanceNTimes, balanceReps = balanceAugmentations, verbose = verbose, logPrefix = logPrefix)
-    shuffleDatasetBatches(insDir)
-    shuffleDatasetInstances(insDir, steps=1E4, samplesToExchange=12)
+    dataset = compileInstanceDataset(substances, integrations, experimentName, dataset = dataset, addRandomNoise = addRandomNoise, maxRandFactor = maxRandFactor, maxNoiseLevelAdd = maxNoiseLevelAdd, shiftRTs = shiftRTs, maxShift = maxShift, useEachInstanceNTimes = useEachInstanceNTimes, balanceReps = balanceAugmentations, verbose = verbose, logPrefix = logPrefix)
     if verbose: 
         print(logPrefix, "  | .. took %.1f seconds"%(toc()))
         print(logPrefix)
+    return dataset
 
-
-def exportOriginalInstancesForValidation(substances, integrations, insOriDir, verbose = True, logPrefix = ""):
+def exportOriginalInstancesForValidation(substances, integrations, experimentName, dataset = None, verbose = True, logPrefix = ""):
     if verbose:
         print(logPrefix, "Exporting original instances for validation")
     tic()
-    compileInstanceDataset(substances, integrations, insOriDir, addRandomNoise = False, shiftRTs = False, verbose = verbose, logPrefix = logPrefix)
+    dataset = compileInstanceDataset(substances, integrations, experimentName, dataset = dataset, addRandomNoise = False, shiftRTs = False, verbose = verbose, logPrefix = logPrefix)
     if verbose: 
         print(logPrefix, "  | .. took %.1f seconds"%(toc()))
         print(logPrefix)
-
-
+    return dataset
 
 def constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, integrations, verbose = True, logPrefix = ""):
     if verbose: 
@@ -756,9 +260,6 @@ def constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, 
         print(logPrefix, "  | .. took %.1f seconds"%(toc()))
         print(logPrefix)
     return integrations
-
-
-
 
 def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbose = True, logPrefix = ""):
     if verbose:
@@ -889,9 +390,9 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
                     + p9.geom_point(alpha = 0.1 if s == "allSubstances" else 1)
                     + p9.ggtitle("PaCMAP of EICs") + p9.xlab("PaCMAP 1") + p9.ylab("PaCMAP 2"))
             p9.options.figure_size = (5.2,5)
-            p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_peakStats_PaACMAP.png"%(expName)), width=5.2, height=5, dpi=300)
+            p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_peakStats_PaACMAP.png"%(expName)), width=5.2, height=5, dpi=300, verbose=False)
             p9.options.figure_size = (5.2,5)
-            p9.ggsave(plot=(plot + p9.facet_wrap("~label")), filename=os.path.join(expDir, "SubstanceFigures", "%s_PACMAP_%s.png"%(expName, s)), width=5.2, height=5, dpi=300)
+            p9.ggsave(plot=(plot + p9.facet_wrap("~label")), filename=os.path.join(expDir, "SubstanceFigures", "%s_PACMAP_%s.png"%(expName, s)), width=5.2, height=5, dpi=300, verbose=False)
             
             plot = (p9.ggplot(df, p9.aes("x", "y", color="sample"))
                     + p9.geom_point(alpha = 0.1 if s == "allSubstances" else 1)
@@ -899,7 +400,7 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
                     + p9.theme(legend_position="bottom")
                     + p9.ggtitle("PaCMAP of EICs (color: substance)") + p9.xlab("PaCMAP 1") + p9.ylab("PaCMAP 2"))
             p9.options.figure_size = (10,8)
-            p9.ggsave(plot=(plot + p9.facet_wrap("~label")), filename=os.path.join(expDir, "SubstanceFigures", "%s_PACMAPfacLabSub_%s.png"%(expName, s)), width=10, height=8, dpi=300)
+            p9.ggsave(plot=(plot + p9.facet_wrap("~label")), filename=os.path.join(expDir, "SubstanceFigures", "%s_PACMAPfacLabSub_%s.png"%(expName, s)), width=10, height=8, dpi=300, verbose=False)
         
     ## UMAP embedding (deactivated due to problems with the library)
     if False:        
@@ -947,9 +448,9 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
                 + p9.geom_point(alpha = 0.1)
                 + p9.ggtitle("UMAP of EICs") + p9.xlab("UMAP 1") + p9.ylab("UMAP 2"))
         p9.options.figure_size = (5.2,5)
-        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_peakStats_UMAP.png"%(expName)), width=5.2, height=5, dpi=300)
+        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_peakStats_UMAP.png"%(expName)), width=5.2, height=5, dpi=300, verbose=False)
         p9.options.figure_size = (5.2,5)
-        p9.ggsave(plot=(plot + p9.facet_wrap("~label")), filename=os.path.join(expDir, "%s_peakStats_UMAPfacLab.png"%(expName)), width=5.2, height=5, dpi=300)
+        p9.ggsave(plot=(plot + p9.facet_wrap("~label")), filename=os.path.join(expDir, "%s_peakStats_UMAPfacLab.png"%(expName)), width=5.2, height=5, dpi=300, verbose=False)
         
 
         # Fit and transform the data
@@ -963,9 +464,9 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
                 + p9.geom_point(alpha = 0.1)
                 + p9.ggtitle("UMAP of EICs") + p9.xlab("UMAP 1") + p9.ylab("UMAP 2"))
         p9.options.figure_size = (5.2,5)
-        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_peakStats_UMAPsup.png"%(expName)), width=5.2, height=5, dpi=300)
+        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_peakStats_UMAPsup.png"%(expName)), width=5.2, height=5, dpi=300, verbose=False)
         p9.options.figure_size = (5.2,5)
-        p9.ggsave(plot=(plot + p9.facet_wrap("~label")), filename=os.path.join(expDir, "%s_peakStats_UMAPsupfacLab.png"%(expName)), width=5.2, height=5, dpi=300)
+        p9.ggsave(plot=(plot + p9.facet_wrap("~label")), filename=os.path.join(expDir, "%s_peakStats_UMAPsupfacLab.png"%(expName)), width=5.2, height=5, dpi=300, verbose=False)
         
         
     tf = pd.DataFrame(stats["peakProperties"], columns = ["sample", "type", "value"])
@@ -986,7 +487,7 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
             + p9.ggtitle("Peak metrics") + p9.xlab("retention time (minutes)") + p9.ylab("Frequency")
             + p9.theme(legend_position = "none", panel_spacing_x=0.5))
     p9.options.figure_size = (5.2,5)
-    p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_peakStats_1.png"%(expName)), width=5.2, height=5, dpi=300)
+    p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_peakStats_1.png"%(expName)), width=5.2, height=5, dpi=300, verbose=False)
     
     df = tf.copy()
     df.drop(df[df.type != "peakWidthScans"].index, inplace=True)
@@ -996,7 +497,7 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
             + p9.ggtitle("Peak metrics") + p9.xlab("peak width (scans)") + p9.ylab("Frequency")
             + p9.theme(legend_position = "none", panel_spacing_x=0.5))
     p9.options.figure_size = (5.2,5)
-    p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_peakStats_2.png"%(expName)), width=5.2, height=5, dpi=300)
+    p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_peakStats_2.png"%(expName)), width=5.2, height=5, dpi=300, verbose=False)
     
     df = tf.copy()
     df.drop(df[df.type == "apexReferenceOffset"].index, inplace=True)
@@ -1015,13 +516,12 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
             + p9.ggtitle("Peak metrics") + p9.xlab("-") + p9.ylab("Frequency")
             + p9.theme(legend_position = "none", panel_spacing_x=0.5))
     p9.options.figure_size = (5.2,5)
-    p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_peakStats_3.png"%(expName)), width=5.2, height=5, dpi=300)
+    p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_peakStats_3.png"%(expName)), width=5.2, height=5, dpi=300, verbose=False)
     
     if verbose:
         print(logPrefix, "  | .. plotted peak metrics to file '%s'"%(os.path.join(expDir, "%s_peakStat.png"%(expName))))
         print(logPrefix, "  | .. took %.1f seconds"%toc())
         print(logPrefix)
-
 
 def plotHistory(histObjectFile, plotFile, verbose = True, logPrefix = ""):
     
@@ -1041,7 +541,7 @@ def plotHistory(histObjectFile, plotFile, verbose = True, logPrefix = ""):
             + p9.ggtitle("Training losses/metrics") + p9.xlab("Training/Validation dataset") + p9.ylab("Value")
             + p9.theme(legend_position = "none", axis_text_x=p9.element_text(angle=45)))
     p9.options.figure_size = (5.2, 7)
-    p9.ggsave(plot=plot, filename="%s.png"%(plotFile), width=40, height=12, dpi=300, limitsize=False)
+    p9.ggsave(plot=plot, filename="%s.png"%(plotFile), width=40, height=12, dpi=300, limitsize=False, verbose=False)
     
     df = df[[i in ["Sensitivity (peaks)", "Specificity (no peaks)"] for i in df.metric]]
     df.value = df.apply(lambda x: x.value if x.metric != "Specificity (no peaks)" else 1 - x.value, axis=1)
@@ -1066,9 +566,9 @@ def plotHistory(histObjectFile, plotFile, verbose = True, logPrefix = ""):
             + p9.ggtitle("ROC") + p9.xlab("FPR") + p9.ylab("TPR") 
             )
     p9.options.figure_size = (5.2, 7)
-    p9.ggsave(plot=plot, filename="%s_ROC.png"%(plotFile), width=20, height=20, dpi=300, limitsize=False)
+    p9.ggsave(plot=plot, filename="%s_ROC.png"%(plotFile), width=20, height=20, dpi=300, limitsize=False, verbose=False)
     p = (plot + p9.scales.xlim(0,0.21) + p9.scales.ylim(0.9,1))
-    p9.ggsave(plot=p, filename="%s_ROC_zoomed.png"%(plotFile), width=20, height=20, dpi=300, limitsize=False)
+    p9.ggsave(plot=p, filename="%s_ROC_zoomed.png"%(plotFile), width=20, height=20, dpi=300, limitsize=False, verbose=False)
     
     for k in set(df["set"]):
         temp = df[df["set"] == k]    
@@ -1079,10 +579,9 @@ def plotHistory(histObjectFile, plotFile, verbose = True, logPrefix = ""):
                 + p9.ggtitle("ROC") + p9.xlab("FPR") + p9.ylab("TPR") 
                 )
         p9.options.figure_size = (5.2, 7)
-        p9.ggsave(plot=plot, filename="%s_ROC_%s.png"%(plotFile, k), width=20, height=20, dpi=300, limitsize=False)
+        p9.ggsave(plot=plot, filename="%s_ROC_%s.png"%(plotFile, k), width=20, height=20, dpi=300, limitsize=False, verbose=False)
         p = (plot + p9.scales.xlim(0,0.21) + p9.scales.ylim(0.9,1))
-        p9.ggsave(plot=p, filename="%s_ROC_zoomed_%s.png"%(plotFile, k), width=20, height=20, dpi=300, limitsize=False)
-
+        p9.ggsave(plot=p, filename="%s_ROC_zoomed_%s.png"%(plotFile, k), width=20, height=20, dpi=300, limitsize=False, verbose=False)
 
 def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, logDir = None, historyFile = None, 
                          MRMHeader = "- SRM SIC Q1=(\\d+[.]\\d+) Q3=(\\d+[.]\\d+) start=(\\d+[.]\\d+) end=(\\d+[.]\\d+)",
@@ -1150,11 +649,9 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
     print(PeakBotMRM.Config.getAsStringFancy())
     print("\n")
     
+    ## Generate training instances
     validationDSs = []
-    insOriObj = tempfile.TemporaryDirectory(prefix="PBMRM_oriIns_ALL__")
-    oriIns = insOriObj.name
-    insObj = tempfile.TemporaryDirectory(prefix="PBMRM_aug_ALL__")
-    augIns = insObj.name
+    trainDataset = PeakBotMRM.MemoryDataset()
     for trainDS in trainDSs:
             
         print("Adding training dataset '%s'"%(trainDS["DSName"]))
@@ -1167,33 +664,49 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
                                                                 allowedMZOffset = allowedMZOffset, 
                                                                 MRMHeader = MRMHeader, logPrefix = "  | ..")
         if showPeakMetrics:
-            investigatePeakMetrics(expDir, substances, integrations, expName = "%s"%(expName, trainDS["DSName"]), logPrefix = "  | ..")
+            investigatePeakMetrics(expDir, substances, integrations, expName = "%s"%(trainDS["DSName"]), logPrefix = "  | ..")
         
         integrations = constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, integrations, logPrefix = "  | ..")
         
+        dataset = exportOriginalInstancesForValidation(substances, integrations, "Train_Ori_%s"%(trainDS["DSName"]), logPrefix = "  | ..")
+        dataset.shuffle()
+        dataset.setName("%s_Train_Ori"%(trainDS["DSName"]))
+        validationDSs.append(dataset)
+        if useDSForTraining.lower() == "original":
+            trainDataset.addData(dataset.data)
         
-        insOriObjDS = tempfile.TemporaryDirectory(prefix="PBMRM_oriIns_%s__"%(trainDS["DSName"]))
-        oriInsDS = insOriObjDS.name
-        exportOriginalInstancesForValidation(substances, integrations, oriInsDS, logPrefix = "  | ..")
-        validationDSs.append({"folder": oriInsDS, "name": "%s_%s_ori"%(expName, trainDS["DSName"]), "_object": insOriObjDS})
-        addDatasetTo(oriInsDS, oriIns)
-        
-        
-        insObjDS = tempfile.TemporaryDirectory(prefix="PBMRM_aug_%s__"%(trainDS["DSName"]))
-        augInsDS = insObjDS.name
-        generateAndExportAugmentedInstancesForTraining(substances, integrations, addRandomNoise, maxRandFactor, maxNoiseLevelAdd, 
-                                                       shiftRTs, maxShift, useEachInstanceNTimes, balanceAugmentations, augInsDS, logPrefix = "  | ..")
-        validationDSs.append({"folder": augInsDS, "name": "%s_%s_aug"%(expName, trainDS["DSName"]), "_object": insObjDS})
-        addDatasetTo(augInsDS, augIns)
+        dataset = generateAndExportAugmentedInstancesForTraining(substances, integrations, "Train_Aug_%s"%(trainDS["DSName"]), addRandomNoise, maxRandFactor, maxNoiseLevelAdd, 
+                                                                 shiftRTs, maxShift, useEachInstanceNTimes, balanceAugmentations, logPrefix = "  | ..")
+        dataset.shuffle()
+        dataset.setName("%s_Train_Aug"%(trainDS["DSName"]))
+        validationDSs.append(dataset)
+        if useDSForTraining.lower() == "augmented":
+            trainDataset.addData(dataset.data)
         
         print("")
 
-    #insSynObj = tempfile.TemporaryDirectory(prefix="PBMRM_syn__")
-    #synIns = insSynObj.name
-    #compileSyntheticDataset(substances, integrations, 1024 * 128, synIns, 
-    #                        maxPeaksPerInstance = 3, maxBackgroundsPerInstance = 2, 
-    #                        onlyUsePeaksIn = None, onlyUseBackgroundsIn = None, 
-    #                        exportBatchSize = 1024, includeMetaInfo = False)
+    ## prepare/split training dataset into train and validation set
+    print("Dataset for training")
+    tic()
+    if useDSForTraining.lower() == "original":
+        print("  | .. The original, unmodified instances are used")
+    elif useDSForTraining.lower() == "augmented":
+        print("  | .. The augmented instances are used")
+    print("  | .. Shuffling training instances")
+    trainDataset.shuffle()  
+    print("  | .. took %.1f seconds"%(toc()))
+    tic()  
+    splitRatio = 0.7
+    trainDataset, valDataset = trainDataset.split(ratio = splitRatio)
+    trainDataset.setName("Train_split_%s"%(expName))
+    valDataset.setName("Train_split_%s"%(expName))
+    validationDSs.append(trainDataset)
+    validationDSs.append(valDataset)
+    print("  | .. Randomly split dataset into a training and validation dataset with %.1f and %.1f parts of the instances "%(splitRatio, 1-splitRatio))
+    print("  | .. There are %d training (%s) and %d validation (%s) batches available"%(trainDataset.data["channel.rt"].shape[0], trainDataset.name, valDataset.data["channel.rt"].shape[0], valDataset.name))
+    print("  | .. took %.1f seconds"%(toc()))
+    print("\n")
+    
     
     ## add other datasets for validation metrics
     if valDSs is not None:
@@ -1209,55 +722,22 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
                                                                     allowedMZOffset = allowedMZOffset, 
                                                                     MRMHeader = MRMHeader, logPrefix = "  | ..")
             if showPeakMetrics:
-                investigatePeakMetrics(expDir, substances, integrations, expName = "%s"%(expName, valDS["DSName"]), logPrefix = "  | ..")
+                investigatePeakMetrics(expDir, substances, integrations, expName = "%s"%(valDS["DSName"]), logPrefix = "  | ..")
             
             integrations = constrainAndBalanceDataset(False, checkPeakAttributes, substances, integrations, logPrefix = "  | ..")
             
-            tempObj = tempfile.TemporaryDirectory(prefix="PBMRM_oriIns_%s__"%(valDS["DSName"]))
-            path = tempObj.name
-            exportOriginalInstancesForValidation(substances, integrations, path)
-            validationDSs.append({"folder": path, "_object": tempObj, "name": "%s_ori"%(valDS["DSName"])})
+            dataset = exportOriginalInstancesForValidation(substances, integrations, "AddVal_Ori_%s"%(valDS["DSName"]), logPrefix = "  | ..")
+            dataset.shuffle()
+            dataset.setName("%s_AddVal_Ori"%(valDS["DSName"]))
+            validationDSs.append(dataset)
     
             print("")
-
-    ## prepare/split training dataset into train and validation set
-    print("Dataset for training")
-    tic()
-    trainDS = None
-    if useDSForTraining.lower() == "augmented":
-        print("  | .. using the augmented dataset")
-        trainDS = augIns
-    elif useDSForTraining.lower() == "original": 
-        print("  | .. using the original integrations")
-        trainDS = oriIns
-    #elif useDSForTraining.lower() == "synthetic":
-    #    print("  | .. using the synthetic dataset")
-    #    trainDS = synIns
-    shuffleDatasetBatches(trainDS)
-    shuffleDatasetInstances(trainDS)
-    if trainDS is None:
-        raise RuntimeError("Unknown dataset specified for training. Valid options are useDSForTraining = 'augmented', 'original', 'synthetic'")
-    traInsObj = tempfile.TemporaryDirectory(prefix="PBMRM_training__")
-    traIns = traInsObj.name
-    valInsObj = tempfile.TemporaryDirectory(prefix="PBMRM_validation__")
-    valIns = valInsObj.name
-    splitRatio = 0.7
-    PeakBotMRM.train.splitDataset(trainDS, 
-                                 newDS1Path = traIns, newDS2Path = valIns, 
-                                 copy = True, ratioDS1 = splitRatio, verbose = False)
-    validationDSs.append({"folder": traIns, "name": "%s_train"%(expName)})
-    validationDSs.append({"folder": valIns, "name": "%s_val"%(expName)})
-    nTraIns = len([f for f in os.listdir(traIns) if os.path.isfile(os.path.join(traIns, f))])
-    nValIns = len([f for f in os.listdir(valIns) if os.path.isfile(os.path.join(valIns, f))])
-    print("  | .. Randomly split dataset '%s' into a training and validation dataset with %.1f and %.1f parts of the instances "%(expDir, splitRatio, 1-splitRatio))
-    print("  | .. There are %d training (%s) and %d validation (%s) batches available"%(nTraIns, traIns, nValIns, valIns))
-    print("  | .. took %.1f seconds"%(toc()))
-    print("\n")
+            
     
     ## Train new peakbotMRM model
     pb, chist, modelName = PeakBotMRM.trainPeakBotMRMModel(modelName = os.path.basename(modelFile), 
-                                                           trainInstancesPath = traIns,
-                                                           addValidationInstances = validationDSs,
+                                                           trainDataset = trainDataset,
+                                                           addValidationDatasets = validationDSs,
                                                            logBaseDir = logDir,
                                                            everyNthEpoch = -1, 
                                                            verbose = True)

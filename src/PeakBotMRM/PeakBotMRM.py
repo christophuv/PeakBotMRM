@@ -1,6 +1,4 @@
 import logging
-from tkinter import N
-import traceback
 import warnings
 
 from .core import *
@@ -11,6 +9,8 @@ import pickle
 import uuid
 import re
 import math
+import random
+import copy
 
 import tensorflow as tf
 import tensorflow_addons as tfa
@@ -52,6 +52,7 @@ class Config(object):
     INSTANCEPREFIX = "___PBsample_"
     
     UPDATEPEAKBORDERSTOMIN = True
+    INCLUDEMETAINFORMATION = True
 
     @staticmethod
     def getAsStringFancy():
@@ -125,7 +126,236 @@ print("")
 
 
 
+def getDatasetTemplate(templateSize = 1024, includeMetaInfo = None):
+    if includeMetaInfo == None:
+        includeMetaInfo = Config.INCLUDEMETAINFORMATION
+    template = {"channel.rt"        : np.zeros((templateSize, Config.RTSLICES),   dtype=float),
+                "channel.int"       : np.zeros((templateSize, Config.RTSLICES),   dtype=float),
+                "inte.peak"         : np.zeros((templateSize, Config.NUMCLASSES), dtype=int),
+                "inte.rtStart"      : np.zeros((templateSize),    dtype=float),
+                "inte.rtEnd"        : np.zeros((templateSize),    dtype=float),
+                "inte.rtInds"       : np.zeros((templateSize, 2), dtype=float),
+                "inte.area"         : np.zeros((templateSize),    dtype=float),
+               }
+    if includeMetaInfo:
+        template = {**template, 
+                **{"ref.substance" : ["" for i in range(templateSize)],
+                   "ref.sample"    : ["" for i in range(templateSize)],
+                   "ref.experiment": ["" for i in range(templateSize)],
+                   "ref.rt"        : np.zeros((templateSize), dtype=float),
+                   "ref.PeakForm"  : ["" for i in range(templateSize)], 
+                   "ref.Rt shifts" : ["" for i in range(templateSize)],
+                   "ref.Note"      : ["" for i in range(templateSize)],
+                   "loss.IOU_Area" : np.ones((templateSize), dtype=float),
+                }
+        }
+    return template
 
+## TODO finish
+class Dataset:
+    def __init__(self, name = None):
+        pass    
+    def setName(self, name):
+        pass    
+    def getElements(self):
+        pass    
+    def getSizeInformation(self):
+        pass
+    def addData(self, data):
+        pass    
+    def getData(self, start, elems = None):
+        pass    
+    def shuffle(self, iterations = 1E4, elems = None):
+        pass    
+    def removeOtherThan(self, start, end):
+        pass    
+    def split(self, ratio = 0.7):
+        pass
+    
+class MemoryDataset(Dataset):
+    def __init__(self, name = None):
+        self.data = None
+        self.name = name
+    
+    def setName(self, name):
+        self.name = name
+        
+    def getElements(self):
+        if self.data == None:
+            return 0
+        k = list(self.data.keys())[0]
+        temp = self.data[k]
+        if isinstance(temp, np.ndarray):
+            return temp.shape[0]
+        elif isinstance(temp, list):
+            return len(temp)
+        else:
+            raise RuntimeError("Unknonw type for key '%s'"%(k))
+            
+    def getSizeInformation(self):
+        if self.data == None:
+            return "no data"
+        
+        size = 0
+        for k in self.data.keys():
+            if isinstance(self.data[k], np.ndarray):
+                size += self.data[k].itemsize * self.data[k].size  ## bytes
+            else:
+                size += sizeof(self.data)
+                
+        return "size of dataset is %.2f MB"%(size / 1000 / 1000)
+    
+    def addData(self, data):
+        if self.data == None:
+            self.data = data
+        else:
+            for k in data.keys():
+                if k not in self.data.keys():
+                    raise RuntimeError("New key '%s' in new data but not in old data"%(k))
+            for k in self.data.keys():
+                if k not in data.keys():
+                    raise RuntimeError("Key '%s' not present in new data"%(k))
+            for k in data.keys():
+                if type(data[k]) != type(self.data[k]):
+                    raise RuntimeError("Key '%s' in new (%s) and old (%s) data have different types"%(k, type(data[k]), type(self.data[k])))
+                if isinstance(data[k], np.ndarray):
+                    if len(data[k].shape) == 1:
+                        self.data[k] = np.concatenate((self.data[k], data[k]))
+                    else:
+                        self.data[k] = np.vstack((self.data[k], data[k]))
+                elif isinstance(data[k], list): 
+                    self.data[k].extend(data[k])
+                else:
+                    raise RuntimeError("Key '%s' has unknown type"%(k))
+    
+    def getData(self, start, elems = None):
+        if elems == None:
+            elems = Config.BATCHSIZE
+            
+        if start + elems > self.getElements():
+            elems = self.getElements() - start
+        
+        temp = {}
+        for k in list(self.data.keys()):
+            if isinstance(self.data[k], np.ndarray):
+                if len(self.data[k].shape)==1:
+                    temp[k] = self.data[k][start:(start+elems)]
+                elif len(self.data[k].shape)==2:
+                    temp[k] = self.data[k][start:(start+elems),:]
+                elif len(self.data[k].shape)==3:
+                    temp[k] = self.data[k][start:(start+elems),:,:]
+                elif len(self.data[k].shape)==4:
+                    temp[k] = self.data[k][start:(start+elems),:,:,:]
+                else:
+                    raise RuntimeError("Too large np.ndarray")
+
+            elif isinstance(self.data[k], list):
+                temp[k] = self.data[k][start:(start+elems)]
+            
+            else:
+                raise RuntimeError("Unknown class for key '%s'"%(k))
+            
+        return temp, elems
+            
+    def shuffle(self, iterations = 3E5, elems = None):
+        if self.data is None:
+            return 
+        if elems == None:
+            elems = Config.BATCHSIZE
+                    
+        elements = -1
+        for k in self.data.keys():
+            klen = 0
+            if isinstance(self.data[k], np.ndarray):
+                klen = self.data[k].shape[0]
+            elif isinstance(self.data[k], list):
+                klen = len(self.data[k])
+            else:
+                raise RuntimeError("Unknonw type for key '%s'"%(k))
+            
+            if elements == -1:
+                elements = klen
+            if elements != klen:
+                raise RuntimeError("Key '%s' has a different number of elements"%(k))
+            
+        while iterations > 0:
+            a = random.randint(0, elements - elems)
+            b = random.randint(0, elements - elems)
+            if a <= b <= a+elems or b <= a <= b+elems:
+                continue
+            
+            for k in self.data.keys():
+                if   isinstance(self.data[k], np.ndarray):
+                    if len(self.data[k].shape) == 1:
+                        self.data[k][a:(a + elems)],       self.data[k][b:(b + elems)]       = np.copy(self.data[k][b:(b + elems)]),       np.copy(self.data[k][a:(a + elems)])
+                    elif len(self.data[k].shape) == 2:
+                        self.data[k][a:(a + elems),:],     self.data[k][b:(b + elems),:]     = np.copy(self.data[k][b:(b + elems),:]),     np.copy(self.data[k][a:(a + elems),:])
+                    elif len(self.data[k].shape) == 3:
+                        self.data[k][a:(a + elems),:,:],   self.data[k][b:(b + elems),:,:]   = np.copy(self.data[k][b:(b + elems),:,:]),   np.copy(self.data[k][a:(a + elems),:,:])
+                    elif len(self.data[k].shape) == 4:
+                        self.data[k][a:(a + elems),:,:,:], self.data[k][b:(b + elems),:,:,:] = np.copy(self.data[k][b:(b + elems),:,:,:]), np.copy(self.data[k][a:(a + elems),:,:,:])
+                    else:
+                        raise RuntimeError("Unknown error 2")
+
+                elif isinstance(self.data[k], list):
+                    self.data[k][a:(a + elems)],           self.data[k][b:(b + elems)]       = self.data[k][b:(b + elems)],                self.data[k][a:(a + elems)]
+                    
+                else:
+                    raise RuntimeError("Unknwon error 1")
+            
+            iterations -= 1
+    
+    def removeOtherThan(self, start, end):
+        for k in self.data.keys():
+            if   isinstance(self.data[k], np.ndarray):
+                if len(self.data[k].shape) == 1:
+                    self.data[k] = self.data[k][start:end]
+                elif len(self.data[k].shape) == 2:
+                    self.data[k] = self.data[k][start:end,:]
+                elif len(self.data[k].shape) == 3:
+                    self.data[k] = self.data[k][start:end,:,:]
+                elif len(self.data[k].shape) == 4:
+                    self.data[k] = self.data[k][start:end,:,:,:]
+                else:
+                    raise RuntimeError("Unknown error 2")
+
+            elif isinstance(self.data[k], list):
+                self.data[k] = self.data[k][start:end]
+            else:
+                raise RuntimeError("Unknown error 3")
+            
+    def split(self, ratio = 0.7):
+        splitPos = math.floor(self.getElements() * ratio)
+        datA = {}
+        datB = {}
+        for k in self.data.keys():
+            if   isinstance(self.data[k], np.ndarray):
+                if len(self.data[k].shape) == 1:
+                    datA[k] = self.data[k][:splitPos]
+                    datB[k] = self.data[k][splitPos:]
+                elif len(self.data[k].shape) == 2:
+                    datA[k] = self.data[k][:splitPos,:]
+                    datB[k] = self.data[k][splitPos:,:]
+                elif len(self.data[k].shape) == 3:
+                    datA[k] = self.data[k][:splitPos,:,:]
+                    datB[k] = self.data[k][splitPos:,:,:]
+                elif len(self.data[k].shape) == 4:
+                    datA[k] = self.data[k][:splitPos,:,:,:]
+                    datB[k] = self.data[k][splitPos:,:,:,:]
+                else:
+                    raise RuntimeError("Unknown error 2")
+
+            elif isinstance(self.data[k], list):
+                datA[k] = self.data[k][:splitPos]
+                datB[k] = self.data[k][splitPos:]
+                
+        dataSetA = MemoryDataset()
+        dataSetA.data = datA
+        dataSetB = MemoryDataset()
+        dataSetB.data = datB
+        
+        return dataSetA, dataSetB
+        
 
 
 
@@ -136,114 +366,41 @@ print("")
 ### Read files from a directory and prepare them
 ### for PeakBotMRM training and prediction
 ##
-def getSizeOfTraningSet(folder, instancePrefix = None, batchSize = None, verbose=False):
-    if instancePrefix is None:
-        instancePrefix = Config.INSTANCEPREFIX
+def getMaxNumberOfEpochsForDataset(dataset, batchSize = None, verbose=False):
     if batchSize is None:
         batchSize = Config.BATCHSIZE
         
-    ite = 0
-    total = 0
-    while os.path.isfile(os.path.join(folder, "%s%d.pickle"%(instancePrefix, ite))):
-        l = pickle.load(open(os.path.join(folder, "%s%d.pickle"%(instancePrefix, ite)), "rb"))
-        
-        k = l[[k for k in l.keys()][0]]
-        bs = k.shape[0] if isinstance(k, np.ndarray) else len(k)
-        
-        ite += 1
-        total += bs
-    return math.floor(total/batchSize)
+    return math.floor(dataset.data["channel.rt"].shape[0]/batchSize)
 
-def dataGenerator(folder, instancePrefix = None, batchSize = None, verbose=False):
-    if instancePrefix is None:
-        instancePrefix = Config.INSTANCEPREFIX
+
+def modelAdapterGenerator(dataset, xKeys, yKeys, batchSize = None, verbose=False):
     if batchSize is None:
         batchSize = Config.BATCHSIZE
-
-    ite = 0
-    l = None
-    while os.path.isfile(os.path.join(folder, "%s%d.pickle"%(instancePrefix, ite))):
-        lc = pickle.load(open(os.path.join(folder, "%s%d.pickle"%(instancePrefix, ite)), "rb"))
-        if l is None:
-            l = lc
-        else:
-            for k in lc.keys():
-                if isinstance(l[k], np.ndarray):
-                    if len(l[k].shape)==1:
-                        l[k] = np.concatenate((l[k], lc[k]))
-                    else:
-                        l[k] = np.vstack((l[k], lc[k]))
-
-                elif isinstance(lc[k], list):
-                    l[k] = l[k] + lc[k]
         
-        k = l[[k for k in l.keys()][0]]
-        bs = k.shape[0] if isinstance(k, np.ndarray) else len(k)
-        
-        while batchSize <= bs and bs > 0:
-            if batchSize > 0:
-                temp = {}
-                for k in list(l.keys()):
-                    if   isinstance(l[k], np.ndarray) and len(l[k].shape)==1:
-                        temp[k] = l[k][0:batchSize]
-                        
-                    if   isinstance(l[k], np.ndarray) and len(l[k].shape)==2:
-                        temp[k] = l[k][0:batchSize,:]
-                        l[k]
+    cur = 0
+    while cur < dataset.data["channel.rt"].shape[0] and cur + batchSize <= dataset.data["channel.rt"].shape[0]:
+        temp, elems = dataset.getData(cur, batchSize)
+        if "channel.int" in temp.keys() and "inte.peak" in temp.keys() and "inte.rtInds" in temp.keys():
+            temp["pred"] = np.hstack((temp["inte.peak"], temp["inte.rtInds"], temp["channel.int"]))
+        x = dict((xKeys[k],v) for k,v in temp.items() if k in xKeys.keys())
+        y = dict((yKeys[k],v) for k,v in temp.items() if k in yKeys.keys())
 
-                    elif isinstance(l[k], np.ndarray) and len(l[k].shape)==3:
-                        temp[k] = l[k][0:batchSize,:,:]
+        yield x, y
+        cur = cur + batchSize
 
-                    elif isinstance(l[k], np.ndarray) and len(l[k].shape)==4:
-                        temp[k] = l[k][0:batchSize,:,:,:]
-
-                    elif isinstance(l[k], list):
-                        temp[k] = l[k][0:batchSize]
-                    
-                    l[k] = l[k][batchSize:]
-                    if len(l[k]) == 0:
-                        del l[k]
-                
-                if len(l) == 0:
-                    l = None 
-                    bs = 0
-                else:
-                    k = l[[k for k in l.keys()][0]]
-                    bs = k.shape[0] if isinstance(k, np.ndarray) else len(k)
-                
-            else:
-                temp = l
-                bs = 0
-                l = None
-            
-            yield temp
-            temp = None
-            
-        ite += 1
-
-def modelAdapterGenerator(datGen, xKeys, yKeys, verbose=False):
-    for l in datGen:
-        if "channel.int" in l.keys() and "inte.peak" in l.keys() and "inte.rtInds" in l.keys():
-            l["pred"] = np.hstack((l["inte.peak"], l["inte.rtInds"], l["channel.int"]))
-        x = dict((xKeys[k],v) for k,v in l.items() if k in xKeys.keys())
-        y = dict((yKeys[k],v) for k,v in l.items() if k in yKeys.keys())
-
-        yield x,y
-
-def modelAdapterTrainGenerator(datGen, verbose=False):
-    temp = modelAdapterGenerator(datGen, 
+def modelAdapterTrainGenerator(dataset, verbose=False):
+    temp = modelAdapterGenerator(dataset, 
                                  {"channel.int":"channel.int"}, 
                                  {"pred": "pred", "inte.peak":"pred.peak", "inte.rtInds": "pred.rtInds"},
                                  verbose = verbose)
     return temp
 
-def modelAdapterPredictGenerator(datGen, verbose=False):
-    temp = modelAdapterGenerator(datGen, 
+def modelAdapterPredictGenerator(dataset, verbose=False):
+    temp = modelAdapterGenerator(dataset, 
                                  {"channel.int":"channel.int"}, 
                                  {}, 
                                  verbose = verbose)
     return temp
-
 
 def convertGeneratorToPlain(gen):
     x = None
@@ -267,7 +424,7 @@ def convertGeneratorToPlain(gen):
                     y[k] = np.concatenate((y[k], t[1][k]), axis=0)
                 else:
                     assert False, "Unknown key, aborting"
-                        
+    
     return x, y
 
 
@@ -453,7 +610,7 @@ class PeakBotMRM():
 
 
 @timeit
-def trainPeakBotMRMModel(trainInstancesPath, logBaseDir, modelName = None, valInstancesPath = None, addValidationInstances = None, everyNthEpoch = -1, verbose = False):
+def trainPeakBotMRMModel(trainDataset, logBaseDir, modelName = None, valDataset = None, addValidationDatasets = None, everyNthEpoch = -1, epochs = -1, verbose = False):
     tic("pbTrainNewModel")
 
     ## name new model
@@ -480,16 +637,20 @@ def trainPeakBotMRMModel(trainInstancesPath, logBaseDir, modelName = None, valIn
         return max(lr, Config.LEARNINGRATEMINVALUE)
     lrScheduler = tf.keras.callbacks.LearningRateScheduler(lrSchedule, verbose=False)
 
-    ## create generators for training data (and validation data if available)
-    datGenTrain = modelAdapterTrainGenerator(dataGenerator(trainInstancesPath, verbose = verbose), verbose = verbose)
-    epochs = getSizeOfTraningSet(trainInstancesPath)
+    ## create generators for training data
+    datGenTrain = modelAdapterTrainGenerator(trainDataset, verbose = verbose)
+    if epochs == -1:
+        epochs = getMaxNumberOfEpochsForDataset(trainDataset)
+    if epochs < getMaxNumberOfEpochsForDataset(trainDataset):
+        raise RuntimeError("Too few training examples (%d) provided for %d epochs"%(getMaxNumberOfEpochsForDataset(trainDataset), epochs))
     if verbose:
-        print("  | .. There are %d training batches available"%(epochs))
+        print("  | .. There are %d training batches available (%s)"%(epochs, trainDataset.getSizeInformation()))
         print("  |")
     
+    ## create generators for validation data
     datGenVal   = None
-    if valInstancesPath is not None:
-        datGenVal = modelAdapterTrainGenerator(dataGenerator(valInstancesPath, verbose = verbose), verbose = verbose)
+    if valDataset is not None:
+        datGenVal = modelAdapterTrainGenerator(valDataset, verbose = verbose)
         datGenVal = tf.data.Dataset.from_tensors(next(datGenVal))
 
     ## add additional validation datasets to monitor model performance during the trainging process
@@ -497,25 +658,21 @@ def trainPeakBotMRMModel(trainInstancesPath, logBaseDir, modelName = None, valIn
                                      batch_size=Config.BATCHSIZE,
                                      everyNthEpoch = everyNthEpoch,
                                      verbose = verbose)
-    if addValidationInstances is not None:
+    if addValidationDatasets is not None:
         if verbose:
             print("  | Additional validation datasets")
-        for valInstance in addValidationInstances:
+        for valDataset in addValidationDatasets:
             tic("addDS")
-            x,y = None, None
-            if "folder" in valInstance.keys():
-                print("  | .. - adding", valInstance["folder"])
-                datGen  = modelAdapterTrainGenerator(dataGenerator(valInstance["folder"], batchSize = -1))
-                x, y = convertGeneratorToPlain(datGen)
-                
-            if "x" in valInstance.keys():
-                x = valInstance["x"]
-                y = valInstance["y"]
-                
-            if x is not None and y is not None and "name" in valInstance.keys():
-                valDS.addValidationSet((x,y, valInstance["name"]))
+            print("  | ..", valDataset.name)
+            datGen  = modelAdapterTrainGenerator(valDataset)
+            x, y = convertGeneratorToPlain(datGen)
+                            
+            if x is not None and y is not None:
+                valDS.addValidationSet((x,y, valDataset.name))
                 if verbose:
-                    print("  | .. .. %s: %d instances (adding took %.1f sec)"%(valInstance["name"], x["channel.int"].shape[0], toc("addDS")))
+                    print("  | .. .. %d instances"%(x["channel.int"].shape[0]))
+                    print("  | .. .. %s"%(valDataset.getSizeInformation()))
+                    print("  | .. .. adding took %.1f sec"%(toc("addDS")))
 
             else:
                 raise RuntimeError("Unknonw additional validation dataset")
@@ -541,13 +698,12 @@ def trainPeakBotMRMModel(trainInstancesPath, logBaseDir, modelName = None, valIn
 
     ## save metrices of the training process in a user-convenient format (pandas table)
     metricesAddValDS = pd.DataFrame(columns=["model", "set", "metric", "value"])
-    if addValidationInstances is not None:
+    if addValidationDatasets is not None:
         hist = valDS.history[-1]
-        for valInstance in addValidationInstances:
-            se = valInstance["name"]
+        for valDataset in addValidationDatasets:
             for metric, metName in {"loss":"loss", "pred.peak_MatthewsCorrelationCoefficient":"MCC", "pred_EICIOUPeaks":"Area IOU", "pred.peak_Acc4Peaks": "Sensitivity (peaks)", "pred.peak_Acc4NonPeaks": "Specificity (no peaks)", "pred.peak_categorical_accuracy": "Accuracy"}.items():
-                val = hist[se + "_" + metric]
-                newRow = pd.Series({"model": modelName, "set": se, "metric": metName, "value": val})
+                val = hist[valDataset.name + "_" + metric]
+                newRow = pd.Series({"model": modelName, "set": valDataset.name, "metric": metName, "value": val})
                 metricesAddValDS = metricesAddValDS.append(newRow, ignore_index=True)
 
     if verbose:
@@ -794,8 +950,8 @@ def loadIntegrations(substances, curatedPeaks, verbose = True, logPrefix = ""):
 
  
 def loadChromatograms(substances, integrations, samplesPath, loadFromPickleIfPossible = True,
-                        allowedMZOffset = 0.05, MRMHeader = "- SRM SIC Q1=(\\d+[.]\\d+) Q3=(\\d+[.]\\d+) start=(\\d+[.]\\d+) end=(\\d+[.]\\d+)",
-                        verbose = True, logPrefix = ""):
+                      allowedMZOffset = 0.05, MRMHeader = "- SRM SIC Q1=(\\d+[.]\\d+) Q3=(\\d+[.]\\d+) start=(\\d+[.]\\d+) end=(\\d+[.]\\d+)",
+                      verbose = True, logPrefix = ""):
     ## load chromatograms
     tic("procChroms")
     if verbose:
@@ -806,10 +962,11 @@ def loadChromatograms(substances, integrations, samplesPath, loadFromPickleIfPos
         with open(os.path.join(samplesPath, "integrations.pickle"), "rb") as fin:
             integrations, usedSamples = pickle.load(fin)
             if verbose:
-                print(logPrefix, "  | .. Imported integrations from pickle file '%s/integrations.pickle'"%(os.path.join(samplesPath, "integrations.pickle")))
+                print(logPrefix, "  | .. Imported integrations from pickle file '%s'"%(os.path.join(samplesPath, "integrations.pickle")))
     else:
         if verbose:
             print(logPrefix, "  | .. This might take a couple of minutes as all samples/integrations/channels/etc. need to be compared and the current implementation are 4 sub-for-loops")
+            print(samples)
         for sample in tqdm.tqdm(samples, desc="  | .. importing"):
             sampleName = os.path.basename(sample)
             if verbose: 
