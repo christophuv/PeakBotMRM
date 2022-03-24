@@ -1,20 +1,14 @@
-from cmath import log
-from http.client import REQUESTED_RANGE_NOT_SATISFIABLE
-from PeakBotMRM.core import tic, toc, tocP, tocAddStat, addFunctionRuntime, timeit, printRunTimesSummary
+from PeakBotMRM.core import tic, toc, arg_find_nearest
 import PeakBotMRM
-from PeakBotMRM.core import readTSVFile, parseTSVMultiLineHeader, extractStandardizedEIC, getInteRTIndsOnStandardizedEIC
+from PeakBotMRM.core import extractStandardizedEIC, getInteRTIndsOnStandardizedEIC
 
 import os
-import pathlib
-import tempfile
-import matplotlib.pyplot as plt
 import plotnine as p9
 import pandas as pd
 #from umap import UMAP
 #import pacmap
 #from annoy import AnnoyIndex
 import numpy as np
-import pickle
 import tqdm
 import random
 random.seed(2021)
@@ -190,39 +184,41 @@ def constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, 
     peaks = []
     noPeaks = []
     notUsed = 0
-    for substance in tqdm.tqdm(substances.values(), desc="  | .. balancing"):
-        if substance["Name"] in integrations.keys():
-            for sample in integrations[substance["Name"]].keys():
-                if integrations[substance["Name"]][sample]["foundPeak"]:
-                    inte = integrations[substance["Name"]][sample]
+    for substance in tqdm.tqdm(substances.values(), desc=logPrefix + "   | .. balancing"):
+        subName = substance["Name"]
+        if subName in integrations.keys():
+            for sample in integrations[subName].keys():
+                if integrations[subName][sample]["foundPeak"]:
+                    inte = integrations[subName][sample]
                     if len(inte["chrom"]) == 1:
                         rts = inte["chrom"][0][9]["rts"]
                         eic = inte["chrom"][0][9]["eic"]
-                        refRT = substances[substance["Name"]]["RT"]
+                        refRT = substances[subName]["RT"]
+                        rtstart = inte["rtstart"]
+                        rtend = inte["rtend"]
                         
-                        if inte["foundPeak"]:
-                            rtsS, eicS = extractStandardizedEIC(eic, rts, refRT)
-                            eicS[rtsS < inte["rtstart"]] = 0
-                            eicS[rtsS > inte["rtend"]] = 0
-                            apexRT = rtsS[np.argmax(eicS)]
-                            
-                            intLeft  = eicS[np.argmin(np.abs(rtsS - inte["rtstart"]))]
-                            intRight = eicS[np.argmin(np.abs(rtsS - inte["rtend"]))]
-                            intApex  = eicS[np.argmin(np.abs(rtsS - apexRT))]
-                            
-                            peakWidth = inte["rtend"] - inte["rtstart"]
-                            centerOffset = apexRT - refRT
-                            peakLeftInflection = inte["rtstart"] - apexRT
-                            peakRightInflection = inte["rtend"] - apexRT
-                            leftIntensityRatio = intApex/intLeft if intLeft > 0 else np.Inf
-                            rightIntensityRatio = intApex/intRight if intRight > 0 else np.Inf
-                            
-                            if checkPeakAttributes is None or checkPeakAttributes(peakWidth, centerOffset, peakLeftInflection, peakRightInflection, leftIntensityRatio, rightIntensityRatio, eicS, rtsS):
-                                peaks.append((substance["Name"], sample))
-                            else:
-                                notUsed = notUsed + 1
+                        rtsS, eicS = extractStandardizedEIC(eic, rts, refRT)
+                        eicS[rtsS < inte["rtstart"]] = 0
+                        eicS[rtsS > inte["rtend"]] = 0
+                        apexRT = rtsS[np.argmax(eicS)]
+                        
+                        intLeft  = eicS[arg_find_nearest(rtsS, rtstart)]
+                        intRight = eicS[arg_find_nearest(rtsS, rtend)]
+                        intApex  = eicS[arg_find_nearest(rtsS, apexRT)]
+                        
+                        peakWidth = rtend - rtstart
+                        centerOffset = apexRT - refRT
+                        peakLeftInflection = intLeft - apexRT
+                        peakRightInflection = intRight - apexRT
+                        leftIntensityRatio = intApex/intLeft if intLeft > 0 else np.Inf
+                        rightIntensityRatio = intApex/intRight if intRight > 0 else np.Inf
+                        
+                        if checkPeakAttributes is None or checkPeakAttributes(peakWidth, centerOffset, peakLeftInflection, peakRightInflection, leftIntensityRatio, rightIntensityRatio, eicS, rtsS):
+                            peaks.append((subName, sample))
+                        else:
+                            notUsed = notUsed + 1
                 else:
-                    noPeaks.append((substance["Name"], sample))
+                    noPeaks.append((subName, sample))
     if verbose: 
         print(logPrefix, "  | .. there are %d peaks and %d backgrounds in the dataset."%(len(peaks), len(noPeaks)))
     if checkPeakAttributes is not None and verbose:
@@ -732,7 +728,9 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
             validationDSs.append(dataset)
     
             print("")
-            
+    
+    print("Preparation for training took %.1f seconds"%(toc("Overall process")))
+    print("")       
     
     ## Train new peakbotMRM model
     pb, chist, modelName = PeakBotMRM.trainPeakBotMRMModel(modelName = os.path.basename(modelFile), 

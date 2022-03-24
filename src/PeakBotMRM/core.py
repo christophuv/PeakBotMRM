@@ -5,6 +5,7 @@ import csv
 import time
 import datetime
 import sys
+import math
 
 import numpy as np
 
@@ -156,6 +157,26 @@ class TabLog(metaclass = Singleton):
             for ins in self.instanceOrder:
                 fOut.write("\t".join(str(s) for s in [ins]+[self.data[ins][key] if key in self.data[ins].keys() else "" for key in self.keyOrder]))
                 fOut.write("\n")
+
+
+
+
+
+## taken and adapted from https://stackoverflow.com/a/26026189
+def find_nearest(array,value):
+    idx = np.searchsorted(array, value, side="left")
+    if idx > 0 and (idx == len(array) or math.fabs(value - array[idx-1]) < math.fabs(value - array[idx])):
+        return array[idx-1].item(0)
+    else:
+        return array[idx].item(0)
+def arg_find_nearest(array,value):
+    idx = np.searchsorted(array, value, side="left")
+    if idx > 0 and (idx == len(array) or math.fabs(value - array[idx-1]) < math.fabs(value - array[idx])):
+        idx = idx-1
+    if type(idx) == np.ndarray:
+        idx = idx.item(0)
+    return idx
+
 
 
 
@@ -320,26 +341,27 @@ def parseTSVMultiLineHeader(fi, headerRowCount=1, delimiter = "\t", commentChar 
 
 def extractStandardizedEIC(eic, rts, refRT):
     ## Find best rt-reference match and extract EIC as standardized EIC around that rt
-    bestRTInd = np.argmin(np.abs(rts - refRT))
+    bestRTInd = arg_find_nearest(rts, refRT)
+    hWid = int((PeakBotMRM.Config.RTSLICES - 1) / 2)
+    
+    if bestRTInd >= hWid and bestRTInd+hWid < rts.shape[0]:
+        return rts[(bestRTInd - hWid):(bestRTInd + hWid + 1)], eic[(bestRTInd - hWid):(bestRTInd + hWid + 1)]
+    
+    sil, sir, ocl, ocr = 0, PeakBotMRM.Config.RTSLICES, bestRTInd - hWid, bestRTInd + hWid + 1
+    if ocl < 0:
+        sil = sil - ocl
+        ocl = 0
+    if ocr > rts.shape[0]:
+        sir = sir - (ocr - rts.shape[0])
+        ocr = rts.shape[0] 
+        
     rtsS = np.zeros(PeakBotMRM.Config.RTSLICES, dtype=float)
     eicS = np.zeros(PeakBotMRM.Config.RTSLICES, dtype=float)
-            
-    cpy = False
-    sil, sir, ocl, ocr = rts.shape[0], 0, rts.shape[0], 0
-    temp = bestRTInd - int(PeakBotMRM.Config.RTSLICES/2.)    
-    for i in range(eicS.shape[0]):
-        cPos = temp + i
-        if 0 <= cPos < len(rts):
-            cpy = True
-            sil = min(sil, i)
-            sir = max(sir, i)
-            ocl = min(ocl, cPos)
-            ocr = max(ocr, cPos)
-    
-    if cpy:
+    try:
         rtsS[sil:sir] = np.copy(rts[ocl:ocr])
         eicS[sil:sir] = np.copy(eic[ocl:ocr])
-    
+    except: 
+        raise
     return rtsS, eicS
 
 def getInteRTIndsOnStandardizedEIC(rtsS, eicS, refRT, peakType, rtStart, rtEnd):
@@ -347,8 +369,8 @@ def getInteRTIndsOnStandardizedEIC(rtsS, eicS, refRT, peakType, rtStart, rtEnd):
     bestRTStartInd = -1
     bestRTEndInd = -1
     if peakType:
-        bestRTStartInd = np.argmin(np.abs(rtsS - rtStart))
-        bestRTEndInd   = np.argmin(np.abs(rtsS - rtEnd))
+        bestRTStartInd = arg_find_nearest(rtsS, rtStart)
+        bestRTEndInd   = arg_find_nearest(rtsS, rtEnd)
     else:
         bestRTStartInd = -1
         bestRTEndInd = -1

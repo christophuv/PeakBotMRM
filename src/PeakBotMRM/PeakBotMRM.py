@@ -34,8 +34,8 @@ class Config(object):
     NAME    = "PeakBotMRM"
     VERSION = "0.9"
 
-    RTSLICES       = 256   ## should be of 2^n
-    NUMCLASSES     =   2   ## [chromatographicPeak, noPeak]
+    RTSLICES       = 255   ## should be of 2^n-1
+    NUMCLASSES     =   2   ## [Peak, noPeak]
 
     BATCHSIZE      =  16
     STEPSPEREPOCH  =   8
@@ -165,7 +165,7 @@ class Dataset:
         pass    
     def getData(self, start, elems = None):
         pass    
-    def shuffle(self, iterations = 1E4, elems = None):
+    def shuffle(self):
         pass    
     def removeOtherThan(self, start, end):
         pass    
@@ -257,11 +257,9 @@ class MemoryDataset(Dataset):
             
         return temp, elems
             
-    def shuffle(self, iterations = 3E5, elems = None):
+    def shuffle(self):
         if self.data is None:
             return 
-        if elems == None:
-            elems = Config.BATCHSIZE
                     
         elements = -1
         for k in self.data.keys():
@@ -277,34 +275,36 @@ class MemoryDataset(Dataset):
                 elements = klen
             if elements != klen:
                 raise RuntimeError("Key '%s' has a different number of elements"%(k))
-            
-        while iterations > 0:
-            a = random.randint(0, elements - elems)
-            b = random.randint(0, elements - elems)
-            if a <= b <= a+elems or b <= a <= b+elems:
-                continue
-            
-            for k in self.data.keys():
-                if   isinstance(self.data[k], np.ndarray):
-                    if len(self.data[k].shape) == 1:
-                        self.data[k][a:(a + elems)],       self.data[k][b:(b + elems)]       = np.copy(self.data[k][b:(b + elems)]),       np.copy(self.data[k][a:(a + elems)])
-                    elif len(self.data[k].shape) == 2:
-                        self.data[k][a:(a + elems),:],     self.data[k][b:(b + elems),:]     = np.copy(self.data[k][b:(b + elems),:]),     np.copy(self.data[k][a:(a + elems),:])
-                    elif len(self.data[k].shape) == 3:
-                        self.data[k][a:(a + elems),:,:],   self.data[k][b:(b + elems),:,:]   = np.copy(self.data[k][b:(b + elems),:,:]),   np.copy(self.data[k][a:(a + elems),:,:])
-                    elif len(self.data[k].shape) == 4:
-                        self.data[k][a:(a + elems),:,:,:], self.data[k][b:(b + elems),:,:,:] = np.copy(self.data[k][b:(b + elems),:,:,:]), np.copy(self.data[k][a:(a + elems),:,:,:])
-                    else:
-                        raise RuntimeError("Unknown error 2")
-
-                elif isinstance(self.data[k], list):
-                    self.data[k][a:(a + elems)],           self.data[k][b:(b + elems)]       = self.data[k][b:(b + elems)],                self.data[k][a:(a + elems)]
+        
+        tic()  
+        newOrd = None
+        for k in self.data.keys():
+            if   isinstance(self.data[k], np.ndarray):
+                if newOrd is None:
+                    newOrd = list(range(self.data[k].shape[0]))
+                    random.shuffle(newOrd)
                     
+                if len(self.data[k].shape) == 1:
+                    self.data[k] = self.data[k][newOrd]
+                elif len(self.data[k].shape) == 2:
+                    self.data[k] = self.data[k][newOrd,:]
+                elif len(self.data[k].shape) == 3:
+                    self.data[k] = self.data[k][newOrd,:,:]
+                elif len(self.data[k].shape) == 4:
+                    self.data[k] = self.data[k][newOrd,:,:,:]
                 else:
-                    raise RuntimeError("Unknwon error 1")
+                    raise RuntimeError("Unknown error 2")
+
+            elif isinstance(self.data[k], list):
+                if newOrd is None:
+                    newOrd = list(range(len(self.data[k])))
+                    random.shuffle(newOrd)
+                
+                self.data[k] = [self.data[k][i] for i in newOrd]
+                
+            else:
+                raise RuntimeError("Unknwon error 1")
             
-            iterations -= 1
-    
     def removeOtherThan(self, start, end):
         for k in self.data.keys():
             if   isinstance(self.data[k], np.ndarray):
