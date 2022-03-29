@@ -6,7 +6,7 @@ import time
 import datetime
 import sys
 import math
-
+import os
 import numpy as np
 
 ## General functions
@@ -49,6 +49,18 @@ def tocP(taskName = "", label="NA"):
     print(" .. task '%s' took %s"%(taskName, str(datetime.timedelta(seconds=toc(label=label)))))
 def tocAddStat(taskName = "", label="NA"):
     addFunctionRuntime(taskName, toc(label), 1)
+    
+    
+    
+    
+    
+    
+    
+def getHeader(string):
+    return u"\u2500\u2500\u2500  %s  %s"%(string, u"\u2500" * (os.get_terminal_size().columns - 7 - len(string)))
+
+    
+    
 
 
 

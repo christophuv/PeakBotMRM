@@ -52,7 +52,7 @@ class Config(object):
     INSTANCEPREFIX = "___PBsample_"
     
     UPDATEPEAKBORDERSTOMIN = True
-    INCLUDEMETAINFORMATION = True
+    INCLUDEMETAINFORMATION = False
 
     @staticmethod
     def getAsStringFancy():
@@ -126,7 +126,7 @@ print("")
 
 
 
-def getDatasetTemplate(templateSize = 1024, includeMetaInfo = None):
+def getDatasetTemplate(templateSize = 1024 * 32, includeMetaInfo = None):
     if includeMetaInfo == None:
         includeMetaInfo = Config.INCLUDEMETAINFORMATION
     template = {"channel.rt"        : np.zeros((templateSize, Config.RTSLICES),   dtype=float),
@@ -457,9 +457,6 @@ class PeakBotMRM():
             print("  | .. Inputs")
             print("  | .. .. channel.int is", eic)
             print("  |")
-            print("  | .. Pre-processing")
-            print("  | .. .. each eic is baseline corrected (signal with minimum abundance) and afterwards scaled to 1 (signal with maximum abundance)")
-            print("  | ")
         
         ## Normalize and scale EIC (remove constant baseline and scale to a maximum intensity value of 1)
         minVal = eicValMin
@@ -568,6 +565,7 @@ class PeakBotMRM():
                 _callBacks.append(callbacks)
 
         # Fit model
+        print(getHeader("Tensorflow fit function start"))
         history = self.model.fit(
             datTrain,
             validation_data = datVal,
@@ -580,6 +578,8 @@ class PeakBotMRM():
 
             verbose = verbose
         )
+        print(getHeader("Tensorflow fit function end"))
+        print("")
 
         return history
 
@@ -658,7 +658,6 @@ def trainPeakBotMRMModel(trainDataset, logBaseDir, modelName = None, valDataset 
                 if verbose:
                     print("  | .. .. %d instances"%(x["channel.int"].shape[0]))
                     print("  | .. .. %s"%(valDataset.getSizeInformation()))
-                    print("  | .. .. adding took %.1f sec"%(toc("addDS")))
 
             else:
                 raise RuntimeError("Unknonw additional validation dataset")
@@ -941,7 +940,7 @@ def loadChromatograms(substances, integrations, samplesPath, loadFromPickleIfPos
     ## load chromatograms
     tic("procChroms")
     if verbose:
-        print(logPrefix, "Processing chromatograms")
+        print(logPrefix, "Loading chromatograms")
     samples = [os.path.join(samplesPath, f) for f in os.listdir(samplesPath) if os.path.isfile(os.path.join(samplesPath, f)) and f.lower().endswith(".mzml")]
     usedSamples = set()
     if os.path.isfile(os.path.join(samplesPath, "integrations.pickle")) and loadFromPickleIfPossible:

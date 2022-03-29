@@ -41,6 +41,7 @@ def compileInstanceDataset(substances, integrations, experimentName, dataset = N
         print(logPrefix, "  | .. Random noise will be added. The range of the randomly generated factors is %.3f - %.3f and the maximum randomly-generated noise added on top of the EICs is %.3f"%(1/(1 + maxRandFactor), 1 + maxRandFactor, maxNoiseLevelAdd))
     if shiftRTs:
         print(logPrefix, "  | .. Random RT shifts will be added. The range is -%.3f - %.3f minutes"%(maxShift, maxShift))
+        print(logPrefix, "  | .. Note: the first instance will be the unmodified, original EIC")
         print(logPrefix, "  | .. Chromatographic peaks with a shifted peak apex will first be corrected to the designated RT and then randomly moved for the training instance")
     if verbose: 
         print(logPrefix, "  | .. Each instance shall be used %d times and the peak/background classes shall%s be balanced"%(useEachInstanceNTimes, "" if balanceReps else " not"))
@@ -62,13 +63,14 @@ def compileInstanceDataset(substances, integrations, experimentName, dataset = N
         useEachBackgroundInstanceNTimes = int(round(useEachInstanceNTimes / (noPeaks / max(peaks, noPeaks))))
     if verbose:
         print(logPrefix, "  | .. Each peak instance will be used %d times and each background instance %d times"%(useEachPeakInstanceNTimes, useEachBackgroundInstanceNTimes))
-    for substance in tqdm.tqdm(integrations.keys(), desc=logPrefix + "   | .. augmenting"):
+    for substance in tqdm.tqdm(integrations.keys(), desc=logPrefix + "   | .. compiling substance"):
+        refRT = substances[substance]["RT"]
         for sample in integrations[substance].keys():
             inte = integrations[substance][sample]
             if len(inte["chrom"]) == 1:
-                rts = inte["chrom"][0][9]["rts"]
-                eic = inte["chrom"][0][9]["eic"]
-                refRT = substances[substance]["RT"]
+                chrom = inte["chrom"][0][9]
+                rts = chrom["rts"]
+                eic = chrom["eic"]
                 
                 ## generate replicates
                 reps = useEachPeakInstanceNTimes if inte["foundPeak"] else useEachBackgroundInstanceNTimes
@@ -140,9 +142,9 @@ def compileInstanceDataset(substances, integrations, experimentName, dataset = N
                         curInstanceInd += 1
                         totalInstances += 1
                     else:
-                        np.set_printoptions(edgeitems=PeakBotMRM.Config.RTSLICES + 2, 
-                            formatter=dict(float=lambda x: "%.3g" % x))
+                        np.set_printoptions(edgeitems=PeakBotMRM.Config.RTSLICES + 2, formatter=dict(float=lambda x: "%.3g" % x))
                         print(eicS)
+                        raise RuntimeError("Problem with EIC")
 
                     ## if batch has been filled, export it to a temporary file
                     if curInstanceInd >= template["channel.rt"].shape[0]:
@@ -165,7 +167,7 @@ def generateAndExportAugmentedInstancesForTraining(substances, integrations, exp
     dataset = compileInstanceDataset(substances, integrations, experimentName, dataset = dataset, addRandomNoise = addRandomNoise, maxRandFactor = maxRandFactor, maxNoiseLevelAdd = maxNoiseLevelAdd, shiftRTs = shiftRTs, maxShift = maxShift, useEachInstanceNTimes = useEachInstanceNTimes, balanceReps = balanceAugmentations, verbose = verbose, logPrefix = logPrefix)
     if verbose: 
         print(logPrefix, "  | .. took %.1f seconds"%(toc()))
-        print()
+        print(logPrefix)
     return dataset
 
 def exportOriginalInstancesForValidation(substances, integrations, experimentName, dataset = None, verbose = True, logPrefix = ""):
@@ -175,17 +177,18 @@ def exportOriginalInstancesForValidation(substances, integrations, experimentNam
     dataset = compileInstanceDataset(substances, integrations, experimentName, dataset = dataset, addRandomNoise = False, shiftRTs = False, verbose = verbose, logPrefix = logPrefix)
     if verbose: 
         print(logPrefix, "  | .. took %.1f seconds"%(toc()))
-        print()
+        print(logPrefix)
     return dataset
 
 def constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, integrations, verbose = True, logPrefix = ""):
     if verbose: 
-        print(logPrefix, "Balancing training dataset (and applying optional peak statistic filter criteria)")
+        print(logPrefix, "Inspecting dataset (and applying optional peak statistic filter criteria)")
     tic()
     peaks = []
     noPeaks = []
-    notUsed = 0
-    for substance in tqdm.tqdm(substances.values(), desc=logPrefix + "   | .. balancing"):
+    notUsed = {}
+    notUsedCount = 0
+    for substance in tqdm.tqdm(substances.values(), desc=logPrefix + "   | .. inspecting"):
         subName = substance["Name"]
         if subName in integrations.keys():
             for sample in integrations[subName].keys():
@@ -214,16 +217,24 @@ def constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, 
                         leftIntensityRatio = intApex/intLeft if intLeft > 0 else np.Inf
                         rightIntensityRatio = intApex/intRight if intRight > 0 else np.Inf
                         
-                        if checkPeakAttributes is None or checkPeakAttributes(peakWidth, centerOffset, peakLeftInflection, peakRightInflection, leftIntensityRatio, rightIntensityRatio, eicS, rtsS):
+                        use = True
+                        if checkPeakAttributes is not None:
+                            use = checkPeakAttributes(peakWidth, centerOffset, peakLeftInflection, peakRightInflection, leftIntensityRatio, rightIntensityRatio, eicS, rtsS)
+                        if type(use) == bool and use:
                             peaks.append((subName, sample))
                         else:
-                            notUsed = notUsed + 1
+                            if use not in notUsed.keys():
+                                notUsed[use] = 0
+                            notUsed[use] += 1
+                            notUsedCount += 1
                 else:
                     noPeaks.append((subName, sample))
-    if verbose: 
-        print(logPrefix, "  | .. there are %d peaks and %d backgrounds in the dataset."%(len(peaks), len(noPeaks)))
     if checkPeakAttributes is not None and verbose:
-        print(logPrefix, "  | .. .. %d peaks were not used due to peak abnormalities according to the user-provided peak-quality function checkPeakAttributes."%(notUsed))
+        print(logPrefix, "  | .. .. %d (%.1f%%) of %d peaks were not used due to peak abnormalities according to the user-provided peak-quality function checkPeakAttributes."%(notUsedCount, notUsedCount/(notUsedCount + len(peaks))*100, notUsedCount + len(peaks)))
+        for k, v in notUsed.items():
+            print(logPrefix, "  | .. .. .. %d (%.1f%%) not used due to '%s'"%(v, v/(v+len(peaks))*100, k))
+    if verbose: 
+        print(logPrefix, "  | .. there are (after peak attribute checking) %d (%.1f%%) peaks and %d (%.1f%%) backgrounds in the dataset."%(len(peaks), len(peaks)/(len(peaks) + len(noPeaks))*100, len(noPeaks), len(noPeaks)/(len(peaks) + len(noPeaks))*100))
     random.shuffle(peaks)
     random.shuffle(noPeaks)
     a = min(len(peaks), len(noPeaks))
@@ -251,11 +262,9 @@ def constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, 
                     noPeaks.append((substance["Name"], sample))
     if verbose:
         if balanceDataset:
-            print(logPrefix, "  | .. balanced dataset to %d peaks and %d backgrounds"%(len(peaks), len(noPeaks)))
-        else:
-            print(logPrefix, "  | .. dataset not balanced with %d peaks and %d backgrounds"%(len(peaks), len(noPeaks)))
+            print(logPrefix, "  | .. balanced dataset randomly to %d peaks and %d backgrounds"%(len(peaks), len(noPeaks)))
         print(logPrefix, "  | .. took %.1f seconds"%(toc()))
-        print()
+        print(logPrefix)
     return integrations
 
 def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbose = True, logPrefix = ""):
