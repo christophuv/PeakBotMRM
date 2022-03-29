@@ -43,7 +43,7 @@ class AdditionalValidationSets(tf.keras.callbacks.Callback):
         hist = None
         if (self.everyNthEpoch > 0 and epoch%self.everyNthEpoch == 0) or ignoreEpoch:
             hist={}
-            if self.verbose: print("Additional test datasets (epoch %d): "%(epoch+1))
+            if self.verbose: print("Additional validation datasets (epoch %d): "%(epoch+1))
             # evaluate on the additional validation sets
             for validation_set in self.validation_sets:
                 tic("kl234hlkjsfkjh1hlkjhasfdkjlh")

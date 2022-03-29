@@ -136,6 +136,7 @@ def getDatasetTemplate(templateSize = 1024, includeMetaInfo = None):
                 "inte.rtEnd"        : np.zeros((templateSize),    dtype=float),
                 "inte.rtInds"       : np.zeros((templateSize, 2), dtype=float),
                 "inte.area"         : np.zeros((templateSize),    dtype=float),
+                "pred"              : np.zeros((templateSize, Config.NUMCLASSES + 2 + Config.RTSLICES), dtype=float),
                }
     if includeMetaInfo:
         template = {**template, 
@@ -380,8 +381,6 @@ def modelAdapterGenerator(dataset, xKeys, yKeys, batchSize = None, verbose=False
     cur = 0
     while cur < dataset.data["channel.rt"].shape[0] and cur + batchSize <= dataset.data["channel.rt"].shape[0]:
         temp, elems = dataset.getData(cur, batchSize)
-        if "channel.int" in temp.keys() and "inte.peak" in temp.keys() and "inte.rtInds" in temp.keys():
-            temp["pred"] = np.hstack((temp["inte.peak"], temp["inte.rtInds"], temp["channel.int"]))
         x = dict((xKeys[k],v) for k,v in temp.items() if k in xKeys.keys())
         y = dict((yKeys[k],v) for k,v in temp.items() if k in yKeys.keys())
 
@@ -402,31 +401,18 @@ def modelAdapterPredictGenerator(dataset, verbose=False):
                                  verbose = verbose)
     return temp
 
-def convertGeneratorToPlain(gen):
-    x = None
-    y = None
-    for t in gen:
-        if x is None:
-            x = t[0]
-            y = t[1]
-        else:
-            for k in x.keys():
-                if isinstance(x[k], list):
-                    x[k].append(t[0][k])
-                elif isinstance(x[k], np.ndarray):
-                    x[k] = np.concatenate((x[k], t[0][k]), axis=0)
-                else:
-                    assert False, "Unknown key, aborting"
-            for k in y.keys():
-                if isinstance(y[k], list):
-                    y[k].append(t[1][k])
-                elif isinstance(y[k], np.ndarray):
-                    y[k] = np.concatenate((y[k], t[1][k]), axis=0)
-                else:
-                    assert False, "Unknown key, aborting"
+def convertDatasetToPlain(dataSet, xKeys, yKeys):
+    x = {}
+    y = {}
+    for k, v in xKeys.items():
+        x[v] = dataSet.data[k]
+    for k, v in yKeys.items():
+        y[v] = dataSet.data[k]
     
     return x, y
 
+def convertValDatasetToPlain(dataset):
+    return convertDatasetToPlain(dataset, {"channel.int":"channel.int"}, {"pred": "pred", "inte.peak":"pred.peak", "inte.rtInds": "pred.rtInds"})
 
 
 class PeakBotMRM():
@@ -665,7 +651,7 @@ def trainPeakBotMRMModel(trainDataset, logBaseDir, modelName = None, valDataset 
             tic("addDS")
             print("  | ..", valDataset.name)
             datGen  = modelAdapterTrainGenerator(valDataset)
-            x, y = convertGeneratorToPlain(datGen)
+            x, y = convertValDatasetToPlain(valDataset)
                             
             if x is not None and y is not None:
                 valDS.addValidationSet((x,y, valDataset.name))

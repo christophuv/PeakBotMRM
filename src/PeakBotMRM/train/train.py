@@ -124,6 +124,7 @@ def compileInstanceDataset(substances, integrations, experimentName, dataset = N
                         template["inte.rtInds"      ][curInstanceInd,0] = bestRTStartInd
                         template["inte.rtInds"      ][curInstanceInd,1] = bestRTEndInd                        
                         template["inte.area"        ][curInstanceInd]   = inte["area"]
+                        template["pred"             ][curInstanceInd]   = np.hstack((template["inte.peak"][curInstanceInd,:], template["inte.rtInds"][curInstanceInd,:], template["channel.int"][curInstanceInd,:]))
 
                         if PeakBotMRM.Config.INCLUDEMETAINFORMATION:
                             ## substance data
@@ -164,7 +165,7 @@ def generateAndExportAugmentedInstancesForTraining(substances, integrations, exp
     dataset = compileInstanceDataset(substances, integrations, experimentName, dataset = dataset, addRandomNoise = addRandomNoise, maxRandFactor = maxRandFactor, maxNoiseLevelAdd = maxNoiseLevelAdd, shiftRTs = shiftRTs, maxShift = maxShift, useEachInstanceNTimes = useEachInstanceNTimes, balanceReps = balanceAugmentations, verbose = verbose, logPrefix = logPrefix)
     if verbose: 
         print(logPrefix, "  | .. took %.1f seconds"%(toc()))
-        print(logPrefix)
+        print()
     return dataset
 
 def exportOriginalInstancesForValidation(substances, integrations, experimentName, dataset = None, verbose = True, logPrefix = ""):
@@ -174,7 +175,7 @@ def exportOriginalInstancesForValidation(substances, integrations, experimentNam
     dataset = compileInstanceDataset(substances, integrations, experimentName, dataset = dataset, addRandomNoise = False, shiftRTs = False, verbose = verbose, logPrefix = logPrefix)
     if verbose: 
         print(logPrefix, "  | .. took %.1f seconds"%(toc()))
-        print(logPrefix)
+        print()
     return dataset
 
 def constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, integrations, verbose = True, logPrefix = ""):
@@ -254,7 +255,7 @@ def constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, 
         else:
             print(logPrefix, "  | .. dataset not balanced with %d peaks and %d backgrounds"%(len(peaks), len(noPeaks)))
         print(logPrefix, "  | .. took %.1f seconds"%(toc()))
-        print(logPrefix)
+        print()
     return integrations
 
 def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbose = True, logPrefix = ""):
