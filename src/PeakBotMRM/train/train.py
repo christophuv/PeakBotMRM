@@ -54,8 +54,8 @@ def compileInstanceDataset(substances, integrations, experimentName, dataset = N
         for substance in integrations.keys():
             for sample in integrations[substance].keys():
                 inte = integrations[substance][sample]
-                if len(inte["chrom"]) == 1:
-                    if inte["foundPeak"]:
+                if inte.chromatogram is not None:
+                    if inte.foundPeak:
                         peaks += 1
                     else:
                         noPeaks += 1
@@ -63,26 +63,25 @@ def compileInstanceDataset(substances, integrations, experimentName, dataset = N
         useEachBackgroundInstanceNTimes = int(round(useEachInstanceNTimes / (noPeaks / max(peaks, noPeaks))))
     if verbose:
         print(logPrefix, "  | .. Each peak instance will be used %d times and each background instance %d times"%(useEachPeakInstanceNTimes, useEachBackgroundInstanceNTimes))
-    for substance in tqdm.tqdm(integrations.keys(), desc=logPrefix + "   | .. compiling substance"):
-        refRT = substances[substance]["RT"]
-        for sample in integrations[substance].keys():
-            inte = integrations[substance][sample]
-            if len(inte["chrom"]) == 1:
-                chrom = inte["chrom"][0][9]
-                rts = chrom["rts"]
-                eic = chrom["eic"]
+    for substanceName in tqdm.tqdm(integrations.keys(), desc=logPrefix + "   | .. compiling substance"):
+        refRT = substances[substanceName].refRT
+        for sample in integrations[substanceName].keys():
+            inte = integrations[substanceName][sample]
+            if inte.chromatogram is not None:
+                rts = inte.chromatogram["rts"]
+                eic = inte.chromatogram["eic"]
                 
                 ## generate replicates
-                reps = useEachPeakInstanceNTimes if inte["foundPeak"] else useEachBackgroundInstanceNTimes
+                reps = useEachPeakInstanceNTimes if inte.foundPeak else useEachBackgroundInstanceNTimes
                 for repi in range(reps):
                     ## add uniform Rt shift to EICs
                     artificialRTShift = 0
                     if repi > 0 and shiftRTs:
-                        if inte["foundPeak"]:
+                        if inte.foundPeak:
                              ## shift according to peak boundaries
                             widthConstraint = 0.8 ## use entire chrom. peak width (=1) or less (0..1)
-                            width = (inte["rtend"] - inte["rtstart"]) * widthConstraint
-                            startRT = inte["rtstart"] + (1 - widthConstraint) / 2. * (inte["rtend"] - inte["rtstart"])
+                            width = (inte.rtEnd - inte.rtStart) * widthConstraint
+                            startRT = inte.rtStart + (1 - widthConstraint) / 2. * (inte.rtEnd - inte.rtStart)
                             artificialRTShift = startRT + width * np.random.rand(1) - refRT
                         else:
                             artificialRTShift = np.random.rand(1) * 2 * maxShift - maxShift
@@ -93,9 +92,9 @@ def compileInstanceDataset(substances, integrations, experimentName, dataset = N
                     ## get integration results on standardized area
                     bestRTInd, peakType, bestRTStartInd, bestRTEndInd, bestRTStart, bestRTEnd = \
                         getInteRTIndsOnStandardizedEIC(rtsS, eicS, refRT, 
-                                                       inte["foundPeak"], 
-                                                       inte["rtstart"], 
-                                                       inte["rtend"])
+                                                       inte.foundPeak, 
+                                                       inte.rtStart, 
+                                                       inte.rtEnd)
                     
                     ## add random noise
                     if repi > 0 and addRandomNoise:
@@ -120,23 +119,23 @@ def compileInstanceDataset(substances, integrations, experimentName, dataset = N
                         template["channel.int"      ][curInstanceInd,:] = eicS
 
                         ## manual integration data
-                        template["inte.peak"        ][curInstanceInd, 0 if inte["foundPeak"] else 1] = 1
+                        template["inte.peak"        ][curInstanceInd, 0 if inte.foundPeak else 1] = 1
                         template["inte.rtStart"     ][curInstanceInd]   = bestRTStart
                         template["inte.rtEnd"       ][curInstanceInd]   = bestRTEnd
                         template["inte.rtInds"      ][curInstanceInd,0] = bestRTStartInd
                         template["inte.rtInds"      ][curInstanceInd,1] = bestRTEndInd                        
-                        template["inte.area"        ][curInstanceInd]   = inte["area"]
+                        template["inte.area"        ][curInstanceInd]   = inte.area
                         template["pred"             ][curInstanceInd]   = np.hstack((template["inte.peak"][curInstanceInd,:], template["inte.rtInds"][curInstanceInd,:], template["channel.int"][curInstanceInd,:]))
 
                         if PeakBotMRM.Config.INCLUDEMETAINFORMATION:
                             ## substance data
-                            template["ref.substance" ][curInstanceInd] = substance
+                            template["ref.substance" ][curInstanceInd] = substanceName
                             template["ref.sample"    ][curInstanceInd] = sample
-                            template["ref.experiment"][curInstanceInd] = experimentName + ";" + sample + ";" + substance
-                            template["ref.rt"        ][curInstanceInd] = substances[substance]["RT"]
-                            template["ref.PeakForm"  ][curInstanceInd] = substances[substance]["PeakForm"] 
-                            template["ref.Rt shifts" ][curInstanceInd] = substances[substance]["Rt shifts"]
-                            template["ref.Note"      ][curInstanceInd] = substances[substance]["Note"]
+                            template["ref.experiment"][curInstanceInd] = experimentName + ";" + sample + ";" + substanceName
+                            template["ref.rt"        ][curInstanceInd] = substances[substanceName]["RT"]
+                            template["ref.PeakForm"  ][curInstanceInd] = substances[substanceName]["PeakForm"] 
+                            template["ref.Rt shifts" ][curInstanceInd] = substances[substanceName]["Rt shifts"]
+                            template["ref.Note"      ][curInstanceInd] = substances[substanceName]["Note"]
                             template["loss.IOU_Area" ][curInstanceInd] = 1
                         
                         curInstanceInd += 1
@@ -189,28 +188,27 @@ def constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, 
     notUsed = {}
     notUsedCount = 0
     for substance in tqdm.tqdm(substances.values(), desc=logPrefix + "   | .. inspecting"):
-        subName = substance["Name"]
-        if subName in integrations.keys():
-            for sample in integrations[subName].keys():
-                if integrations[subName][sample]["foundPeak"]:
-                    inte = integrations[subName][sample]
-                    if len(inte["chrom"]) == 1:
-                        rts = inte["chrom"][0][9]["rts"]
-                        eic = inte["chrom"][0][9]["eic"]
-                        refRT = substances[subName]["RT"]
-                        rtstart = inte["rtstart"]
-                        rtend = inte["rtend"]
+        if substance.name in integrations.keys():
+            for sample in integrations[substance.name].keys():
+                if integrations[substance.name][sample].foundPeak:
+                    inte = integrations[substance.name][sample]
+                    if inte.chromatogram is not None:
+                        rts = inte.chromatogram["rts"]
+                        eic = inte.chromatogram["eic"]
+                        refRT = substance.refRT
+                        rtStart = inte.rtStart
+                        rtEnd = inte.rtEnd
                         
                         rtsS, eicS = extractStandardizedEIC(eic, rts, refRT)
-                        eicS[rtsS < inte["rtstart"]] = 0
-                        eicS[rtsS > inte["rtend"]] = 0
+                        eicS[rtsS < rtStart] = 0
+                        eicS[rtsS > rtEnd] = 0
                         apexRT = rtsS[np.argmax(eicS)]
                         
-                        intLeft  = eicS[arg_find_nearest(rtsS, rtstart)]
-                        intRight = eicS[arg_find_nearest(rtsS, rtend)]
+                        intLeft  = eicS[arg_find_nearest(rtsS, rtStart)]
+                        intRight = eicS[arg_find_nearest(rtsS, rtEnd)]
                         intApex  = eicS[arg_find_nearest(rtsS, apexRT)]
                         
-                        peakWidth = rtend - rtstart
+                        peakWidth = rtEnd - rtStart
                         centerOffset = apexRT - refRT
                         peakLeftInflection = intLeft - apexRT
                         peakRightInflection = intRight - apexRT
@@ -221,14 +219,14 @@ def constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, 
                         if checkPeakAttributes is not None:
                             use = checkPeakAttributes(peakWidth, centerOffset, peakLeftInflection, peakRightInflection, leftIntensityRatio, rightIntensityRatio, eicS, rtsS)
                         if type(use) == bool and use:
-                            peaks.append((subName, sample))
+                            peaks.append((substance.name, sample))
                         else:
                             if use not in notUsed.keys():
                                 notUsed[use] = 0
                             notUsed[use] += 1
                             notUsedCount += 1
                 else:
-                    noPeaks.append((subName, sample))
+                    noPeaks.append((substance.name, sample))
     if checkPeakAttributes is not None and verbose:
         print(logPrefix, "  | .. .. %d (%.1f%%) of %d peaks were not used due to peak abnormalities according to the user-provided peak-quality function checkPeakAttributes."%(notUsedCount, notUsedCount/(notUsedCount + len(peaks))*100, notUsedCount + len(peaks)))
         for k, v in notUsed.items():
@@ -254,12 +252,12 @@ def constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, 
     peaks = []
     noPeaks = []
     for substance in substances.values():
-        if substance["Name"] in integrations.keys():
-            for sample in integrations[substance["Name"]].keys():
-                if integrations[substance["Name"]][sample]["foundPeak"]:
-                    peaks.append((substance["Name"], sample))
+        if substance.name in integrations.keys():
+            for sample in integrations[substance.name].keys():
+                if integrations[substance.name][sample].foundPeak:
+                    peaks.append((substance.name, sample))
                 else:
-                    noPeaks.append((substance["Name"], sample))
+                    noPeaks.append((substance.name, sample))
     if verbose:
         if balanceDataset:
             print(logPrefix, "  | .. balanced dataset randomly to %d peaks and %d backgrounds"%(len(peaks), len(noPeaks)))
@@ -277,33 +275,33 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
     ysample = []
     ysubstance = []
     xcur = 0
-    for substance in tqdm.tqdm(integrations.keys(), desc="  | .. calculating"):
-        for sample in integrations[substance].keys():
-            inte = integrations[substance][sample]
-            if substance in substances.keys() and len(inte["chrom"]) == 1:
-                rts = inte["chrom"][0][9]["rts"]
-                eic = inte["chrom"][0][9]["eic"]
-                refRT = substances[substance]["RT"]                
+    for substanceName in tqdm.tqdm(integrations.keys(), desc="  | .. calculating"):
+        for sample in integrations[substanceName].keys():
+            inte = integrations[substanceName][sample]
+            if substanceName in substances.keys() and inte.chromatogram is not None:
+                rts = inte.chromatogram["rts"]
+                eic = inte.chromatogram["eic"]
+                refRT = substances[substanceName].refRT        
                 rtsS, eicS = extractStandardizedEIC(eic, rts, refRT)
                 
                 temp = refRT 
                             
-                if inte["foundPeak"]:
+                if inte.foundPeak:
                     stats["hasPeak"] = stats["hasPeak"] + 1
                     
-                    eicS[rtsS < inte["rtstart"]] = 0
-                    eicS[rtsS > inte["rtend"]] = 0
+                    eicS[rtsS < inte.rtStart] = 0
+                    eicS[rtsS > inte.rtEnd] = 0
                     apexRT = rtsS[np.argmax(eicS)]
                     
-                    intLeft  = eicS[np.argmin(np.abs(rtsS - inte["rtstart"]))]
-                    intRight = eicS[np.argmin(np.abs(rtsS - inte["rtend"]))]
+                    intLeft  = eicS[np.argmin(np.abs(rtsS - inte.rtStart))]
+                    intRight = eicS[np.argmin(np.abs(rtsS - inte.rtEnd))]
                     intApex  = eicS[np.argmin(np.abs(rtsS - apexRT))]
                     
-                    peakWidth = inte["rtend"] - inte["rtstart"]
-                    peakWidthScans = np.argmin(np.abs(rtsS - inte["rtend"])) - np.argmin(np.abs(rtsS - inte["rtstart"]))
+                    peakWidth = inte.rtEnd - inte.rtStart
+                    peakWidthScans = np.argmin(np.abs(rtsS - inte.rtEnd)) - np.argmin(np.abs(rtsS - inte.rtStart))
                     centerOffset = apexRT - refRT
-                    peakLeftInflection = inte["rtstart"] - apexRT
-                    peakRightInflection = inte["rtend"] - apexRT
+                    peakLeftInflection = inte.rtStart - apexRT
+                    peakRightInflection = inte.rtEnd - apexRT
                     leftIntensityRatio = intApex/intLeft if intLeft > 0 else np.Inf
                     rightIntensityRatio = intApex/intRight if intRight > 0 else np.Inf                    
                     
@@ -335,9 +333,9 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
                 X[xcur,:] = eicS
                 X[xcur,:] = X[xcur,:] - np.min(X[xcur,:])
                 X[xcur,:] = X[xcur,:] / np.max(X[xcur,:])
-                Y[xcur] = 0 if inte["foundPeak"] else 1
+                Y[xcur] = 0 if inte.foundPeak else 1
                 ysample.append("Cal" if "CAL" in sample else ("Nist" if "NIST" in sample else "sample"))
-                ysubstance.append(substance)
+                ysubstance.append(substanceName)
                 xcur = xcur + 1
     Xori = X[0:xcur,:]
     Yori = Y[0:xcur]

@@ -88,224 +88,220 @@ def validateExperiment(expName, valDSs, modelFile,
         
         subsN = set()
         sampN = set()
-        for substance in integrations.keys():
-            subsN.add(substance)
-            for sample in integrations[substance]:
+        for substanceName in integrations.keys():
+            subsN.add(substanceName)
+            for sample in integrations[substanceName]:
                 sampN.add(sample)
         perInstanceResults = np.ones((len(subsN), len(sampN)), dtype=float)
         perInstanceResultsPD = []
         perInstanceResultsSubstances = list(subsN)
         perInstanceResultsSamples = list(sampN) 
         
-        for substance in tqdm.tqdm(integrations.keys(), desc="  | .. comparing"):
-            allSubstances.add(substance)
-            if plotSubstance == "all" or substance in plotSubstance:
+        for substanceName in tqdm.tqdm(integrations.keys(), desc="  | .. comparing"):
+            allSubstances.add(substanceName)
+            if plotSubstance == "all" or substanceName in plotSubstance:
                 fig, ((ax1, ax2, ax3, ax4), (ax5, ax6, ax7, ax8), (ax9, ax10, ax11, ax12)) = plt.subplots(3,4, sharey = "row", sharex = True, gridspec_kw = {'height_ratios':[2,1,1]})
                 fig.set_size_inches(15, 16)
 
-            temp = {"channel.int"  : np.zeros((len(integrations[substance]), PeakBotMRM.Config.RTSLICES), dtype=float),
-                    "channel.rts"  : np.zeros((len(integrations[substance]), PeakBotMRM.Config.RTSLICES), dtype=float),
-                    "inte.peak"    : np.zeros((len(integrations[substance]), PeakBotMRM.Config.NUMCLASSES), dtype=int),
-                    "inte.rtInds"  : np.zeros((len(integrations[substance]), 2), dtype=float),
+            temp = {"channel.int"  : np.zeros((len(integrations[substanceName]), PeakBotMRM.Config.RTSLICES), dtype=float),
+                    "channel.rts"  : np.zeros((len(integrations[substanceName]), PeakBotMRM.Config.RTSLICES), dtype=float),
+                    "inte.peak"    : np.zeros((len(integrations[substanceName]), PeakBotMRM.Config.NUMCLASSES), dtype=int),
+                    "inte.rtInds"  : np.zeros((len(integrations[substanceName]), 2), dtype=float),
                     }
             truth = np.zeros((4))
             agreement = np.zeros((4))
             
-            for samplei, sample in enumerate(integrations[substance].keys()):
-                inte = integrations[substance][sample]
+            for samplei, sample in enumerate(integrations[substanceName].keys()):
+                inte = integrations[substanceName][sample]
                 allSamples.add(sample)
-                assert len(inte["chrom"]) <= 1
                 
-                if len(inte["chrom"]) == 1:
-                    rts = inte["chrom"][0][9]["rts"]
-                    eic = inte["chrom"][0][9]["eic"]
-                    refRT = substances[substance]["RT"]
-                    
-                    ## standardize EIC
-                    rtsS, eicS = extractStandardizedEIC(eic, rts, refRT)
-                    
-                    ## get integration results on standardized area
-                    bestRTInd, isPeak, bestRTStartInd, bestRTEndInd, bestRTStart, bestRTEnd = \
-                        getInteRTIndsOnStandardizedEIC(rtsS, eicS, refRT, 
-                                                        inte["foundPeak"], 
-                                                        inte["rtstart"], 
-                                                        inte["rtend"])
-                    
-                    temp["channel.int"][samplei, :] = eicS
-                    temp["inte.peak"][samplei,0] = 1 if isPeak else 0
-                    temp["inte.peak"][samplei,1] = 1 if not isPeak else 0
-                    temp["inte.rtInds"][samplei, 0] = bestRTStartInd
-                    temp["inte.rtInds"][samplei, 1] = bestRTEndInd
-                    temp["pred.peak"] = temp["inte.peak"]
-                    temp["pred.rtInds"] = temp["inte.rtInds"]
+                rts = inte.chromatogram["rts"]
+                eic = inte.chromatogram["eic"]
+                refRT = substances[substanceName].refRT
+                
+                ## standardize EIC
+                rtsS, eicS = extractStandardizedEIC(eic, rts, refRT)
+                
+                ## get integration results on standardized area
+                bestRTInd, isPeak, bestRTStartInd, bestRTEndInd, bestRTStart, bestRTEnd = \
+                    getInteRTIndsOnStandardizedEIC(rtsS, eicS, refRT, 
+                                                    inte.foundPeak, 
+                                                    inte.rtStart, 
+                                                    inte.rtEnd)
+                
+                temp["channel.int"][samplei, :] = eicS
+                temp["inte.peak"][samplei,0] = 1 if isPeak else 0
+                temp["inte.peak"][samplei,1] = 1 if not isPeak else 0
+                temp["inte.rtInds"][samplei, 0] = bestRTStartInd
+                temp["inte.rtInds"][samplei, 1] = bestRTEndInd
+                temp["pred.peak"] = temp["inte.peak"]
+                temp["pred.rtInds"] = temp["inte.rtInds"]
                 
             ppeakTypes, prtStartInds, prtEndInds = PeakBotMRM.runPeakBotMRM(temp, model = pbModelPred, verbose = False)
             metrics = PeakBotMRM.evaluatePeakBotMRM(temp, model = pbModelEval, verbose = False)
             
-            for samplei, sample in enumerate(integrations[substance].keys()):
-                inte = integrations[substance][sample] 
-                assert len(inte["chrom"]) <= 1
+            for samplei, sample in enumerate(integrations[substanceName].keys()):
+                inte = integrations[substanceName][sample] 
                 
-                if len(inte["chrom"]) == 1:
-                    rts = inte["chrom"][0][9]["rts"]
-                    eic = inte["chrom"][0][9]["eic"]
-                    refRT = substances[substance]["RT"]
-                    
-                    ## standardize EIC
-                    rtsS, eicS = extractStandardizedEIC(eic, rts, refRT)
+                rts = inte.chromatogram["rts"]
+                eic = inte.chromatogram["eic"]
+                refRT = substances[substanceName].refRT
                 
-                    ## get integration results on standardized area
-                    bestRTInd, isPeak, bestRTStartInd, bestRTEndInd, bestRTStart, bestRTEnd = \
-                        getInteRTIndsOnStandardizedEIC(rtsS, eicS, refRT, 
-                                                        inte["foundPeak"], 
-                                                        inte["rtstart"], 
-                                                        inte["rtend"])
-                        
-                    ## test if eic has detected signals
-                    pisPeak = ppeakTypes[samplei] == 0
-                    prtStartInd = round(prtStartInds[samplei])
-                    prtEndInd = round(prtEndInds[samplei])
-                    prtStart = rtsS[min(PeakBotMRM.Config.RTSLICES-1, max(0, prtStartInd))]
-                    prtEnd = rtsS[min(PeakBotMRM.Config.RTSLICES-1, max(0, prtEndInd))]
-                    truth[0] = truth[0] + (1 if isPeak else 0)
-                    truth[3] = truth[3] + (1 if not isPeak else 0)
-                    agreement[0] = agreement[0] + (1 if isPeak and pisPeak else 0)
-                    agreement[1] = agreement[1] + (1 if isPeak and not pisPeak else 0)
-                    agreement[2] = agreement[2] + (1 if not isPeak and pisPeak else 0)
-                    agreement[3] = agreement[3] + (1 if not isPeak and not pisPeak else 0)
-
-                    inte["pred.rtstart"] = prtStart
-                    inte["pred.rtend"] = prtEnd
-                    inte["pred.foundPeak"] = pisPeak
-                    if inte["pred.foundPeak"]:
-                        inte["pred.area"] = PeakBotMRM.integrateArea(eic, rts, prtStart, prtEnd, method = "minbetweenborders")
-                    else:
-                        inte["pred.area"] = -1
-                    if bestRTStart > 0:
-                        inte["area."] = PeakBotMRM.integrateArea(eic, rts, bestRTStart, bestRTEnd, method = "minbetweenborders")
-                    else:
-                        inte["area."] = -1
-                    
-                    ## generate heatmap matrix
-                    val = 0
-                    if not isPeak and not pisPeak:
-                        ## both (manual and prediction) report not a peak, 100% correct
-                        val = 0
-                    elif isPeak and not pisPeak:
-                        ## manual integration reports a peak, but prediction does not, 100% incorrect
-                        val = -1.00001
-                    elif not isPeak and pisPeak:
-                        ## manual integration reports not a peak, but prediction does, 100% incorrect
-                        val = 1.00001
-                    elif isPeak and pisPeak:
-                        ## manual and prediction report a peak, x% correct
-                        if inte["area."] < inte["pred.area"]:
-                            val = min(1, inte["pred.area"] / inte["area."] - 1)
-                        else:
-                            val = -min(1, inte["area."] / inte["pred.area"] - 1)
-                            
-                    if val > 1.001 or val < -1.001:
-                        print(substance, sample, isPeak, inte["area."], bestRTStart, bestRTEnd, pisPeak, inte["pred.area"], prtStart, prtEnd)
-                    rowInd = perInstanceResultsSubstances.index(substance)
-                    colInd = perInstanceResultsSamples.index(sample)
-                    perInstanceResults[rowInd, colInd] = val
-                    perInstanceResultsPD.append((substance, sample, val, isPeak, inte["area."], inte["area"], pisPeak, inte["pred.area"]))
-                    
-                    if plotSubstance == "all" or substance in plotSubstance:
-                        ## plot results; find correct axis to plot to 
-                        ax = ax1
-                        axR = ax5
-                        axS = ax9
-                        if isPeak:
-                            ax = ax1 if pisPeak else ax2
-                            axR = ax5 if pisPeak else ax6
-                            axS = ax9 if pisPeak else ax10
-                        else:
-                            ax = ax3 if pisPeak else ax4
-                            axR = ax7 if pisPeak else ax8
-                            axS = ax11 if pisPeak else ax12
-                                            
-                        ax.plot([min(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod), max(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod)], [offsetEIC*samplei, offsetEIC*samplei], "slategrey", linewidth=0.25, zorder=(len(integrations[substance].keys())-samplei+1)*2)
-                        axR.plot([min(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod), max(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod)], [0,0], "slategrey", linewidth=0.25, zorder=(len(integrations[substance].keys())-samplei+1)*2)
-                        axS.plot([min(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod), max(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod)], [0,0], "slategrey", linewidth=0.25, zorder=(len(integrations[substance].keys())-samplei+1)*2)
-                        
-                        ## plot raw, scaled data according to classification prediction and integration result
-                        b = min(eic)
-                        m = max([i-b for i in eic])
-                        ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts], [(e-b)/m+offsetEIC*samplei for e in eic], "lightgrey", linewidth=.25, zorder=(len(integrations[substance].keys())-samplei+1)*2)
-                        ax.fill_between([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts], [(e-b)/m+offsetEIC*samplei for e in eic], offsetEIC*samplei, facecolor='w', lw=0, zorder=(len(integrations[substance].keys())-samplei+1)*2-1)
-                        ## add detected peak
-                        if pisPeak:
-                            ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if prtStart <= t <= prtEnd], [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if prtStart <= rts[i] <= prtEnd], "olivedrab", linewidth=0.25, zorder=(len(integrations[substance].keys())-samplei+1)*2)
-                            ax.fill_between([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if prtStart <= t <= prtEnd], [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if prtStart <= rts[i] <= prtEnd], offsetEIC*samplei, facecolor='yellowgreen', lw=0, zorder=(len(integrations[substance].keys())-samplei+1)*2-1)
-                        ## add integration results
-                        if isPeak:            
-                            ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if bestRTStart <= t <= bestRTEnd], [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if bestRTStart <= rts[i] <= bestRTEnd], "k", linewidth=0.25, zorder=(len(integrations[substance].keys())-samplei+1)*2)
-                                                    
-                        ## plot raw data
-                        axR.plot(rts, eic, "lightgrey", linewidth=.25, zorder=(len(integrations[substance].keys())-samplei+1)*2)
-                        ## add detected peak
-                        if pisPeak:
-                            axR.plot([t for t in rts if prtStart <= t <= prtEnd], [e for i, e in enumerate(eic) if prtStart <= rts[i] <= prtEnd], "olivedrab", linewidth=0.25, zorder=(len(integrations[substance].keys())-samplei+1)*2)
-                        ## add integration results
-                        if isPeak:            
-                            axR.plot([t for t in rts if bestRTStart <= t <= bestRTEnd], [e for i, e in enumerate(eic) if bestRTStart <= rts[i] <= bestRTEnd], "k", linewidth=0.25, zorder=(len(integrations[substance].keys())-samplei+1)*2)
-
-                        ## plot scaled data
-                        ## add detected peak
-                        minInt = min([e for e in eicS if e > 0])
-                        maxInt = max([e-minInt for e in eicS])
-                        axS.plot(rts, [(e-minInt)/maxInt for e in eic], "lightgrey", linewidth=.25, zorder=(len(integrations[substance].keys())-samplei+1)*2)
-                        if pisPeak:
-                            axS.plot([t for t in rts if prtStart <= t <= prtEnd], [(e-minInt)/maxInt for i, e in enumerate(eic) if prtStart <= rts[i] <= prtEnd], "olivedrab", linewidth=0.25, zorder=(len(integrations[substance].keys())-samplei+1)*2)
-                        if isPeak:
-                            axS.plot([t for t in rts if bestRTStart <= t <= bestRTEnd], [(e-minInt)/maxInt for i, e in enumerate(eic) if bestRTStart <= rts[i] <= bestRTEnd], "k", linewidth=0.25, zorder=(len(integrations[substance].keys())-samplei+1)*2)
-
+                ## standardize EIC
+                rtsS, eicS = extractStandardizedEIC(eic, rts, refRT)
             
-            if substance not in metricsTable.keys():
-                metricsTable[substance] = {}
-            metricsTable[substance] = {"CCA"          : metrics["pred.peak_categorical_accuracy"], 
-                                       "MCC"          : metrics["pred.peak_MatthewsCorrelationCoefficient"],
-                                       "RtMSE"        : metrics["pred.rtInds_MSE"], 
-                                       "EICIOUPeaks"  : metrics["pred_EICIOUPeaks"],
-                                       "Acc4Peaks"    : metrics["pred.peak_Acc4Peaks"],
-                                       "Acc4NonPeaks" : metrics["pred.peak_Acc4NonPeaks"]}
-            if substance in integrations.keys():
+                ## get integration results on standardized area
+                bestRTInd, isPeak, bestRTStartInd, bestRTEndInd, bestRTStart, bestRTEnd = \
+                    getInteRTIndsOnStandardizedEIC(rtsS, eicS, refRT, 
+                                                    inte.foundPeak, 
+                                                    inte.rtStart, 
+                                                    inte.rtEnd)
+                    
+                ## test if eic has detected signals
+                pisPeak = ppeakTypes[samplei] == 0
+                prtStartInd = round(prtStartInds[samplei])
+                prtEndInd = round(prtEndInds[samplei])
+                prtStart = rtsS[min(PeakBotMRM.Config.RTSLICES-1, max(0, prtStartInd))]
+                prtEnd = rtsS[min(PeakBotMRM.Config.RTSLICES-1, max(0, prtEndInd))]
+                truth[0] = truth[0] + (1 if isPeak else 0)
+                truth[3] = truth[3] + (1 if not isPeak else 0)
+                agreement[0] = agreement[0] + (1 if isPeak and pisPeak else 0)
+                agreement[1] = agreement[1] + (1 if isPeak and not pisPeak else 0)
+                agreement[2] = agreement[2] + (1 if not isPeak and pisPeak else 0)
+                agreement[3] = agreement[3] + (1 if not isPeak and not pisPeak else 0)
+
+                inte.other["pred.rtstart"] = prtStart
+                inte.other["pred.rtend"] = prtEnd
+                inte.other["pred.foundPeak"] = pisPeak
+                if inte.other["pred.foundPeak"]:
+                    inte.other["pred.area"] = PeakBotMRM.integrateArea(eic, rts, prtStart, prtEnd, method = "minbetweenborders")
+                else:
+                    inte.other["pred.area"] = -1
+                if bestRTStart > 0:
+                    inte.other["area."] = PeakBotMRM.integrateArea(eic, rts, bestRTStart, bestRTEnd, method = "minbetweenborders")
+                else:
+                    inte.other["area."] = -1
+                
+                ## generate heatmap matrix
+                val = 0
+                if not isPeak and not pisPeak:
+                    ## both (manual and prediction) report not a peak, 100% correct
+                    val = 0
+                elif isPeak and not pisPeak:
+                    ## manual integration reports a peak, but prediction does not, 100% incorrect
+                    val = -1.00001
+                elif not isPeak and pisPeak:
+                    ## manual integration reports not a peak, but prediction does, 100% incorrect
+                    val = 1.00001
+                elif isPeak and pisPeak:
+                    ## manual and prediction report a peak, x% correct
+                    if inte.other["area."] < inte.other["pred.area"]:
+                        val = min(1, inte.other["pred.area"] / inte.other["area."] - 1)
+                    else:
+                        val = -min(1, inte.other["area."] / inte.other["pred.area"] - 1)
+                        
+                if val > 1.001 or val < -1.001:
+                    print(substanceName, sample, isPeak, inte["area."], bestRTStart, bestRTEnd, pisPeak, inte.other["pred.area"], prtStart, prtEnd)
+                rowInd = perInstanceResultsSubstances.index(substanceName)
+                colInd = perInstanceResultsSamples.index(sample)
+                perInstanceResults[rowInd, colInd] = val
+                perInstanceResultsPD.append((substanceName, sample, val, isPeak, inte.other["area."], inte.area, pisPeak, inte.other["pred.area"]))
+                
+                if plotSubstance == "all" or substanceName in plotSubstance:
+                    ## plot results; find correct axis to plot to 
+                    ax = ax1
+                    axR = ax5
+                    axS = ax9
+                    if isPeak:
+                        ax = ax1 if pisPeak else ax2
+                        axR = ax5 if pisPeak else ax6
+                        axS = ax9 if pisPeak else ax10
+                    else:
+                        ax = ax3 if pisPeak else ax4
+                        axR = ax7 if pisPeak else ax8
+                        axS = ax11 if pisPeak else ax12
+                                        
+                    ax.plot([min(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod), max(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod)], [offsetEIC*samplei, offsetEIC*samplei], "slategrey", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                    axR.plot([min(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod), max(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod)], [0,0], "slategrey", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                    axS.plot([min(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod), max(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod)], [0,0], "slategrey", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                    
+                    ## plot raw, scaled data according to classification prediction and integration result
+                    b = min(eic)
+                    m = max([i-b for i in eic])
+                    ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts], [(e-b)/m+offsetEIC*samplei for e in eic], "lightgrey", linewidth=.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                    ax.fill_between([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts], [(e-b)/m+offsetEIC*samplei for e in eic], offsetEIC*samplei, facecolor='w', lw=0, zorder=(len(integrations[substanceName].keys())-samplei+1)*2-1)
+                    ## add detected peak
+                    if pisPeak:
+                        ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if prtStart <= t <= prtEnd], [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if prtStart <= rts[i] <= prtEnd], "olivedrab", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                        ax.fill_between([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if prtStart <= t <= prtEnd], [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if prtStart <= rts[i] <= prtEnd], offsetEIC*samplei, facecolor='yellowgreen', lw=0, zorder=(len(integrations[substanceName].keys())-samplei+1)*2-1)
+                    ## add integration results
+                    if isPeak:            
+                        ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if bestRTStart <= t <= bestRTEnd], [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if bestRTStart <= rts[i] <= bestRTEnd], "k", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                                                
+                    ## plot raw data
+                    axR.plot(rts, eic, "lightgrey", linewidth=.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                    ## add detected peak
+                    if pisPeak:
+                        axR.plot([t for t in rts if prtStart <= t <= prtEnd], [e for i, e in enumerate(eic) if prtStart <= rts[i] <= prtEnd], "olivedrab", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                    ## add integration results
+                    if isPeak:            
+                        axR.plot([t for t in rts if bestRTStart <= t <= bestRTEnd], [e for i, e in enumerate(eic) if bestRTStart <= rts[i] <= bestRTEnd], "k", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+
+                    ## plot scaled data
+                    ## add detected peak
+                    minInt = min([e for e in eicS if e > 0])
+                    maxInt = max([e-minInt for e in eicS])
+                    axS.plot(rts, [(e-minInt)/maxInt for e in eic], "lightgrey", linewidth=.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                    if pisPeak:
+                        axS.plot([t for t in rts if prtStart <= t <= prtEnd], [(e-minInt)/maxInt for i, e in enumerate(eic) if prtStart <= rts[i] <= prtEnd], "olivedrab", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                    if isPeak:
+                        axS.plot([t for t in rts if bestRTStart <= t <= bestRTEnd], [(e-minInt)/maxInt for i, e in enumerate(eic) if bestRTStart <= rts[i] <= bestRTEnd], "k", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+
+        
+            if substanceName not in metricsTable.keys():
+                metricsTable[substanceName] = {}
+            metricsTable[substanceName] = {"CCA"          : metrics["pred.peak_categorical_accuracy"], 
+                                           "MCC"          : metrics["pred.peak_MatthewsCorrelationCoefficient"],
+                                           "RtMSE"        : metrics["pred.rtInds_MSE"], 
+                                           "EICIOUPeaks"  : metrics["pred_EICIOUPeaks"],
+                                           "Acc4Peaks"    : metrics["pred.peak_Acc4Peaks"],
+                                          "Acc4NonPeaks" : metrics["pred.peak_Acc4NonPeaks"]}
+            if substanceName in integrations.keys():
                 intes = []
                 intesD = []
                 preds = []
                 for sample in allSamples:
-                    if sample in integrations[substance].keys():
-                        intes.append(integrations[substance][sample]["area"])
-                        intesD.append(integrations[substance][sample]["area."])
-                        preds.append(integrations[substance][sample]["pred.area"])
+                    if sample in integrations[substanceName].keys():
+                        intes.append(integrations[substanceName][sample].area)
+                        intesD.append(integrations[substanceName][sample].other["area."])
+                        preds.append(integrations[substanceName][sample].other["pred.area"])
                 corr = np.corrcoef(intes, preds)[1,0]
-                metricsTable[substance]["CorrIP"] = corr
+                metricsTable[substanceName]["CorrIP"] = corr
                 corr = np.corrcoef(intesD, preds)[1,0]
-                metricsTable[substance]["CorrIdP"] = corr
+                metricsTable[substanceName]["CorrIdP"] = corr
 
             ## log metrics
-            TabLog().addData(substance, "Int.Peak, PrePeak", agreement[0])
-            TabLog().addData(substance, "Int.Peak, PreNoPe", agreement[1])
-            TabLog().addData(substance, "Int.NoPe, PrePeak", agreement[2])
-            TabLog().addData(substance, "Int.NoPe, PreNoPe", agreement[3])
-            TabLog().addData(substance, "Peakform", substances[substance]["PeakForm"])
-            TabLog().addData(substance, "Rt shifts", substances[substance]["Rt shifts"])
-            TabLog().addData(substance, "Note", substances[substance]["Note"])
+            TabLog().addData(substanceName, "Int.Peak, PrePeak", agreement[0])
+            TabLog().addData(substanceName, "Int.Peak, PreNoPe", agreement[1])
+            TabLog().addData(substanceName, "Int.NoPe, PrePeak", agreement[2])
+            TabLog().addData(substanceName, "Int.NoPe, PreNoPe", agreement[3])
+            TabLog().addData(substanceName, "Peakform", substances[substanceName].peakForm)
+            TabLog().addData(substanceName, "Rt shifts", substances[substanceName].rtShift)
+            TabLog().addData(substanceName, "Note", substances[substanceName].note)
             for k, v in metrics.items():
-                TabLog().addData(substance, k, "%.4g"%(v), addNumToExistingKeys = True)
-            TabLog().addData(substance, "CorrIP", "%.4g"%(metricsTable[substance]["CorrIP"]), addNumToExistingKeys = True)
-            TabLog().addData(substance, "CorrIdP", "%.4g"%(metricsTable[substance]["CorrIdP"]), addNumToExistingKeys = True)
+                TabLog().addData(substanceName, k, "%.4g"%(v), addNumToExistingKeys = True)
+            TabLog().addData(substanceName, "CorrIP", "%.4g"%(metricsTable[substanceName]["CorrIP"]), addNumToExistingKeys = True)
+            TabLog().addData(substanceName, "CorrIdP", "%.4g"%(metricsTable[substanceName]["CorrIdP"]), addNumToExistingKeys = True)
             
-            if plotSubstance == "all" or substance in plotSubstance:
+            if plotSubstance == "all" or substanceName in plotSubstance:
                 ## add retention time of peak
                 for ax in [ax1, ax2, ax3, ax4, ax5, ax6, ax7, ax8, ax9, ax10, ax11, ax12]:
-                    ax.axvline(x = substances[substance]["RT"], zorder = 1E6, alpha = 0.2)
+                    ax.axvline(x = substances[substanceName].refRT, zorder = 1E6, alpha = 0.2)
 
                 ## add title and scale accordingly
                 for ax in [ax1, ax2, ax3, ax4]:
                     ax.set(xlabel = 'time (min)', ylabel = 'rel. abundance')
-                    ax.set_ylim(-0.2, len(integrations[substance].keys()) * offsetEIC + 1 + 0.2)
+                    ax.set_ylim(-0.2, len(integrations[substanceName].keys()) * offsetEIC + 1 + 0.2)
                 for ax in [ax5, ax6, ax7, ax8]:
                     ax.set(xlabel = 'time (min)', ylabel = 'abundance')
                 for ax in [ax9, ax10, ax11, ax12]:
@@ -315,10 +311,10 @@ def validateExperiment(expName, valDSs, modelFile,
                 ax2.set_title('Integration peak\nPrediction no peak\n%d (%.1f%%)'%(agreement[1], agreement[1]/total*100), loc="left")
                 ax3.set_title('Integration no peak\nPrediction peak\n%d (%.1f%%)'%(agreement[2], agreement[2]/total*100), loc="left")
                 ax4.set_title('Integration no peak\nPrediction no peak\n%d (%.1f%%, integration %.1f%%)'%(agreement[3], agreement[3]/total*100, truth[3]/total*100), loc="left")
-                fig.suptitle('%s\n%s\n%s\nGreen EIC and area: prediction; black EIC: manual integration; grey EIC: standardized EIC; light grey EIC: raw data'%(substance, substances[substance]["PeakForm"] + "; " + substances[substance]["Rt shifts"] + "; " + substances[substance]["Note"], "; ".join("%s: %.4g"%(k, v) for k, v in metricsTable[substance].items())), fontsize=14)
+                fig.suptitle('%s\n%s\n%s\nGreen EIC and area: prediction; black EIC: manual integration; grey EIC: standardized EIC; light grey EIC: raw data'%(substanceName, substances[substanceName].peakForm + "; " + substances[substanceName].rtShift + "; " + substances[substanceName].note, "; ".join("%s: %.4g"%(k, v) for k, v in metricsTable[substanceName].items())), fontsize=14)
 
                 plt.tight_layout()
-                fig.savefig(os.path.join(expDir, "SubstanceFigures","%s_%s.png"%(valDS["DSName"], substance)), dpi = 600)
+                fig.savefig(os.path.join(expDir, "SubstanceFigures","%s_%s.png"%(valDS["DSName"], substanceName)), dpi = 600)
                 plt.close(fig)
         print("\n")
 
@@ -326,30 +322,30 @@ def validateExperiment(expName, valDSs, modelFile,
         allSamples = list(allSamples)
         with open(os.path.join(expDir, "%s_results_IntePred.tsv"%(valDS["DSName"])), "w") as fout:
             fout.write("Sample")
-            for substance in allSubstances:
-                fout.write("\t%s\t%s\t%s\t%s\t%s\t%s\t%s"%(substance, "","","", "","",""))
+            for substanceName in allSubstances:
+                fout.write("\t%s\t%s\t%s\t%s\t%s\t%s\t%s"%(substanceName, "","","", "","",""))
             fout.write("\n")
 
             fout.write("")
-            for substance in allSubstances:
+            for substanceName in allSubstances:
                 fout.write("\tInt.Start\tInt.End\tInt.Area\tInt.Area.\tPred.Start\tPred.End\tPred.Area")
             fout.write("\n")
 
             for sample in allSamples:
                 fout.write(sample)
-                for substance in allSubstances:
-                    if substance in integrations.keys() and sample in integrations[substance].keys() and len(integrations[substance][sample]["chrom"]) == 1:
-                        temp = integrations[substance][sample]
+                for substanceName in allSubstances:
+                    if substanceName in integrations.keys() and sample in integrations[substanceName].keys() and integrations[substanceName][sample].chromatogram is not None:
+                        temp = integrations[substanceName][sample]
                         ## Integration
-                        if temp["area"] > 0:
-                            fout.write("\t%.3f\t%.3f\t%d\t%.3f"%(temp["rtstart"], temp["rtend"], temp["area"], temp["area."]))
+                        if temp.area > 0:
+                            fout.write("\t%.3f\t%.3f\t%d\t%.3f"%(temp.rtStart, temp.rtEnd, temp.area, temp.other["area."]))
                         else:
                             fout.write("\t\t\t\t")
                         ## Prediction
-                        if temp["pred.foundPeak"]:
-                            fout.write("\t%.3f\t%.3f\t%.3f"%(temp["pred.rtstart"] if not np.isnan(temp["pred.rtstart"]) else -1, 
-                                                            temp["pred.rtend"] if not np.isnan(temp["pred.rtend"]) else -1, 
-                                                            temp["pred.area"] if not np.isnan(temp["pred.area"]) else -1))
+                        if temp.other["pred.foundPeak"]:
+                            fout.write("\t%.3f\t%.3f\t%.3f"%(temp.other["pred.rtstart"] if not np.isnan(temp.other["pred.rtstart"]) else -1, 
+                                                             temp.other["pred.rtend"] if not np.isnan(temp.other["pred.rtend"]) else -1, 
+                                                             temp.other["pred.area"] if not np.isnan(temp.other["pred.area"]) else -1))
                         else:
                             fout.write("\t\t\t")
                     else:
