@@ -22,6 +22,7 @@ setup(
         "pandas",
         "matplotlib",
         "plotnine",
+        "portalocker", 
 
         ## handling of LC-MS data
         "pymzml", 

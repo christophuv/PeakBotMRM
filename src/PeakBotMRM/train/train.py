@@ -13,12 +13,7 @@ import tqdm
 import random
 random.seed(2021)
 
-import math
-import shutil
-import pathlib
 import portalocker
-
-
 
 
 
@@ -105,7 +100,7 @@ def compileInstanceDataset(substances, integrations, experimentName, dataset = N
                             eicS = eicS / (1 + np.random.rand(eicS.shape[0]) * maxRandFactor)
                         
                         ## add noise on top of EIC
-                        eicS = eicS + np.random.rand(eicS.shape[0]) * np.max(eicS) * maxNoiseLevelAdd
+                        eicS = eicS + np.ones(eicS.shape[0]) * np.random.rand(1)[0] * np.max(eicS) * maxNoiseLevelAdd
                     
                     ## test if eic has detected signals
                     if np.sum(eicS) > 0 and np.all(eicS >= 0):
@@ -285,6 +280,11 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
                 rtsS, eicS = extractStandardizedEIC(eic, rts, refRT)
                 
                 temp = refRT 
+                sampleTyp = "sample"
+                if "_BLK" in sample:
+                    sampleTyp = "Blank"
+                elif "_CAL" in sample:
+                    sampleTyp = "Calibration"
                             
                 if inte.foundPeak:
                     stats["hasPeak"] = stats["hasPeak"] + 1
@@ -305,21 +305,21 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
                     leftIntensityRatio = intApex/intLeft if intLeft > 0 else np.Inf
                     rightIntensityRatio = intApex/intRight if intRight > 0 else np.Inf                    
                     
-                    stats["peakProperties"].append([sample, "peakWidth", peakWidth])
-                    stats["peakProperties"].append([sample, "peakWidthScans", peakWidthScans])
-                    stats["peakProperties"].append([sample, "apexReferenceOffset", centerOffset])
-                    stats["peakProperties"].append([sample, "peakLeftInflection", peakLeftInflection])
-                    stats["peakProperties"].append([sample, "peakRightInflection", peakRightInflection])
-                    stats["peakProperties"].append([sample, "peakBorderLeftIntensityRatio", leftIntensityRatio])
-                    stats["peakProperties"].append([sample, "peakBorderRightIntensityRatio", rightIntensityRatio])
+                    stats["peakProperties"].append([sample, sampleTyp, substanceName, "peakWidth", peakWidth])
+                    stats["peakProperties"].append([sample, sampleTyp, substanceName, "peakWidthScans", peakWidthScans])
+                    stats["peakProperties"].append([sample, sampleTyp, substanceName, "apexReferenceOffset", centerOffset])
+                    stats["peakProperties"].append([sample, sampleTyp, substanceName, "peakLeftInflection", peakLeftInflection])
+                    stats["peakProperties"].append([sample, sampleTyp, substanceName, "peakRightInflection", peakRightInflection])
+                    stats["peakProperties"].append([sample, sampleTyp, substanceName, "peakBorderLeftIntensityRatio", leftIntensityRatio])
+                    stats["peakProperties"].append([sample, sampleTyp, substanceName, "peakBorderRightIntensityRatio", rightIntensityRatio])
                     if intLeft > 0:
-                        stats["peakProperties"].append([sample, "peakBorderLeftIntensityRatioNonInf", intApex/intLeft])
+                        stats["peakProperties"].append([sample, sampleTyp, substanceName, "peakBorderLeftIntensityRatioNonInf", intApex/intLeft])
                     if intRight > 0:
-                        stats["peakProperties"].append([sample, "peakBorderRightIntensityRatioNonInf", intApex/intRight])
-                    stats["peakProperties"].append([sample, "eicStandStartToRef", min(rtsS[rtsS>0]) - refRT])
-                    stats["peakProperties"].append([sample, "eicStandEndToRef", max(rtsS) - refRT])
+                        stats["peakProperties"].append([sample, sampleTyp, substanceName, "peakBorderRightIntensityRatioNonInf", intApex/intRight])
+                    stats["peakProperties"].append([sample, sampleTyp, substanceName, "eicStandStartToRef", min(rtsS[rtsS>0]) - refRT])
+                    stats["peakProperties"].append([sample, sampleTyp, substanceName, "eicStandEndToRef", max(rtsS) - refRT])
                     
-                    if False:
+                    if False:   ## for UMAP and PaCMAP illustrations only
                         temp = apexRT
                     
                 else:
@@ -473,7 +473,7 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
         p9.ggsave(plot=(plot + p9.facet_wrap("~label")), filename=os.path.join(expDir, "%s_peakStats_UMAPsupfacLab.png"%(expName)), width=5.2, height=5, dpi=300, verbose=False)
         
         
-    tf = pd.DataFrame(stats["peakProperties"], columns = ["sample", "type", "value"])
+    tf = pd.DataFrame(stats["peakProperties"], columns = ["sample", "sampletype", "substance", "type", "value"])
     if verbose:
         print(logPrefix, "  | .. There are %d peaks and %d Nopeaks. An overview of the peak stats has been saved to '%s'"%(stats["hasPeak"], stats["hasNoPeak"], os.path.join(expDir, "%s_peakStat.png"%(expName))))
         print(logPrefix, "  | .. .. The distribution of the peaks' properties (offset of apex to expected rt, left and right extends relative to peak apex, peak widths) are: (in minutes)")
@@ -522,6 +522,18 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
     p9.options.figure_size = (5.2,5)
     p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_peakStats_3.png"%(expName)), width=5.2, height=5, dpi=300, verbose=False)
     
+    df = tf.copy()
+    df.drop(df[df.type != "peakWidth"].index, inplace=True)
+    plot = (p9.ggplot(df, p9.aes("value", "substance", colour="sampletype"))
+            + p9.geom_jitter(width=0, height=0.2, alpha=0.1)
+            #+ p9.facet_wrap("~type", scales="free", ncol=2)
+            #+ p9.scales.scale_x_log10() + p9.scales.scale_y_log10()
+            + p9.scales.scale_y_discrete(limits=list(df.groupby(["substance"]).mean().sort_values(["value"], ascending = False).reset_index()["substance"]))
+            + p9.ggtitle("Peak width per substance") + p9.xlab("Peak width (seconds)") + p9.ylab("Substance")
+            + p9.theme(legend_position = "none", panel_spacing_x=0.5))
+    p9.options.figure_size = (5.2,5)
+    p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_peakStats_4.png"%(expName)), width=5.2, height=35, dpi=300, limitsize=False, verbose=False)
+    
     if verbose:
         print(logPrefix, "  | .. plotted peak metrics to file '%s'"%(os.path.join(expDir, "%s_peakStat.png"%(expName))))
         print(logPrefix, "  | .. took %.1f seconds"%toc())
@@ -548,9 +560,10 @@ def plotHistory(histObjectFile, plotFile, verbose = True, logPrefix = ""):
     p9.ggsave(plot=plot, filename="%s.png"%(plotFile), width=40, height=12, dpi=300, limitsize=False, verbose=False)
     
     df = df[[i in ["Sensitivity (peaks)", "Specificity (no peaks)"] for i in df.metric]]
-    df.value = df.apply(lambda x: x.value if x.metric != "Specificity (no peaks)" else 1 - x.value, axis=1)
+    df.value  = df.apply(lambda x: x.value if x.metric != "Specificity (no peaks)" else 1 - x.value, axis=1)
     df.metric = df.apply(lambda x: "FPR" if x.metric == "Specificity (no peaks)" else x.metric, axis=1)
     df.metric = df.apply(lambda x: "TPR" if x.metric == "Sensitivity (peaks)" else x.metric, axis=1)
+    df.to_pickle("out.pickle")
     df = df.pivot(index=["model", "set", "comment"], columns="metric", values="value")
     df.reset_index(inplace=True)
     
@@ -702,8 +715,8 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
     tic()  
     splitRatio = 0.7
     trainDataset, valDataset = trainDataset.split(ratio = splitRatio)
-    trainDataset.setName("Train_split_%s"%(expName))
-    valDataset.setName("Train_split_%s"%(expName))
+    trainDataset.setName("Split_Train_%s"%(expName))
+    valDataset.setName("Split_Val_%s"%(expName))
     validationDSs.append(trainDataset)
     validationDSs.append(valDataset)
     print("  | .. Randomly split dataset into a training and validation dataset with %.1f and %.1f parts of the instances "%(splitRatio, 1-splitRatio))

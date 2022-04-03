@@ -76,7 +76,7 @@ def validateExperiment(expName, valDSs, modelFile,
 
         PeakBotMRM.train.investigatePeakMetrics(expDir, substances, integrations, expName = "%s"%(valDS["DSName"]))
 
-        print("Evaluating model (using predtrained model from '%s')"%(modelFile))
+        print("Evaluating model (using model from '%s')"%(modelFile))
         offsetEIC = 0.2
         offsetRT1 = 0
         offsetRT2 = 0
@@ -174,11 +174,11 @@ def validateExperiment(expName, valDSs, modelFile,
                 inte.other["pred.rtend"] = prtEnd
                 inte.other["pred.foundPeak"] = pisPeak
                 if inte.other["pred.foundPeak"]:
-                    inte.other["pred.area"] = PeakBotMRM.integrateArea(eic, rts, prtStart, prtEnd, method = "minbetweenborders")
+                    inte.other["pred.area"] = PeakBotMRM.integrateArea(eic, rts, prtStart, prtEnd)
                 else:
                     inte.other["pred.area"] = -1
-                if bestRTStart > 0:
-                    inte.other["area."] = PeakBotMRM.integrateArea(eic, rts, bestRTStart, bestRTEnd, method = "minbetweenborders")
+                if isPeak:
+                    inte.other["area."] = PeakBotMRM.integrateArea(eic, rts, bestRTStart, bestRTEnd)
                 else:
                     inte.other["area."] = -1
                 
@@ -205,7 +205,9 @@ def validateExperiment(expName, valDSs, modelFile,
                 rowInd = perInstanceResultsSubstances.index(substanceName)
                 colInd = perInstanceResultsSamples.index(sample)
                 perInstanceResults[rowInd, colInd] = val
-                perInstanceResultsPD.append((substanceName, sample, val, isPeak, inte.other["area."], inte.area, pisPeak, inte.other["pred.area"]))
+                perInstanceResultsPD.append((substanceName, sample, val, 
+                                             isPeak , inte.rtStart              , inte.rtEnd              , inte.other["area."]     , inte.area,   
+                                             pisPeak, inte.other["pred.rtstart"], inte.other["pred.rtend"], inte.other["pred.area"]))
                 
                 if plotSubstance == "all" or substanceName in plotSubstance:
                     ## plot results; find correct axis to plot to 
@@ -452,8 +454,8 @@ def validateExperiment(expName, valDSs, modelFile,
         
         ordRow = leaves_list(ward(pdist(perInstanceResults)))
         ordCol = leaves_list(ward(pdist(np.transpose(perInstanceResults))))
-        
-        df = pd.DataFrame(perInstanceResultsPD, columns = ["substance", "sample", "value", "manualPeak", "manualAreaDOT", "manualArea", "PBPeak", "PBArea"])
+        df = pd.DataFrame(perInstanceResultsPD, columns = ["substance", "sample", "value", "manualPeak", "manualRTStart", "manualRTEnd", "manualAreaDOT", "manualArea", 
+                                                           "PBPeak", "PBRTStart", "PBRTEnd", "PBArea"])
         df["substance"] = df["substance"].astype("category")
         df["substance"].cat.reorder_categories([perInstanceResultsSubstances[i] for i in ordRow])
         df["sample"] = df["sample"].astype("category")
@@ -476,6 +478,47 @@ def validateExperiment(expName, valDSs, modelFile,
         )
         p9.options.figure_size = (10,10)
         p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_comparisonManualIntegration2.png"%(valDS["DSName"])), width=10, height=10, dpi=300, verbose=False)
+        
+        temp = df.copy()
+        temp = temp[(temp["manualPeak"]) & (temp["PBPeak"])]
+        plot = (p9.ggplot(temp, p9.aes('manualRTEnd-manualRTStart', 'PBRTEnd-PBRTStart'))
+        + p9.geom_point(alpha=0.1)
+        + p9.geom_smooth(method='lm')
+        + p9.geom_abline(intercept = 0, slope=1)
+        + p9.ggtitle("Comparison of provided manual peak widths and PeakBot peak widths")
+        )
+        p9.options.figure_size = (10,10)
+        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_comparisonPeakWidths.png"%(valDS["DSName"])), width=10, height=10, dpi=300, verbose=False)
+        
+        plot = (p9.ggplot(temp, p9.aes('manualRTEnd-manualRTStart', 'PBRTEnd-PBRTStart'))
+        + p9.geom_point(alpha=0.1)
+        + p9.geom_smooth(method='lm')
+        + p9.geom_abline(intercept = 0, slope=1)
+        + p9.xlim(0,1.5) + p9.ylim(0,1.5)
+        + p9.ggtitle("Comparison of provided manual peak widths and PeakBot peak widths")
+        )
+        p9.options.figure_size = (10,10)
+        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_comparisonPeakWidths_zoomed.png"%(valDS["DSName"])), width=10, height=10, dpi=300, verbose=False)
+        
+        plot = (p9.ggplot(temp, p9.aes('manualRTEnd-manualRTStart', 'PBRTEnd-PBRTStart'))
+        + p9.geom_point(alpha=0.1)
+        + p9.geom_abline(intercept = 0, slope=1)
+        + p9.facets.facet_wrap("substance")
+        + p9.theme(subplots_adjust={'hspace': 0.25, 'wspace': 0.25})
+        + p9.ggtitle("Comparison of provided manual peak widths and PeakBot peak widths")
+        )
+        p9.options.figure_size = (10,10)
+        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_comparisonPeakWidths_separated1.pdf"%(valDS["DSName"])), width=60, height=60, limitsize=False, verbose=False)
+        
+        plot = (p9.ggplot(temp, p9.aes('manualRTEnd - manualRTStart', 'PBRTEnd - PBRTStart'))
+        + p9.geom_point(alpha=0.1)
+        + p9.geom_abline(intercept = 0, slope=1)
+        + p9.facets.facet_wrap("substance", scales="free")
+        + p9.theme(subplots_adjust={'hspace': 0.25, 'wspace': 0.25})
+        + p9.ggtitle("Comparison of provided manual peak widths and PeakBot peak widths")
+        )
+        p9.options.figure_size = (10,10)
+        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_comparisonPeakWidths_separated2.pdf"%(valDS["DSName"])), width=60, height=60, limitsize=False, verbose=False)
         
         
         
@@ -502,7 +545,8 @@ def validateExperiment(expName, valDSs, modelFile,
         ordRow = leaves_list(median(pdist(perInstanceResults, 'euclidean')))
         ordCol = leaves_list(median(pdist(np.transpose(perInstanceResults), 'euclidean')))
         
-        df = pd.DataFrame(perInstanceResultsPD, columns = ["substance", "sample", "value", "manualPeak", "manualArea", "manualArea.", "PBPeak", "PBArea"])
+        df = pd.DataFrame(perInstanceResultsPD, columns = ["substance", "sample", "value", "manualPeak", "manualRTStart", "manualRTEnd", "manualArea", "manualArea.", 
+                                                           "PBPeak", "PBRTStart", "PBRTEnd", "PBArea"])
         df = df.assign(sampleHC = pd.Categorical(df["sample"], categories = [perInstanceResultsSamples[i] for i in ordCol]))
         df = df.assign(substanceHC = pd.Categorical(df["substance"], categories = [perInstanceResultsSubstances[i] for i in ordRow]))
         df["value"] = round(df["value"], 5)

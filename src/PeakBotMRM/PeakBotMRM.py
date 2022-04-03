@@ -52,6 +52,7 @@ class Config(object):
     INSTANCEPREFIX = "___PBsample_"
     
     UPDATEPEAKBORDERSTOMIN = True
+    INTEGRATIONMETHOD = "minbetweenborders"
     INCLUDEMETAINFORMATION = False
 
     @staticmethod
@@ -96,6 +97,7 @@ try:
 except Exception:
     print("  | .. fetching OS information failed")
 
+print("  | .. Python: %s"%(sys.version))
 print("  | .. TensorFlow version: %s"%(tf.__version__))
 
 try:
@@ -700,9 +702,11 @@ def trainPeakBotMRMModel(trainDataset, logBaseDir, modelName = None, valDataset 
 
 
 @timeit
-def integrateArea(eic, rts, start, end, updateToMinPeakBorders = True, method = "minbetweenborders"):
-    startInd = np.argmin([abs(r-start) for r in rts])
-    endInd = np.argmin([abs(r-end) for r in rts])
+def integrateArea(eic, rts, start, end):
+    method = Config.INTEGRATIONMETHOD
+        
+    startInd = arg_find_nearest(rts, start)
+    endInd = arg_find_nearest(rts, end)
 
     if end <= start:
         warnings.warn("Warning in peak area calculation: start and end rt of peak are incorrect (start %.2f, end %.2f). An area of 0 will be returned."%(start, end), RuntimeWarning)
@@ -724,13 +728,11 @@ def integrateArea(eic, rts, start, end, updateToMinPeakBorders = True, method = 
             area = area + eic[i]
 
     elif method.lower() in ["minbetweenborders"]:
-        minV = None
-        for i in range(startInd, endInd+1):
-            if minV is None or minV > eic[i]:
-                minV = eic[i]
-            area = area + eic[i]
-        if minV is None:
-            minV = 0
+        minV = 0
+        area = 0
+        if endInd > startInd:
+            minV = np.min(eic[startInd:(endInd+1)])
+            area = np.sum(eic[startInd:(endInd+1)])
         area = area - minV * (endInd - startInd + 1)
 
     else:
