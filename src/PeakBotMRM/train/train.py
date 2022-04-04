@@ -545,36 +545,16 @@ def plotHistory(histObjectFile, plotFile, verbose = True, logPrefix = ""):
     with portalocker.Lock(histObjectFile, timeout = 60, check_interval = 2) as fh:
         histAll = pd.read_pickle(histObjectFile)
         
-    
     ### Summarize and illustrate the results of the different training and validation dataset
     df = histAll
     df['ID'] = df.model.str.split('_').str[-1]
     df = df[df["metric"]!="loss"]
-    plot = (p9.ggplot(df, p9.aes("set", "value", colour="set"))
-            #+ p9.geom_violin()
-            + p9.geom_jitter(height=0, alpha=0.5)
-            + p9.facet_grid("metric~comment", scales="free_y")
-            + p9.ggtitle("Training losses/metrics") + p9.xlab("Training/Validation dataset") + p9.ylab("Value")
-            + p9.theme(legend_position = "none", axis_text_x=p9.element_text(angle=45)))
-    p9.options.figure_size = (5.2, 7)
-    p9.ggsave(plot=plot, filename="%s.png"%(plotFile), width=40, height=12, dpi=300, limitsize=False, verbose=False)
-    
     df = df[[i in ["Sensitivity (peaks)", "Specificity (no peaks)"] for i in df.metric]]
     df.value  = df.apply(lambda x: x.value if x.metric != "Specificity (no peaks)" else 1 - x.value, axis=1)
     df.metric = df.apply(lambda x: "FPR" if x.metric == "Specificity (no peaks)" else x.metric, axis=1)
     df.metric = df.apply(lambda x: "TPR" if x.metric == "Sensitivity (peaks)" else x.metric, axis=1)
-    df.to_pickle("out.pickle")
     df = df.pivot(index=["model", "set", "comment"], columns="metric", values="value")
     df.reset_index(inplace=True)
-    
-    if False:
-        for model in set(list(df.model)):
-            for s in set(list(df.set)):
-                df = df.append({"model": model, "set": s, "FPR": 0, "TPR": 0}, ignore_index=True)
-                df = df.append({"model": model, "set": s, "FPR": 1, "TPR": 1}, ignore_index=True)
-        df = df.append({"model": "", "set": "", "FPR": 0, "TPR": 0}, ignore_index=True)
-        df = df.append({"model": "", "set": "", "FPR": 1, "TPR": 1}, ignore_index=True)
-        df = df.sort_values(["FPR", "TPR"])
         
     plot = (p9.ggplot(df, p9.aes("FPR", "TPR", colour="comment", shape="set", group="model"))
             + p9.geom_point(alpha=0.5)
