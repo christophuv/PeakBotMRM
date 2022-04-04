@@ -696,7 +696,6 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
                                                                  shiftRTs, maxShift, useEachInstanceNTimes, balanceAugmentations, logPrefix = "  | ..")
         dataset.shuffle()
         dataset.setName("%s_Train_Aug"%(trainDS["DSName"]))
-        validationDSs.append(dataset)
         if useDSForTraining.lower() == "augmented":
             trainDataset.addData(dataset.data)
         
@@ -715,8 +714,8 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
     tic()  
     splitRatio = 0.7
     trainDataset, valDataset = trainDataset.split(ratio = splitRatio)
-    trainDataset.setName("Split_Train_%s"%(expName))
-    valDataset.setName("Split_Val_%s"%(expName))
+    trainDataset.setName("%s_split_train"%(expName))
+    valDataset.setName("%s_split_val"%(expName))
     validationDSs.append(trainDataset)
     validationDSs.append(valDataset)
     print("  | .. Randomly split dataset into a training and validation dataset with %.1f and %.1f parts of the instances "%(splitRatio, 1-splitRatio))
@@ -756,7 +755,7 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
     ## Train new peakbotMRM model
     pb, chist, modelName = PeakBotMRM.trainPeakBotMRMModel(modelName = os.path.basename(modelFile), 
                                                            trainDataset = trainDataset,
-                                                           addValidationDatasets = validationDSs,
+                                                           addValidationDatasets = sorted(validationDSs, key=lambda x: x.name),
                                                            logBaseDir = logDir,
                                                            everyNthEpoch = -1, 
                                                            verbose = True)
