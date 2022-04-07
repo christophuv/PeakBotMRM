@@ -755,7 +755,7 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
         with portalocker.Lock(historyFile, timeout = 60, check_interval = 2) as fh:
             if os.path.exists(historyFile):
                 history = pd.read_pickle(historyFile)
-                history = history.append(chist, ignore_index=True)
+                history = pd.concat((history, chist), axis=0, ignore_index=True)
             else:
                 history = chist
             history.to_pickle(historyFile)

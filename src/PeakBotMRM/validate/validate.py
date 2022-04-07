@@ -81,7 +81,7 @@ def validateExperiment(expName, valDSs, modelFile,
         offsetRT1 = 0
         offsetRT2 = 0
         offsetRTMod = 1
-        pbModelPred = PeakBotMRM.loadModel(modelFile, mode="predict", verbose = False)
+        pbModelPred = PeakBotMRM.loadModel(modelFile, mode="predict" , verbose = False)
         pbModelEval = PeakBotMRM.loadModel(modelFile, mode="training", verbose = False)
         allSubstances = set()
         allSamples = set()
@@ -123,22 +123,21 @@ def validateExperiment(expName, valDSs, modelFile,
                 rtsS, eicS = extractStandardizedEIC(eic, rts, refRT)
                 
                 ## get integration results on standardized area
-                bestRTInd, isPeak, bestRTStartInd, bestRTEndInd, bestRTStart, bestRTEnd = \
+                bestRTInd, gt_isPeak, gt_rtStartInd, gt_rtEndInd, gt_rtStart, gt_rtEnd = \
                     getInteRTIndsOnStandardizedEIC(rtsS, eicS, refRT, 
-                                                    inte.foundPeak, 
-                                                    inte.rtStart, 
-                                                    inte.rtEnd)
+                                                   inte.foundPeak, 
+                                                   inte.rtStart, 
+                                                   inte.rtEnd)
                 
                 temp["channel.int"][samplei, :] = eicS
-                temp["inte.peak"][samplei,0] = 1 if isPeak else 0
-                temp["inte.peak"][samplei,1] = 1 if not isPeak else 0
-                temp["inte.rtInds"][samplei, 0] = bestRTStartInd
-                temp["inte.rtInds"][samplei, 1] = bestRTEndInd
-                temp["pred.peak"] = temp["inte.peak"]
-                temp["pred.rtInds"] = temp["inte.rtInds"]
+                temp["channel.rts"][samplei, :] = rtsS
+                temp["inte.peak"][samplei,0]    = 1 if gt_isPeak else 0
+                temp["inte.peak"][samplei,1]    = 1 if not gt_isPeak else 0
+                temp["inte.rtInds"][samplei, 0] = gt_rtStartInd
+                temp["inte.rtInds"][samplei, 1] = gt_rtEndInd
                 
-            ppeakTypes, prtStartInds, prtEndInds = PeakBotMRM.runPeakBotMRM(temp, model = pbModelPred, verbose = False)
-            metrics = PeakBotMRM.evaluatePeakBotMRM(temp, model = pbModelEval, verbose = False)
+            pred_peakTypes, pred_rtStartInds, pred_rtEndInds = PeakBotMRM.runPeakBotMRM(temp, model = pbModelPred, verbose = False)
+            metrics                                          = PeakBotMRM.evaluatePeakBotMRM(temp, model = pbModelEval, verbose = False)
             
             for samplei, sample in enumerate(integrations[substanceName].keys()):
                 inte = integrations[substanceName][sample] 
@@ -151,113 +150,152 @@ def validateExperiment(expName, valDSs, modelFile,
                 rtsS, eicS = extractStandardizedEIC(eic, rts, refRT)
             
                 ## get integration results on standardized area
-                bestRTInd, isPeak, bestRTStartInd, bestRTEndInd, bestRTStart, bestRTEnd = \
+                bestRTInd, gt_isPeak, gt_rtStartInd, gt_rtEndInd, gt_rtStart, gt_rtEnd = \
                     getInteRTIndsOnStandardizedEIC(rtsS, eicS, refRT, 
-                                                    inte.foundPeak, 
-                                                    inte.rtStart, 
-                                                    inte.rtEnd)
+                                                   inte.foundPeak, 
+                                                   inte.rtStart, 
+                                                   inte.rtEnd)
                     
                 ## test if eic has detected signals
-                pisPeak = ppeakTypes[samplei] == 0
-                prtStartInd = round(prtStartInds[samplei])
-                prtEndInd = round(prtEndInds[samplei])
-                prtStart = rtsS[min(PeakBotMRM.Config.RTSLICES-1, max(0, prtStartInd))]
-                prtEnd = rtsS[min(PeakBotMRM.Config.RTSLICES-1, max(0, prtEndInd))]
-                truth[0] = truth[0] + (1 if isPeak else 0)
-                truth[3] = truth[3] + (1 if not isPeak else 0)
-                agreement[0] = agreement[0] + (1 if isPeak and pisPeak else 0)
-                agreement[1] = agreement[1] + (1 if isPeak and not pisPeak else 0)
-                agreement[2] = agreement[2] + (1 if not isPeak and pisPeak else 0)
-                agreement[3] = agreement[3] + (1 if not isPeak and not pisPeak else 0)
+                pred_isPeak     = pred_peakTypes[samplei] == 0
+                pred_rtStartInd = round(pred_rtStartInds[samplei])
+                pred_rtEndInd   = round(pred_rtEndInds[samplei])
+                pred_rtStart    = rtsS[min(PeakBotMRM.Config.RTSLICES-1, max(0, pred_rtStartInd))]
+                pred_rtEnd      = rtsS[min(PeakBotMRM.Config.RTSLICES-1, max(0, pred_rtEndInd))]
+                truth[0] = truth[0] + (1 if gt_isPeak else 0)
+                truth[3] = truth[3] + (1 if not gt_isPeak else 0)
+                agreement[0] = agreement[0] + (1 if gt_isPeak and pred_isPeak else 0)
+                agreement[1] = agreement[1] + (1 if gt_isPeak and not pred_isPeak else 0)
+                agreement[2] = agreement[2] + (1 if not gt_isPeak and pred_isPeak else 0)
+                agreement[3] = agreement[3] + (1 if not gt_isPeak and not pred_isPeak else 0)
 
-                inte.other["pred.rtstart"] = prtStart
-                inte.other["pred.rtend"] = prtEnd
-                inte.other["pred.foundPeak"] = pisPeak
+                inte.other["pred.rtstart"]   = pred_rtStart
+                inte.other["pred.rtend"]     = pred_rtEnd
+                inte.other["pred.foundPeak"] = pred_isPeak
                 if inte.other["pred.foundPeak"]:
-                    inte.other["pred.area"] = PeakBotMRM.integrateArea(eic, rts, prtStart, prtEnd)
+                    inte.other["pred.areaPB"] = PeakBotMRM.integrateArea(eic, rts, pred_rtStart, pred_rtEnd)
                 else:
-                    inte.other["pred.area"] = -1
-                if isPeak:
-                    inte.other["area."] = PeakBotMRM.integrateArea(eic, rts, bestRTStart, bestRTEnd)
+                    inte.other["pred.areaPB"] = -1
+                if gt_isPeak:
+                    inte.other["gt.areaPB"] = PeakBotMRM.integrateArea(eic, rts, gt_rtStart, gt_rtEnd)
                 else:
-                    inte.other["area."] = -1
+                    inte.other["gt.areaPB"] = -1
                 
                 ## generate heatmap matrix
                 val = 0
-                if not isPeak and not pisPeak:
-                    ## both (manual and prediction) report not a peak, 100% correct
-                    val = 0
-                elif isPeak and not pisPeak:
-                    ## manual integration reports a peak, but prediction does not, 100% incorrect
-                    val = -1.00001
-                elif not isPeak and pisPeak:
-                    ## manual integration reports not a peak, but prediction does, 100% incorrect
-                    val = 1.00001
-                elif isPeak and pisPeak:
-                    ## manual and prediction report a peak, x% correct
-                    if inte.other["area."] < inte.other["pred.area"]:
-                        val = min(1, inte.other["pred.area"] / inte.other["area."] - 1)
+                if gt_isPeak:
+                    if pred_isPeak:
+                        ## manual and prediction report a peak, x% correct
+                        if inte.other["gt.areaPB"] < inte.other["pred.areaPB"]:
+                            val = min(1, inte.other["pred.areaPB"] / inte.other["gt.areaPB"] - 1)
+                        else:
+                            val = -min(1, inte.other["gt.areaPB"] / inte.other["pred.areaPB"] - 1)
                     else:
-                        val = -min(1, inte.other["area."] / inte.other["pred.area"] - 1)
+                        ## manual integration reports a peak, but prediction does not, 100% incorrect
+                        val = -1.00001
+                else:
+                    if pred_isPeak:
+                        ## manual integration reports not a peak, but prediction does, 100% incorrect
+                        val = 1.00001
+                    else:
+                        ## both (manual and prediction) report not a peak, 100% correct
+                        val = 0
                         
                 if val > 1.001 or val < -1.001:
-                    print(substanceName, sample, isPeak, inte["area."], bestRTStart, bestRTEnd, pisPeak, inte.other["pred.area"], prtStart, prtEnd)
+                    print(substanceName, sample, gt_isPeak, inte["gt.areaPB"], gt_rtStart, gt_rtEnd, pred_isPeak, inte.other["pred.areaPB"], pred_rtStart, pred_rtEnd)
                 rowInd = perInstanceResultsSubstances.index(substanceName)
                 colInd = perInstanceResultsSamples.index(sample)
                 perInstanceResults[rowInd, colInd] = val
                 perInstanceResultsPD.append((substanceName, sample, val, 
-                                             isPeak , inte.rtStart              , inte.rtEnd              , inte.other["area."]     , inte.area,   
-                                             pisPeak, inte.other["pred.rtstart"], inte.other["pred.rtend"], inte.other["pred.area"]))
+                                             gt_isPeak , inte.rtStart               , inte.rtEnd              , inte.other["gt.areaPB"]     , inte.area,   
+                                             pred_isPeak, inte.other["pred.rtstart"], inte.other["pred.rtend"], inte.other["pred.areaPB"]))
                 
                 if plotSubstance == "all" or substanceName in plotSubstance:
                     ## plot results; find correct axis to plot to 
                     ax = ax1
                     axR = ax5
                     axS = ax9
-                    if isPeak:
-                        ax = ax1 if pisPeak else ax2
-                        axR = ax5 if pisPeak else ax6
-                        axS = ax9 if pisPeak else ax10
+                    if gt_isPeak:
+                        ax = ax1 if pred_isPeak else ax2
+                        axR = ax5 if pred_isPeak else ax6
+                        axS = ax9 if pred_isPeak else ax10
                     else:
-                        ax = ax3 if pisPeak else ax4
-                        axR = ax7 if pisPeak else ax8
-                        axS = ax11 if pisPeak else ax12
+                        ax = ax3 if pred_isPeak else ax4
+                        axR = ax7 if pred_isPeak else ax8
+                        axS = ax11 if pred_isPeak else ax12
                                         
-                    ax.plot([min(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod), max(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod)], [offsetEIC*samplei, offsetEIC*samplei], "slategrey", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
-                    axR.plot([min(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod), max(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod)], [0,0], "slategrey", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
-                    axS.plot([min(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod), max(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod)], [0,0], "slategrey", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                    ax.plot([min(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod), 
+                             max(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod)], 
+                            [offsetEIC*samplei, 
+                             offsetEIC*samplei], 
+                            "slategrey", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                    axR.plot([min(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod), 
+                              max(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod)], 
+                             [0,
+                              0], 
+                             "slategrey", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                    axS.plot([min(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod), 
+                              max(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod)], 
+                             [0,
+                              0], 
+                             "slategrey", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
                     
                     ## plot raw, scaled data according to classification prediction and integration result
                     b = min(eic)
                     m = max([i-b for i in eic])
-                    ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts], [(e-b)/m+offsetEIC*samplei for e in eic], "lightgrey", linewidth=.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
-                    ax.fill_between([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts], [(e-b)/m+offsetEIC*samplei for e in eic], offsetEIC*samplei, facecolor='w', lw=0, zorder=(len(integrations[substanceName].keys())-samplei+1)*2-1)
+                    ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts], 
+                            [(e-b)/m+offsetEIC*samplei for e in eic], 
+                            "lightgrey", linewidth=.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                    ax.fill_between([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts], 
+                                    [(e-b)/m+offsetEIC*samplei for e in eic], 
+                                    offsetEIC*samplei, 
+                                    facecolor='w', lw=0, zorder=(len(integrations[substanceName].keys())-samplei+1)*2-1)
                     ## add detected peak
-                    if pisPeak:
-                        ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if prtStart <= t <= prtEnd], [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if prtStart <= rts[i] <= prtEnd], "olivedrab", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
-                        ax.fill_between([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if prtStart <= t <= prtEnd], [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if prtStart <= rts[i] <= prtEnd], offsetEIC*samplei, facecolor='yellowgreen', lw=0, zorder=(len(integrations[substanceName].keys())-samplei+1)*2-1)
+                    if pred_isPeak:
+                        ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if pred_rtStart <= t <= pred_rtEnd], 
+                                [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if pred_rtStart <= rts[i] <= pred_rtEnd], 
+                                "olivedrab", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                        ax.fill_between([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if pred_rtStart <= t <= pred_rtEnd], 
+                                        [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if pred_rtStart <= rts[i] <= pred_rtEnd], 
+                                        offsetEIC*samplei, 
+                                        facecolor='yellowgreen', lw=0, zorder=(len(integrations[substanceName].keys())-samplei+1)*2-1)
                     ## add integration results
-                    if isPeak:            
-                        ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if bestRTStart <= t <= bestRTEnd], [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if bestRTStart <= rts[i] <= bestRTEnd], "k", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                    if gt_isPeak:            
+                        ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if gt_rtStart <= t <= gt_rtEnd], 
+                                [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if gt_rtStart <= rts[i] <= gt_rtEnd], 
+                                "k", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
                                                 
                     ## plot raw data
                     axR.plot(rts, eic, "lightgrey", linewidth=.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
                     ## add detected peak
-                    if pisPeak:
-                        axR.plot([t for t in rts if prtStart <= t <= prtEnd], [e for i, e in enumerate(eic) if prtStart <= rts[i] <= prtEnd], "olivedrab", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                    if pred_isPeak:
+                        axR.plot([t for t in rts if pred_rtStart <= t <= pred_rtEnd], 
+                                 [e for i, e in enumerate(eic) if pred_rtStart <= rts[i] <= pred_rtEnd], 
+                                 "olivedrab", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
                     ## add integration results
-                    if isPeak:            
-                        axR.plot([t for t in rts if bestRTStart <= t <= bestRTEnd], [e for i, e in enumerate(eic) if bestRTStart <= rts[i] <= bestRTEnd], "k", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                    if gt_isPeak:            
+                        axR.plot([t for t in rts if gt_rtStart <= t <= gt_rtEnd], 
+                                 [e for i, e in enumerate(eic) if gt_rtStart <= rts[i] <= gt_rtEnd], 
+                                 "k", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
 
                     ## plot scaled data
                     ## add detected peak
-                    minInt = min([e for e in eicS if e > 0])
-                    maxInt = max([e-minInt for e in eicS])
-                    axS.plot(rts, [(e-minInt)/maxInt for e in eic], "lightgrey", linewidth=.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
-                    if pisPeak:
-                        axS.plot([t for t in rts if prtStart <= t <= prtEnd], [(e-minInt)/maxInt for i, e in enumerate(eic) if prtStart <= rts[i] <= prtEnd], "olivedrab", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
-                    if isPeak:
-                        axS.plot([t for t in rts if bestRTStart <= t <= bestRTEnd], [(e-minInt)/maxInt for i, e in enumerate(eic) if bestRTStart <= rts[i] <= bestRTEnd], "k", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                    minInt = 0
+                    maxInt = 1
+                    if np.sum(eicS) > 0:
+                        minInt = min([e for e in eicS if e > 0])
+                        maxInt = max([e-minInt for e in eicS])
+                    axS.plot(rts, 
+                             [(e-minInt)/maxInt for e in eic], 
+                             "lightgrey", linewidth=.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                    if pred_isPeak:
+                        axS.plot([t for t in rts if pred_rtStart <= t <= pred_rtEnd], 
+                                 [(e-minInt)/maxInt for i, e in enumerate(eic) if pred_rtStart <= rts[i] <= pred_rtEnd], 
+                                 "olivedrab", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                    if gt_isPeak:
+                        axS.plot([t for t in rts if gt_rtStart <= t <= gt_rtEnd], 
+                                 [(e-minInt)/maxInt for i, e in enumerate(eic) if gt_rtStart <= rts[i] <= gt_rtEnd], 
+                                 "k", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
 
         
             if substanceName not in metricsTable.keys():
@@ -267,7 +305,7 @@ def validateExperiment(expName, valDSs, modelFile,
                                            "RtMSE"        : metrics["pred.rtInds_MSE"], 
                                            "EICIOUPeaks"  : metrics["pred_EICIOUPeaks"],
                                            "Acc4Peaks"    : metrics["pred.peak_Acc4Peaks"],
-                                          "Acc4NonPeaks" : metrics["pred.peak_Acc4NonPeaks"]}
+                                           "Acc4NonPeaks" : metrics["pred.peak_Acc4NonPeaks"]}
             if substanceName in integrations.keys():
                 intes = []
                 intesD = []
@@ -275,8 +313,8 @@ def validateExperiment(expName, valDSs, modelFile,
                 for sample in allSamples:
                     if sample in integrations[substanceName].keys():
                         intes.append(integrations[substanceName][sample].area)
-                        intesD.append(integrations[substanceName][sample].other["area."])
-                        preds.append(integrations[substanceName][sample].other["pred.area"])
+                        intesD.append(integrations[substanceName][sample].other["gt.areaPB"])
+                        preds.append(integrations[substanceName][sample].other["pred.areaPB"])
                 corr = np.corrcoef(intes, preds)[1,0]
                 metricsTable[substanceName]["CorrIP"] = corr
                 corr = np.corrcoef(intesD, preds)[1,0]
@@ -320,52 +358,80 @@ def validateExperiment(expName, valDSs, modelFile,
                 plt.close(fig)
         print("\n")
 
-        allSubstances = list(allSubstances)
-        allSamples = list(allSamples)
-        with open(os.path.join(expDir, "%s_results_IntePred.tsv"%(valDS["DSName"])), "w") as fout:
-            fout.write("Sample")
-            for substanceName in allSubstances:
-                fout.write("\t%s\t%s\t%s\t%s\t%s\t%s\t%s"%(substanceName, "","","", "","",""))
-            fout.write("\n")
-
-            fout.write("")
-            for substanceName in allSubstances:
-                fout.write("\tInt.Start\tInt.End\tInt.Area\tInt.Area.\tPred.Start\tPred.End\tPred.Area")
-            fout.write("\n")
-
-            for sample in allSamples:
-                fout.write(sample)
+        
+        with open(os.path.join(expDir, "%s_allResults.pickle"%(valDS["DSName"])), "wb") as fout:
+            pickle.dump((perInstanceResults, perInstanceResultsPD, perInstanceResultsSamples, perInstanceResultsSubstances), fout)
+        
+        indResPD = pd.DataFrame(perInstanceResultsPD, columns = ["substance", "sample", "value", 
+                                                                 "GTPeak", "GTRTStart", "GTRTEnd", "GTAreaPB", "GTArea", 
+                                                                 "PBPeak", "PBRTStart", "PBRTEnd", "PBArea"])
+        
+        ## generate results table
+        if True:
+            allSubstances = list(allSubstances)
+            allSamples = list(allSamples)
+            with open(os.path.join(expDir, "%s_results_IntePred.tsv"%(valDS["DSName"])), "w") as fout:
+                fout.write("Sample")
                 for substanceName in allSubstances:
-                    if substanceName in integrations.keys() and sample in integrations[substanceName].keys() and integrations[substanceName][sample].chromatogram is not None:
-                        temp = integrations[substanceName][sample]
-                        ## Integration
-                        if temp.area > 0:
-                            fout.write("\t%.3f\t%.3f\t%d\t%.3f"%(temp.rtStart, temp.rtEnd, temp.area, temp.other["area."]))
-                        else:
-                            fout.write("\t\t\t\t")
-                        ## Prediction
-                        if temp.other["pred.foundPeak"]:
-                            fout.write("\t%.3f\t%.3f\t%.3f"%(temp.other["pred.rtstart"] if not np.isnan(temp.other["pred.rtstart"]) else -1, 
-                                                             temp.other["pred.rtend"] if not np.isnan(temp.other["pred.rtend"]) else -1, 
-                                                             temp.other["pred.area"] if not np.isnan(temp.other["pred.area"]) else -1))
-                        else:
-                            fout.write("\t\t\t")
-                    else:
-                        fout.write("\t\t\t\t\t\t\t")
+                    fout.write("\t%s\t%s\t%s\t%s\t%s\t%s\t%s"%(substanceName, "","","", "","",""))
                 fout.write("\n")
 
-        with open (os.path.join(expDir, "%s_metricsTable.pickle"%(valDS["DSName"])), "wb") as fout:
-            pickle.dump(metricsTable, fout)
-        with open (os.path.join(expDir, "%s_metricsTable.pickle"%(valDS["DSName"])), "rb") as fin:
-            metricsTable = pickle.load(fin)
+                fout.write("")
+                for substanceName in allSubstances:
+                    fout.write("\tGT.Start\tGT.End\tGT.Area\tGT.AreaPB\tPred.Start\tPred.End\tPred.AreaPB")
+                fout.write("\n")
 
-        rows = [i for i in metricsTable[list(metricsTable.keys())[0]].keys()]
-        cols = [j for j in metricsTable.keys()]
-        heatmapData = np.zeros((len(rows), len(cols)))
-        for i, metric in enumerate(rows):
-            for j, c in enumerate(cols):
-                heatmapData[i,j] = metricsTable[c][metric]
+                for sample in allSamples:
+                    fout.write(sample)
+                    for substanceName in allSubstances:
+                        if substanceName in integrations.keys() and sample in integrations[substanceName].keys() and integrations[substanceName][sample].chromatogram is not None:
+                            temp = integrations[substanceName][sample]
+                            ## Integration
+                            if temp.area > 0:
+                                fout.write("\t%.3f\t%.3f\t%d\t%.3f"%(temp.rtStart, temp.rtEnd, temp.area, temp.other["gt.areaPB"]))
+                            else:
+                                fout.write("\t\t\t\t")
+                            ## Prediction
+                            if temp.other["pred.foundPeak"]:
+                                fout.write("\t%.3f\t%.3f\t%.3f"%(temp.other["pred.rtstart"] if not np.isnan(temp.other["pred.rtstart"]) else -1, 
+                                                                 temp.other["pred.rtend"]   if not np.isnan(temp.other["pred.rtend"])   else -1, 
+                                                                 temp.other["pred.areaPB"]  if not np.isnan(temp.other["pred.areaPB"])  else -1))
+                            else:
+                                fout.write("\t\t\t")
+                        else:
+                            fout.write("\t\t\t\t\t\t\t")
+                    fout.write("\n")
 
+
+        ## Plot metrics
+        if True:
+            with open(os.path.join(expDir, "%s_metricsTable.pickle"%(valDS["DSName"])), "wb") as fout:
+                pickle.dump(metricsTable, fout)
+            with open(os.path.join(expDir, "%s_metricsTable.pickle"%(valDS["DSName"])), "rb") as fin:
+                metricsTable = pickle.load(fin)
+
+            rows = [i for i in metricsTable[list(metricsTable.keys())[0]].keys()]
+            cols = [j for j in metricsTable.keys()]
+            heatmapData = np.zeros((len(rows), len(cols)))
+            for i, metric in enumerate(rows):
+                for j, c in enumerate(cols):
+                    heatmapData[i,j] = metricsTable[c][metric]
+
+                fig, ax = plt.subplots()
+                fig.set_size_inches(32, 8)
+                
+                if metric=="PeakCA":
+                    colors = ['firebrick', 'orange', 'dodgerblue', 'yellowgreen', 'olivedrab']
+                    levels = [0,0.8, 0.9, 0.95, 0.99,1]
+                    cmap= mpl.colors.ListedColormap(colors)
+                    norm = mpl.colors.BoundaryNorm(levels, cmap.N)
+                    im = ax.imshow(heatmapData[[i],:], cmap=cmap, norm=norm)
+                else:
+                    im = ax.imshow(heatmapData[[i],:])
+                
+            heatmapData = heatmapData[[i for i, k in enumerate(rows) if k != "RtMSE"],:]
+            rows = [r for r in rows if r != "RtMSE"]
+            
             fig, ax = plt.subplots()
             fig.set_size_inches(32, 8)
             
@@ -374,196 +440,178 @@ def validateExperiment(expName, valDSs, modelFile,
                 levels = [0,0.8, 0.9, 0.95, 0.99,1]
                 cmap= mpl.colors.ListedColormap(colors)
                 norm = mpl.colors.BoundaryNorm(levels, cmap.N)
-                im = ax.imshow(heatmapData[[i],:], cmap=cmap, norm=norm)
+                im = ax.imshow(heatmapData, cmap=cmap, norm=norm)
             else:
-                im = ax.imshow(heatmapData[[i],:])
+                im = ax.imshow(heatmapData)
+                
+            plt.colorbar(im)
+            ax.set_xticks(np.arange(len(cols)))
+            ax.set_yticks(np.arange(len(rows)))
+            ax.set_xticklabels(cols)
+            ax.set_yticklabels(rows)
+            # Rotate the tick labels and set their alignment.
+            plt.setp(ax.get_xticklabels(), rotation=45, ha="right",rotation_mode="anchor")
+            plt.tight_layout()
+            fig.savefig(os.path.join(expDir,"%s_Metrics.png"%(valDS["DSName"])), dpi = 300)
+            plt.close()
+                
+                
+            heatmapData = heatmapData[[i for i, r in enumerate(rows) if r in ["CCA", "EICIOUPeaks", "CorrIP", "CorrIdP"]],:]
+            rows = [r for r in rows if r in ["CCA", "EICIOUPeaks", "CorrIP", "CorrIdP"]]
             
-            if False: 
-                plt.colorbar(im)
-                ax.set_xticks(np.arange(len(cols)))
-                ax.set_yticks(np.arange(len([rows[i]])))
-                ax.set_xticklabels(cols)
-                ax.set_yticklabels([rows[i]])
-                # Rotate the tick labels and set their alignment.
-                plt.setp(ax.get_xticklabels(), rotation=45, ha="right",rotation_mode="anchor")
-                plt.tight_layout()
-                fig.savefig(os.path.join(expDir,"%s_Metric_%s.png"%(valDS["DSName"], metric)), dpi = 300)
-                plt.close()
+            fig, ax = plt.subplots()
+            fig.set_size_inches(32, 8)
             
-        heatmapData = heatmapData[[i for i, k in enumerate(rows) if k != "RtMSE"],:]
-        rows = [r for r in rows if r != "RtMSE"]
-        
-        fig, ax = plt.subplots()
-        fig.set_size_inches(32, 8)
-        
-        if metric=="PeakCA":
-            colors = ['firebrick', 'orange', 'dodgerblue', 'yellowgreen', 'olivedrab']
-            levels = [0,0.8, 0.9, 0.95, 0.99,1]
-            cmap= mpl.colors.ListedColormap(colors)
-            norm = mpl.colors.BoundaryNorm(levels, cmap.N)
-            im = ax.imshow(heatmapData, cmap=cmap, norm=norm)
-        else:
-            im = ax.imshow(heatmapData)
-            
-        plt.colorbar(im)
-        ax.set_xticks(np.arange(len(cols)))
-        ax.set_yticks(np.arange(len(rows)))
-        ax.set_xticklabels(cols)
-        ax.set_yticklabels(rows)
-        # Rotate the tick labels and set their alignment.
-        plt.setp(ax.get_xticklabels(), rotation=45, ha="right",rotation_mode="anchor")
-        plt.tight_layout()
-        fig.savefig(os.path.join(expDir,"%s_Metrics.png"%(valDS["DSName"])), dpi = 300)
-        plt.close()
-            
-            
-        heatmapData = heatmapData[[i for i, r in enumerate(rows) if r in ["CCA", "EICIOUPeaks", "CorrIP", "CorrIdP"]],:]
-        rows = [r for r in rows if r in ["CCA", "EICIOUPeaks", "CorrIP", "CorrIdP"]]
-        
-        fig, ax = plt.subplots()
-        fig.set_size_inches(32, 8)
-        
-        if metric=="PeakCA":
-            colors = ['firebrick', 'orange', 'dodgerblue', 'yellowgreen', 'olivedrab']
-            levels = [0,0.8, 0.9, 0.95, 0.99,1]
-            cmap= mpl.colors.ListedColormap(colors)
-            norm = mpl.colors.BoundaryNorm(levels, cmap.N)
-            im = ax.imshow(heatmapData, cmap=cmap, norm=norm)
-        else:
-            im = ax.imshow(heatmapData)
-            
-        plt.colorbar(im)
-        ax.set_xticks(np.arange(len(cols)))
-        ax.set_yticks(np.arange(len(rows)))
-        ax.set_xticklabels(cols)
-        ax.set_yticklabels(rows)
-        # Rotate the tick labels and set their alignment.
-        plt.setp(ax.get_xticklabels(), rotation=45, ha="right",rotation_mode="anchor")
-        plt.tight_layout()
-        fig.savefig(os.path.join(expDir,"%s_Metrics_short.png"%(valDS["DSName"])), dpi = 300)
-        plt.close()
-        
-        with open(os.path.join(expDir, "%s_pd_individualInstances.pickle"%(valDS["DSName"])), "wb") as fout:
-            pickle.dump((perInstanceResults, perInstanceResultsPD, perInstanceResultsSamples, perInstanceResultsSubstances), fout)
-
-        #with open("./R100140_METAB02/pd_individualInstances.pickle", "rb") as fin:
-        #    perInstanceResults, perInstanceResultsPD, perInstanceResultsSamples, perInstanceResultsSubstances = pickle.load(fin)
-        
-        from scipy.cluster.hierarchy import ward, leaves_list
-        from scipy.spatial.distance import pdist
-        
-        ordRow = leaves_list(ward(pdist(perInstanceResults)))
-        ordCol = leaves_list(ward(pdist(np.transpose(perInstanceResults))))
-        df = pd.DataFrame(perInstanceResultsPD, columns = ["substance", "sample", "value", "manualPeak", "manualRTStart", "manualRTEnd", "manualAreaDOT", "manualArea", 
-                                                           "PBPeak", "PBRTStart", "PBRTEnd", "PBArea"])
-        df["substance"] = df["substance"].astype("category")
-        df["substance"].cat.reorder_categories([perInstanceResultsSubstances[i] for i in ordRow])
-        df["sample"] = df["sample"].astype("category")
-        df["sample"].cat.reorder_categories([perInstanceResultsSamples[i] for i in ordCol])
-        
-        ## show correlation between areas integrated with XXX method and PeakBot's method using the manual integration peak borders
-        plot = (p9.ggplot(df, p9.aes('np.log2(manualArea)', 'np.log2(manualAreaDOT)'))
-        + p9.geom_point(alpha=0.1)
-        + p9.geom_smooth(method='lm')
-        + p9.ggtitle("Comparison of provided manual integration results and PeakBot integration based on the manual integration peak borders")
-        )
-        p9.options.figure_size = (10,10)
-        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_comparisonManualIntegration1.png"%(valDS["DSName"])), width=10, height=10, dpi=300, verbose=False)
-        
-        ## show correlation between areas integrated with XXX method and PeakBot's method using the manual integration peak borders
-        plot = (p9.ggplot(df, p9.aes('np.log2(manualArea)', 'np.log2(manualAreaDOT / manualArea)'))
-        + p9.geom_point(alpha=0.1)
-        + p9.geom_smooth(method='lm')
-        + p9.ggtitle("Comparison of provided manual integration results and PeakBot integration based on the manual integration peak borders")
-        )
-        p9.options.figure_size = (10,10)
-        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_comparisonManualIntegration2.png"%(valDS["DSName"])), width=10, height=10, dpi=300, verbose=False)
-        
-        temp = df.copy()
-        temp = temp[(temp["manualPeak"]) & (temp["PBPeak"])]
-        plot = (p9.ggplot(temp, p9.aes('manualRTEnd-manualRTStart', 'PBRTEnd-PBRTStart'))
-        + p9.geom_point(alpha=0.1)
-        + p9.geom_smooth(method='lm')
-        + p9.geom_abline(intercept = 0, slope=1)
-        + p9.ggtitle("Comparison of provided manual peak widths and PeakBot peak widths")
-        )
-        p9.options.figure_size = (10,10)
-        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_comparisonPeakWidths.png"%(valDS["DSName"])), width=10, height=10, dpi=300, verbose=False)
-        
-        plot = (p9.ggplot(temp, p9.aes('manualRTEnd-manualRTStart', 'PBRTEnd-PBRTStart'))
-        + p9.geom_point(alpha=0.1)
-        + p9.geom_smooth(method='lm')
-        + p9.geom_abline(intercept = 0, slope=1)
-        + p9.xlim(0,1.5) + p9.ylim(0,1.5)
-        + p9.ggtitle("Comparison of provided manual peak widths and PeakBot peak widths")
-        )
-        p9.options.figure_size = (10,10)
-        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_comparisonPeakWidths_zoomed.png"%(valDS["DSName"])), width=10, height=10, dpi=300, verbose=False)
-        
-        plot = (p9.ggplot(temp, p9.aes('manualRTEnd-manualRTStart', 'PBRTEnd-PBRTStart'))
-        + p9.geom_point(alpha=0.1)
-        + p9.geom_abline(intercept = 0, slope=1)
-        + p9.facets.facet_wrap("substance")
-        + p9.theme(subplots_adjust={'hspace': 0.25, 'wspace': 0.25})
-        + p9.ggtitle("Comparison of provided manual peak widths and PeakBot peak widths")
-        )
-        p9.options.figure_size = (10,10)
-        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_comparisonPeakWidths_separated1.pdf"%(valDS["DSName"])), width=60, height=60, limitsize=False, verbose=False)
-        
-        plot = (p9.ggplot(temp, p9.aes('manualRTEnd - manualRTStart', 'PBRTEnd - PBRTStart'))
-        + p9.geom_point(alpha=0.1)
-        + p9.geom_abline(intercept = 0, slope=1)
-        + p9.facets.facet_wrap("substance", scales="free")
-        + p9.theme(subplots_adjust={'hspace': 0.25, 'wspace': 0.25})
-        + p9.ggtitle("Comparison of provided manual peak widths and PeakBot peak widths")
-        )
-        p9.options.figure_size = (10,10)
-        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_comparisonPeakWidths_separated2.pdf"%(valDS["DSName"])), width=60, height=60, limitsize=False, verbose=False)
+            if metric=="PeakCA":
+                colors = ['firebrick', 'orange', 'dodgerblue', 'yellowgreen', 'olivedrab']
+                levels = [0,0.8, 0.9, 0.95, 0.99,1]
+                cmap= mpl.colors.ListedColormap(colors)
+                norm = mpl.colors.BoundaryNorm(levels, cmap.N)
+                im = ax.imshow(heatmapData, cmap=cmap, norm=norm)
+            else:
+                im = ax.imshow(heatmapData)
+                
+            plt.colorbar(im)
+            ax.set_xticks(np.arange(len(cols)))
+            ax.set_yticks(np.arange(len(rows)))
+            ax.set_xticklabels(cols)
+            ax.set_yticklabels(rows)
+            # Rotate the tick labels and set their alignment.
+            plt.setp(ax.get_xticklabels(), rotation=45, ha="right",rotation_mode="anchor")
+            plt.tight_layout()
+            fig.savefig(os.path.join(expDir,"%s_Metrics_short.png"%(valDS["DSName"])), dpi = 300)
+            plt.close()
         
         
-        
-        ## show correlation between areas integrated with XXX method and PeakBot's method using the manual integration peak borders
-        plot = (p9.ggplot(df, p9.aes('np.log2(manualAreaDOT)', 'np.log2(PBArea)'))
-        + p9.geom_point(alpha=0.1)
-        + p9.geom_smooth(method='lm')
-        + p9.ggtitle("Comparison of manual integration with the PeakBot algorithm and PeakBot's predicted borders")
-        )
-        p9.options.figure_size = (10,10)
-        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_comparisonIntegration1.png"%(valDS["DSName"])), width=10, height=10, dpi=300, verbose=False)
-        
-        ## show correlation between areas integrated with XXX method and PeakBot's method using the manual integration peak borders
-        plot = (p9.ggplot(df, p9.aes('np.log2(manualAreaDOT)', 'np.log2(manualAreaDOT / PBArea)'))
-        + p9.geom_point(alpha=0.1)
-        + p9.geom_smooth(method='lm')
-        + p9.ggtitle("Comparison of manual integration with the PeakBot algorithm and PeakBot's predicted borders")
-        )
-        p9.options.figure_size = (10,10)
-        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_comparisonIntegration2.png"%(valDS["DSName"])), width=10, height=10, dpi=300, verbose=False)
-        
-        
-        
-        ordRow = leaves_list(median(pdist(perInstanceResults, 'euclidean')))
-        ordCol = leaves_list(median(pdist(np.transpose(perInstanceResults), 'euclidean')))
-        
-        df = pd.DataFrame(perInstanceResultsPD, columns = ["substance", "sample", "value", "manualPeak", "manualRTStart", "manualRTEnd", "manualArea", "manualArea.", 
-                                                           "PBPeak", "PBRTStart", "PBRTEnd", "PBArea"])
-        df = df.assign(sampleHC = pd.Categorical(df["sample"], categories = [perInstanceResultsSamples[i] for i in ordCol]))
-        df = df.assign(substanceHC = pd.Categorical(df["substance"], categories = [perInstanceResultsSubstances[i] for i in ordRow]))
-        df["value"] = round(df["value"], 5)
-
-        plot = (p9.ggplot(df, p9.aes('substanceHC', 'sampleHC', fill='value'))
-            + p9.geom_tile(p9.aes(width=.95, height=.95))
-            + p9.geom_text(p9.aes(label='value'), size=1)
-            + p9.theme(axis_text_x = p9.element_text(rotation=45, hjust=1))
-            + p9.scales.scale_fill_gradientn(["Firebrick", "#440154FF", "#21908CFF", "Ghostwhite", "Ghostwhite", "Ghostwhite", "#21908CFF", "#FDE725FF", "Orange"], [(i+1.001)/2.002 for i in [-1.001, -1, -0.101, -0.1, 0, 0.1, 0.101, 1, 1.001]])
-            + p9.ggtitle(expName + ": Heatmap of predicted and manually derived integration results.\n0 (white) indicates the perfect agreement (manual and prediction for peak/nopeak agree and identical peak areas (+/- 10%) if peaks were detected)\n1.001 (red) indicates a predicted peak but nopeak in the manual integration, while -1.001 (orange) indicates a nopeak in the prediction but a manually integrated peak\ncolors between -1 and 1 indicate the increase (positive) or decrease (negative) of the abundance difference relative manually integrated peak area (in %)\n" + "PBPeak & GTPeak %d (%.1f%%); PBNoPeak & GTNoPeak %d (%.1f%%); PBPeak & GTNoPeak %d (%.1f%%); PBNoPeak & GTPeak %d (%.1f%%)\n"%(sum(df["PBPeak"] & df["manualPeak"]), sum(df["PBPeak"] & df["manualPeak"]) / df.shape[0] * 100, sum(~df["PBPeak"] & ~df["manualPeak"]), sum(~df["PBPeak"] & ~df["manualPeak"])/ df.shape[0] * 100, sum(df["PBPeak"] & ~df["manualPeak"]), sum(df["PBPeak"] & ~df["manualPeak"]) / df.shape[0] * 100, sum(~df["PBPeak"] & df["manualPeak"]), sum(~df["PBPeak"] & df["manualPeak"]) / df.shape[0] * 100) + str(round(df[df["PBPeak"] & df["manualPeak"]]["value"].describe(percentiles=[0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]),2,)).replace("\n", "; ").replace("  ", " ").replace("  ", " ").replace("  ", " ").replace("  ", " "))
+        ## show correlation between areas integrated with GT method and PeakBot's method using the manual integration peak borders
+        if True:
+            temp = indResPD.copy()
+            temp = temp[temp["GTPeak"]]
+            plot = (p9.ggplot(temp, p9.aes('np.log2(GTArea)', 'np.log2(GTAreaPB)', colour='substance'))
+                + p9.geom_point(alpha=0.1)
+                #+ p9.geom_smooth(method='lm')
+                + p9.theme(legend_position="none")
+                + p9.ggtitle("Comparison of GT and PeakBot integration methods based on the manual integration peak borders")
             )
-        p9.options.figure_size = (50, 20)
-        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_perInstanceResults.pdf"%(valDS["DSName"])), width=50, height=20, limitsize=False, verbose=False)
+            p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_compManInte1.png"%(valDS["DSName"])), width=10, height=10, dpi=300, verbose=False)
+            
+            ## show correlation between areas integrated with XXX method and PeakBot's method using the manual integration peak borders
+            plot = (p9.ggplot(temp, p9.aes('np.log2(GTArea)', 'np.log2(GTAreaPB / GTArea)', colour='substance'))
+                + p9.geom_point(alpha=0.1)
+                #+ p9.geom_smooth(method='lm')
+                + p9.theme(legend_position="none")
+                + p9.ggtitle("Comparison of GT and PeakBot integration methods based on the manual integration peak borders")
+            )
+            p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_compManInte2.png"%(valDS["DSName"])), width=10, height=10, dpi=300, verbose=False)
+            
+            ## show correlation between areas integrated with XXX method and PeakBot's method using the manual integration peak borders
+            temp2 = temp.copy()
+            temp2 = temp2.drop(["substance"], axis=1)
+            plot = (p9.ggplot(temp, p9.aes('np.log2(GTArea)', 'np.log2(GTAreaPB / GTArea)'))
+                + p9.geom_point(data = temp2, alpha=0.1)
+                + p9.geom_point(alpha=0.3, colour="firebrick")
+                #+ p9.geom_smooth(method='lm')
+                + p9.facets.facet_wrap("substance")
+                + p9.ggtitle("Comparison of GT and PeakBot integration methods based on the manual integration peak borders")
+            )
+            p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_compManInte3.png"%(valDS["DSName"])), width=60, height=60, dpi=100, limitsize=False, verbose=False)
+        
+        
+        ## show correlation between areas integrated with PeakBot's method using the manual integration peak borders and the predicted peak borders
+        if True:
+            temp = indResPD.copy()
+            temp = temp[temp["GTPeak"] & (temp["PBPeak"])]
+            plot = (p9.ggplot(temp, p9.aes('np.log2(GTAreaPB)', 'np.log2(PBArea)', colour='substance'))
+                + p9.geom_point(alpha=0.1)
+                + p9.geom_smooth(method='lm')
+                + p9.ggtitle("Comparison of GT and PeakBot calculated areas using PB integration method")
+            )
+            p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_compIntePred1.png"%(valDS["DSName"])), width=10, height=10, dpi=300, verbose=False)
+            
+            ## show correlation between areas integrated with XXX method and PeakBot's method using the manual integration peak borders
+            plot = (p9.ggplot(temp, p9.aes('np.log2(GTAreaPB)', 'np.log2(GTAreaPB / PBArea)', colour='substance'))
+                + p9.geom_point(alpha=0.1)
+                + p9.theme(legend_position="none")
+                + p9.ggtitle("Comparison of GT and PeakBot calculated areas using PB integration method")
+            )
+            p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_compIntePred2.png"%(valDS["DSName"])), width=10, height=10, dpi=300, verbose=False)
+            
+            temp2 = temp.copy()
+            temp2 = temp2.drop(["substance"], axis=1)
+            
+            ## show correlation between areas integrated with XXX method and PeakBot's method using the manual integration peak borders
+            plot = (p9.ggplot(temp, p9.aes('np.log2(GTAreaPB)', 'np.log2(GTAreaPB / PBArea)'))
+                + p9.geom_point(data = temp2, alpha=0.1)
+                + p9.geom_point(alpha=0.3, colour="firebrick")
+                + p9.facets.facet_wrap("substance")
+                + p9.ggtitle("Comparison of GT and PeakBot calculated areas using PB integration method")
+            )
+            p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_compIntePred3.png"%(valDS["DSName"])), width=60, height=60, dpi=100, limitsize=False, verbose=False)
+           
+            
+        ## Peak width comparison of manual integration and prediction
+        if True:
+            temp = indResPD.copy()
+            temp = temp[(temp["GTPeak"]) & (temp["PBPeak"])]
+            plot = (p9.ggplot(temp, p9.aes('GTRTEnd - GTRTStart', 'PBRTEnd - PBRTStart'))
+                + p9.geom_point(alpha=0.1)
+                + p9.geom_smooth(method='lm')
+                + p9.geom_abline(intercept = 0, slope=1)
+                + p9.ggtitle("Comparison of GT and PeakBot peak widths")
+            )
+            p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_compPeakWidths.png"%(valDS["DSName"])), width=10, height=10, dpi=300, verbose=False)
+            
+            plot = (p9.ggplot(temp, p9.aes('GTRTEnd - GTRTStart', 'PBRTEnd - PBRTStart'))
+                + p9.geom_point(alpha=0.1)
+                + p9.geom_smooth(method='lm')
+                + p9.geom_abline(intercept = 0, slope=1)
+                + p9.xlim(0,1.5) + p9.ylim(0,1.5)
+                + p9.ggtitle("Comparison of GT and PeakBot peak widths")
+            )
+            p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_compPeakWidths_z.png"%(valDS["DSName"])), width=10, height=10, dpi=300, verbose=False)
+            
+            temp2 = temp.copy()
+            temp2 = temp2.drop(["substance"], axis=1)
+            plot = (p9.ggplot(temp, p9.aes('GTRTEnd - GTRTStart', 'PBRTEnd - PBRTStart'))
+                + p9.geom_point(data = temp2, alpha=0.1)
+                + p9.geom_point(alpha=0.3, colour="firebrick")
+                + p9.geom_abline(intercept = 0, slope=1)
+                + p9.facets.facet_wrap("substance")
+                + p9.theme(subplots_adjust={'hspace': 0.25, 'wspace': 0.25})
+                + p9.ggtitle("Comparison of GT and PeakBot peak widths")
+            )
+            p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_compPeakWidths_s1.png"%(valDS["DSName"])), width=60, height=60, dpi=100, limitsize=False, verbose=False)
+            
+            plot = (p9.ggplot(temp, p9.aes(x='GTRTStart', y='GTRTEnd', xend='PBRTStart', yend='PBRTEnd', colour='substance'))
+                + p9.geom_abline(intercept = 0, slope=1, colour="firebrick")
+                + p9.geom_segment(alpha=0.3)
+                + p9.theme(legend_position="none")
+                + p9.xlab("Start (min)") + p9.ylab("End (min)")
+                + p9.ggtitle("Comparison of GT and PeakBot peak widths")
+            )
+            p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_compPeakWidths2.png"%(valDS["DSName"])), width=30, height=30, dpi=300, limitsize=False, verbose=False)
+            
+        
+        ## Hierarchical clustering and heatmap overview of results
+        if True:
+            from scipy.cluster.hierarchy import leaves_list
+            from scipy.spatial.distance import pdist
+            ordRow = leaves_list(median(pdist(perInstanceResults, 'euclidean')))
+            ordCol = leaves_list(median(pdist(np.transpose(perInstanceResults), 'euclidean')))
+            
+            indResPD = indResPD.assign(sampleHC = pd.Categorical(indResPD["sample"], categories = [perInstanceResultsSamples[i] for i in ordCol]))
+            indResPD = indResPD.assign(substanceHC = pd.Categorical(indResPD["substance"], categories = [perInstanceResultsSubstances[i] for i in ordRow]))
+            indResPD["value"] = round(indResPD["value"], 5)
+
+            plot = (p9.ggplot(indResPD, p9.aes('substanceHC', 'sampleHC', fill='value'))
+                + p9.geom_tile(p9.aes(width=.95, height=.95))
+                + p9.geom_text(p9.aes(label='value'), size=1)
+                + p9.theme(axis_text_x = p9.element_text(rotation=45, hjust=1))
+                + p9.scales.scale_fill_gradientn(["Firebrick", "#440154FF", "#21908CFF", "Ghostwhite", "Ghostwhite", "Ghostwhite", "#21908CFF", "#FDE725FF", "Orange"], [(i+1.001)/2.002 for i in [-1.001, -1, -0.101, -0.1, 0, 0.1, 0.101, 1, 1.001]])
+                + p9.ggtitle(expName + ": Heatmap of predicted and manually derived integration results.\n0 (white) indicates the perfect agreement (manual and prediction for peak/nopeak agree and identical peak areas (+/- 10%) if peaks were detected)\n1.001 (red) indicates a predicted peak but nopeak in the manual integration, while -1.001 (orange) indicates a nopeak in the prediction but a manually integrated peak\ncolors between -1 and 1 indicate the increase (positive) or decrease (negative) of the abundance difference relative manually integrated peak area (in %)\n" + "PBPeak & GTPeak %d (%.1f%%); PBNoPeak & GTNoPeak %d (%.1f%%); PBPeak & GTNoPeak %d (%.1f%%); PBNoPeak & GTPeak %d (%.1f%%)\n"%(sum(indResPD["PBPeak"] & indResPD["GTPeak"]), sum(indResPD["PBPeak"] & indResPD["GTPeak"]) / indResPD.shape[0] * 100, sum(~indResPD["PBPeak"] & ~indResPD["GTPeak"]), sum(~indResPD["PBPeak"] & ~indResPD["GTPeak"])/ indResPD.shape[0] * 100, sum(indResPD["PBPeak"] & ~indResPD["GTPeak"]), sum(indResPD["PBPeak"] & ~indResPD["GTPeak"]) / indResPD.shape[0] * 100, sum(~indResPD["PBPeak"] & indResPD["GTPeak"]), sum(~indResPD["PBPeak"] & indResPD["GTPeak"]) / indResPD.shape[0] * 100) + str(round(indResPD[indResPD["PBPeak"] & indResPD["GTPeak"]]["value"].describe(percentiles=[0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]),2,)).replace("\n", "; ").replace("  ", " ").replace("  ", " ").replace("  ", " ").replace("  ", " "))
+            )
+            p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_AllResults.pdf"%(valDS["DSName"])), width=50, height=20, limitsize=False, verbose=False)
+        
         
     TabLog().exportToFile(os.path.join(expDir, "results.tsv"))
     print("All calculations took %.1f seconds"%(toc("Overall process")))
-
-
-
-

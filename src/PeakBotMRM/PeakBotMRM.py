@@ -691,7 +691,7 @@ def trainPeakBotMRMModel(trainDataset, logBaseDir, modelName = None, valDataset 
             for metric, metName in {"loss":"loss", "pred.peak_MatthewsCorrelationCoefficient":"MCC", "pred_EICIOUPeaks":"Area IOU", "pred.peak_Acc4Peaks": "Sensitivity (peaks)", "pred.peak_Acc4NonPeaks": "Specificity (no peaks)", "pred.peak_categorical_accuracy": "Accuracy"}.items():
                 val = hist[valDataset.name + "_" + metric]
                 newRow = pd.Series({"model": modelName, "set": valDataset.name, "metric": metName, "value": val})
-                metricesAddValDS = metricesAddValDS.append(newRow, ignore_index=True)
+                metricesAddValDS = pd.concat((metricesAddValDS, newRow), axis=0, ignore_index=True)
 
     if verbose:
         print("  |")
@@ -706,7 +706,7 @@ def integrateArea(eic, rts, start, end):
     method = Config.INTEGRATIONMETHOD
         
     startInd = arg_find_nearest(rts, start)
-    endInd = arg_find_nearest(rts, end)
+    endInd   = arg_find_nearest(rts, end)
 
     if end <= start:
         warnings.warn("Warning in peak area calculation: start and end rt of peak are incorrect (start %.2f, end %.2f). An area of 0 will be returned."%(start, end), RuntimeWarning)
@@ -714,6 +714,7 @@ def integrateArea(eic, rts, start, end):
 
     area = 0
     if method.lower() in ["linearbetweenborders", "linear"]:
+        ## TODO something is wrong here
         if (rts[endInd]-rts[startInd]) == 0:
             warnings.warn("Warning in peak area calculation: division by 0 (startInd %.2f, endInd %.2f). An area of 0 will be returned."%(startInd, endInd), RuntimeWarning)
             return 0
@@ -729,7 +730,6 @@ def integrateArea(eic, rts, start, end):
 
     elif method.lower() in ["minbetweenborders"]:
         minV = 0
-        area = 0
         if endInd > startInd:
             minV = np.min(eic[startInd:(endInd+1)])
             area = np.sum(eic[startInd:(endInd+1)])

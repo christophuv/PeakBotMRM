@@ -357,7 +357,7 @@ def extractStandardizedEIC(eic, rts, refRT):
     hWid = int((PeakBotMRM.Config.RTSLICES - 1) / 2)
     
     if bestRTInd >= hWid and bestRTInd+hWid < rts.shape[0]:
-        return rts[(bestRTInd - hWid):(bestRTInd + hWid + 1)], eic[(bestRTInd - hWid):(bestRTInd + hWid + 1)]
+        return np.copy(rts[(bestRTInd - hWid):(bestRTInd + hWid + 1)]), np.copy(eic[(bestRTInd - hWid):(bestRTInd + hWid + 1)])
     
     sil, sir, ocl, ocr = 0, PeakBotMRM.Config.RTSLICES, bestRTInd - hWid, bestRTInd + hWid + 1
     if ocl < 0:
