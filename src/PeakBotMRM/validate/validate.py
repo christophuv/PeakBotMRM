@@ -8,7 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import plotnine as p9
-from scipy.cluster.hierarchy import ward, single, complete, average, median, leaves_list
+from scipy.cluster.hierarchy import median, leaves_list
 from scipy.spatial.distance import pdist
 import pandas as pd
 import random
@@ -19,7 +19,7 @@ import math
 
 import PeakBotMRM
 import PeakBotMRM.train
-from PeakBotMRM.core import tic, toc, TabLog, extractStandardizedEIC, getInteRTIndsOnStandardizedEIC
+from PeakBotMRM.core import tic, toc, extractStandardizedEIC, getInteRTIndsOnStandardizedEIC
 print("\n")
 
 
@@ -319,19 +319,6 @@ def validateExperiment(expName, valDSs, modelFile,
                 metricsTable[substanceName]["CorrIP"] = corr
                 corr = np.corrcoef(intesD, preds)[1,0]
                 metricsTable[substanceName]["CorrIdP"] = corr
-
-            ## log metrics
-            TabLog().addData(substanceName, "Int.Peak, PrePeak", agreement[0])
-            TabLog().addData(substanceName, "Int.Peak, PreNoPe", agreement[1])
-            TabLog().addData(substanceName, "Int.NoPe, PrePeak", agreement[2])
-            TabLog().addData(substanceName, "Int.NoPe, PreNoPe", agreement[3])
-            TabLog().addData(substanceName, "Peakform", substances[substanceName].peakForm)
-            TabLog().addData(substanceName, "Rt shifts", substances[substanceName].rtShift)
-            TabLog().addData(substanceName, "Note", substances[substanceName].note)
-            for k, v in metrics.items():
-                TabLog().addData(substanceName, k, "%.4g"%(v), addNumToExistingKeys = True)
-            TabLog().addData(substanceName, "CorrIP", "%.4g"%(metricsTable[substanceName]["CorrIP"]), addNumToExistingKeys = True)
-            TabLog().addData(substanceName, "CorrIdP", "%.4g"%(metricsTable[substanceName]["CorrIdP"]), addNumToExistingKeys = True)
             
             if plotSubstance == "all" or substanceName in plotSubstance:
                 ## add retention time of peak
@@ -359,7 +346,7 @@ def validateExperiment(expName, valDSs, modelFile,
         print("\n")
 
         
-        with open(os.path.join(expDir, "%s_allResults.pickle"%(valDS["DSName"])), "wb") as fout:
+        with open(os.path.join(expDir, "%s_AllResults.pickle"%(valDS["DSName"])), "wb") as fout:
             pickle.dump((perInstanceResults, perInstanceResultsPD, perInstanceResultsSamples, perInstanceResultsSubstances), fout)
         
         indResPD = pd.DataFrame(perInstanceResultsPD, columns = ["substance", "sample", "value", 
@@ -370,7 +357,7 @@ def validateExperiment(expName, valDSs, modelFile,
         if True:
             allSubstances = list(allSubstances)
             allSamples = list(allSamples)
-            with open(os.path.join(expDir, "%s_results_IntePred.tsv"%(valDS["DSName"])), "w") as fout:
+            with open(os.path.join(expDir, "%s_Results.tsv"%(valDS["DSName"])), "w") as fout:
                 fout.write("Sample")
                 for substanceName in allSubstances:
                     fout.write("\t%s\t%s\t%s\t%s\t%s\t%s\t%s"%(substanceName, "","","", "","",""))
@@ -523,7 +510,7 @@ def validateExperiment(expName, valDSs, modelFile,
             temp = temp[temp["GTPeak"] & (temp["PBPeak"])]
             plot = (p9.ggplot(temp, p9.aes('np.log2(GTAreaPB)', 'np.log2(PBArea)', colour='substance'))
                 + p9.geom_point(alpha=0.1)
-                + p9.geom_smooth(method='lm')
+                #+ p9.geom_smooth(method='lm')
                 + p9.ggtitle("Comparison of GT and PeakBot calculated areas using PB integration method")
             )
             p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_compIntePred1.png"%(valDS["DSName"])), width=10, height=10, dpi=300, verbose=False)
@@ -573,14 +560,14 @@ def validateExperiment(expName, valDSs, modelFile,
             temp2 = temp.copy()
             temp2 = temp2.drop(["substance"], axis=1)
             plot = (p9.ggplot(temp, p9.aes('GTRTEnd - GTRTStart', 'PBRTEnd - PBRTStart'))
+                + p9.geom_abline(intercept = 0, slope=1)
                 + p9.geom_point(data = temp2, alpha=0.1)
                 + p9.geom_point(alpha=0.3, colour="firebrick")
-                + p9.geom_abline(intercept = 0, slope=1)
-                + p9.facets.facet_wrap("substance")
+                + p9.facets.facet_wrap("substance", scales="free")
                 + p9.theme(subplots_adjust={'hspace': 0.25, 'wspace': 0.25})
                 + p9.ggtitle("Comparison of GT and PeakBot peak widths")
             )
-            p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_compPeakWidths_s1.png"%(valDS["DSName"])), width=60, height=60, dpi=100, limitsize=False, verbose=False)
+            p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_compPeakWidths_f1.png"%(valDS["DSName"])), width=60, height=60, dpi=100, limitsize=False, verbose=False)
             
             plot = (p9.ggplot(temp, p9.aes(x='GTRTStart', y='GTRTEnd', xend='PBRTStart', yend='PBRTEnd', colour='substance'))
                 + p9.geom_abline(intercept = 0, slope=1, colour="firebrick")
@@ -591,11 +578,20 @@ def validateExperiment(expName, valDSs, modelFile,
             )
             p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_compPeakWidths2.png"%(valDS["DSName"])), width=30, height=30, dpi=300, limitsize=False, verbose=False)
             
+            plot = (p9.ggplot(temp, p9.aes(x='GTRTStart', y='GTRTEnd', xend='PBRTStart', yend='PBRTEnd'))
+                + p9.geom_abline(intercept = 0, slope=1)
+                + p9.geom_segment(data = temp2, alpha=0.1)
+                + p9.geom_segment(alpha=0.3, colour="firebrick")
+                + p9.facets.facet_wrap("substance")
+                + p9.theme(legend_position="none")
+                + p9.xlab("Start (min)") + p9.ylab("End (min)")
+                + p9.ggtitle("Comparison of GT and PeakBot peak widths")
+            )
+            p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_compPeakWidths2_f.png"%(valDS["DSName"])), width=60, height=60, dpi=100, limitsize=False, verbose=False)
+            
         
         ## Hierarchical clustering and heatmap overview of results
         if True:
-            from scipy.cluster.hierarchy import leaves_list
-            from scipy.spatial.distance import pdist
             ordRow = leaves_list(median(pdist(perInstanceResults, 'euclidean')))
             ordCol = leaves_list(median(pdist(np.transpose(perInstanceResults), 'euclidean')))
             
@@ -607,11 +603,10 @@ def validateExperiment(expName, valDSs, modelFile,
                 + p9.geom_tile(p9.aes(width=.95, height=.95))
                 + p9.geom_text(p9.aes(label='value'), size=1)
                 + p9.theme(axis_text_x = p9.element_text(rotation=45, hjust=1))
-                + p9.scales.scale_fill_gradientn(["Firebrick", "#440154FF", "#21908CFF", "Ghostwhite", "Ghostwhite", "Ghostwhite", "#21908CFF", "#FDE725FF", "Orange"], [(i+1.001)/2.002 for i in [-1.001, -1, -0.101, -0.1, 0, 0.1, 0.101, 1, 1.001]])
+                + p9.scales.scale_fill_gradientn(["Firebrick", "#440154FF", "#21908CFF", "Ghostwhite", "Ghostwhite", "Ghostwhite", "#21908CFF", "#FDE725FF", "Orange"], [(i+1.001)/2.002 for i in [-1.00001, -1, -0.101, -0.1, 0, 0.1, 0.101, 1, 1.00001]])
                 + p9.ggtitle(expName + ": Heatmap of predicted and manually derived integration results.\n0 (white) indicates the perfect agreement (manual and prediction for peak/nopeak agree and identical peak areas (+/- 10%) if peaks were detected)\n1.001 (red) indicates a predicted peak but nopeak in the manual integration, while -1.001 (orange) indicates a nopeak in the prediction but a manually integrated peak\ncolors between -1 and 1 indicate the increase (positive) or decrease (negative) of the abundance difference relative manually integrated peak area (in %)\n" + "PBPeak & GTPeak %d (%.1f%%); PBNoPeak & GTNoPeak %d (%.1f%%); PBPeak & GTNoPeak %d (%.1f%%); PBNoPeak & GTPeak %d (%.1f%%)\n"%(sum(indResPD["PBPeak"] & indResPD["GTPeak"]), sum(indResPD["PBPeak"] & indResPD["GTPeak"]) / indResPD.shape[0] * 100, sum(~indResPD["PBPeak"] & ~indResPD["GTPeak"]), sum(~indResPD["PBPeak"] & ~indResPD["GTPeak"])/ indResPD.shape[0] * 100, sum(indResPD["PBPeak"] & ~indResPD["GTPeak"]), sum(indResPD["PBPeak"] & ~indResPD["GTPeak"]) / indResPD.shape[0] * 100, sum(~indResPD["PBPeak"] & indResPD["GTPeak"]), sum(~indResPD["PBPeak"] & indResPD["GTPeak"]) / indResPD.shape[0] * 100) + str(round(indResPD[indResPD["PBPeak"] & indResPD["GTPeak"]]["value"].describe(percentiles=[0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]),2,)).replace("\n", "; ").replace("  ", " ").replace("  ", " ").replace("  ", " ").replace("  ", " "))
             )
             p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_AllResults.pdf"%(valDS["DSName"])), width=50, height=20, limitsize=False, verbose=False)
         
-        
-    TabLog().exportToFile(os.path.join(expDir, "results.tsv"))
+    
     print("All calculations took %.1f seconds"%(toc("Overall process")))

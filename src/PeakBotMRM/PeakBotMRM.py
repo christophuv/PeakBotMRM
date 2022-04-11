@@ -154,7 +154,7 @@ def getDatasetTemplate(templateSize = 1024 * 32, includeMetaInfo = None):
         }
     return template
 
-## TODO finish
+
 class Dataset:
     def __init__(self, name = None):
         pass    

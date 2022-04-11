@@ -83,24 +83,24 @@ def _EICIOU(dummyX, dummyY, numClasses = None):
 
     if PeakBotMRM.Config.UPDATEPEAKBORDERSTOMIN:
         ## Update borders to be min values in left and right side of the peak's apex
-        stripped = tf.where(tf.math.logical_and(tf.math.greater_equal(indices, tf.reshape(tf.repeat(tf.math.floor(rtInds[:,0]), repeats=tf.shape(eic)[1]), shape=tf.shape(eic))), 
-                                                tf.math.less_equal   (indices, tf.reshape(tf.repeat(tf.math.ceil (rtInds[:,1]), repeats=tf.shape(eic)[1]), shape=tf.shape(eic)))), 
+        stripped = tf.where(tf.math.logical_and(tf.math.greater_equal(indices, tf.reshape(tf.repeat(tf.math.floor(prtInds[:,0]), repeats=tf.shape(eic)[1]), shape=tf.shape(eic))), 
+                                                tf.math.less_equal   (indices, tf.reshape(tf.repeat(tf.math.ceil (prtInds[:,1]), repeats=tf.shape(eic)[1]), shape=tf.shape(eic)))), 
                             eic, 
                             tf.zeros_like(eic))
         maxInd   = tf.cast(tf.math.argmax(stripped, axis=1), dtype=tf.float32)
         
-        strippeL = tf.where(tf.math.logical_and(tf.math.greater_equal(indices, tf.reshape(tf.repeat(tf.math.floor(rtInds[:,0]), repeats=tf.shape(eic)[1]), shape=tf.shape(eic))), 
-                                                tf.math.less_equal   (indices, tf.reshape(tf.repeat(tf.math.ceil (maxInd     ), repeats=tf.shape(eic)[1]), shape=tf.shape(eic)))), 
+        strippeL = tf.where(tf.math.logical_and(tf.math.greater_equal(indices, tf.reshape(tf.repeat(tf.math.floor(prtInds[:,0]), repeats=tf.shape(eic)[1]), shape=tf.shape(eic))), 
+                                                tf.math.less_equal   (indices, tf.reshape(tf.repeat(tf.math.ceil (maxInd      ), repeats=tf.shape(eic)[1]), shape=tf.shape(eic)))), 
                             eic, 
                             tf.reshape(tf.repeat(tf.math.reduce_max(eic, axis=1), repeats=tf.shape(eic)[1]), shape=tf.shape(eic)))
         minIndL  = tf.reshape(tf.cast(tf.math.argmin(strippeL, axis=1), dtype=tf.float32), shape=(tf.shape(eic)[0],1))
         
-        strippeR = tf.where(tf.math.logical_and(tf.math.greater_equal(indices, tf.reshape(tf.repeat(tf.math.floor(maxInd     ), repeats=tf.shape(eic)[1]), shape=tf.shape(eic))), 
-                                                tf.math.less_equal   (indices, tf.reshape(tf.repeat(tf.math.ceil (rtInds[:,1]), repeats=tf.shape(eic)[1]), shape=tf.shape(eic)))), 
+        strippeR = tf.where(tf.math.logical_and(tf.math.greater_equal(indices, tf.reshape(tf.repeat(tf.math.floor(maxInd      ), repeats=tf.shape(eic)[1]), shape=tf.shape(eic))), 
+                                                tf.math.less_equal   (indices, tf.reshape(tf.repeat(tf.math.ceil (prtInds[:,1]), repeats=tf.shape(eic)[1]), shape=tf.shape(eic)))), 
                             eic, 
                             tf.reshape(tf.repeat(tf.math.reduce_max(eic, axis=1), repeats=tf.shape(eic)[1]), shape=tf.shape(eic)))
         minIndR  = tf.reshape(tf.cast(tf.math.argmin(strippeR, axis=1), dtype=tf.float32), shape=(tf.shape(eic)[0],1))
-        prtInds = tf.concat([minIndL, minIndR], axis=1)
+        prtInds  = tf.concat([minIndL, minIndR], axis=1)
 
     ## Extract area for user integration
     stripped = tf.where(tf.math.logical_and(tf.math.greater_equal(indices, tf.reshape(tf.repeat(tf.math.floor(rtInds[:,0]), repeats=tf.shape(eic)[1]), tf.shape(eic))), 
