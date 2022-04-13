@@ -684,15 +684,17 @@ def trainPeakBotMRMModel(trainDataset, logBaseDir, modelName = None, valDataset 
 
 
     ## save metrices of the training process in a user-convenient format (pandas table)
-    metricesAddValDS = pd.DataFrame(columns=["model", "set", "metric", "value"])
+    metricesAddValDS = None
     if addValidationDatasets is not None:
         hist = valDS.history[-1]
         for valDataset in addValidationDatasets:
             for metric, metName in {"loss":"loss", "pred.peak_MatthewsCorrelationCoefficient":"MCC", "pred_EICIOUPeaks":"Area IOU", "pred.peak_Acc4Peaks": "Sensitivity (peaks)", "pred.peak_Acc4NonPeaks": "Specificity (no peaks)", "pred.peak_categorical_accuracy": "Accuracy"}.items():
                 val = hist[valDataset.name + "_" + metric]
-                newRow = pd.Series({"model": modelName, "set": valDataset.name, "metric": metName, "value": val})
-                metricesAddValDS = pd.concat((metricesAddValDS, newRow), axis=0, ignore_index=True)
-
+                newRow = pd.DataFrame({"model": modelName, "set": valDataset.name, "metric": metName, "value": val}, index=[0])
+                if metricesAddValDS is None:
+                    metricesAddValDS = newRow
+                else:
+                    metricesAddValDS = pd.concat((metricesAddValDS, newRow), axis=0, ignore_index=True)
     if verbose:
         print("  |")
         print("  | .. model built and trained successfully (took %.1f seconds)"%toc("pbTrainNewModel"))
@@ -954,13 +956,14 @@ def loadIntegrations(substances, curatedPeaks, verbose = True, logPrefix = ""):
 
 
  
-def loadChromatograms(substances, integrations, samplesPath, loadFromPickleIfPossible = True,
+def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction = None, loadFromPickleIfPossible = True,
                       allowedMZOffset = 0.05, MRMHeader = "- SRM SIC Q1=(\\d+[.]\\d+) Q3=(\\d+[.]\\d+) start=(\\d+[.]\\d+) end=(\\d+[.]\\d+)",
                       verbose = True, logPrefix = ""):
     ## load chromatograms
     tic("procChroms")
     if verbose:
         print(logPrefix, "Loading chromatograms")
+    
     samples = [os.path.join(samplesPath, f) for f in os.listdir(samplesPath) if os.path.isfile(os.path.join(samplesPath, f)) and f.lower().endswith(".mzml")]
     usedSamples = set()
     if os.path.isfile(os.path.join(samplesPath, "integrations.pickle")) and loadFromPickleIfPossible:
@@ -1064,8 +1067,6 @@ def loadChromatograms(substances, integrations, samplesPath, loadFromPickleIfPos
                 break
             elif len(integrations[substance][sample].chromatogram) == 0:
                 integrations[substance][sample].chromatogram = None
-            else:
-                raise RuntimeError("Multiple chromatograms found for one integration")
         if not foundOnce:
             remSubstancesChannelProblems.add(substance)
     if len(remSubstancesChannelProblems) > 0:
@@ -1074,6 +1075,20 @@ def loadChromatograms(substances, integrations, samplesPath, loadFromPickleIfPos
             print(logPrefix, "  | .. ATTENTION: CE and CET are not yet available (as the reference does not specify these values). Thus, some of the reference compounds cannot be used due to ambiguous channel selection")
         for r in remSubstancesChannelProblems:
             del integrations[r]
+            
+    
+    if sampleUseFunction is None:
+        if verbose:
+            print(logPrefix, "  | .. Using all samples")
+    else:
+        remSamples = set()
+        for substance in integrations.keys():
+            for sample in integrations[substance].keys():
+                if not sampleUseFunction(sample):
+                    del integrations[substance][sample]
+                    remSamples.add(sample)
+        if verbose:
+            print(logPrefix, "  | .. removed samples %s"%(", ".join(("'%s'"%s for s in remSamples))))
     
     ## remove all integrations with more than one scanEvent
     referencePeaks = 0

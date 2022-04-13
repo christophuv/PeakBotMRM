@@ -71,6 +71,7 @@ def validateExperiment(expName, valDSs, modelFile,
                                                           includeSubstances = valDS["includeSubstances"])
         substances, integrations = PeakBotMRM.loadIntegrations(substances, valDS["curatedPeaks"])
         substances, integrations = PeakBotMRM.loadChromatograms(substances, integrations, valDS["samplesPath"],
+                                                                sampleUseFunction = valDS["sampleUseFunction"], 
                                                                 allowedMZOffset = allowedMZOffset,
                                                                 MRMHeader = MRMHeader)
 

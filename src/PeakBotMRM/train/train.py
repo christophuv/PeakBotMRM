@@ -547,6 +547,7 @@ def plotHistory(histObjectFile, plotFile, verbose = True, logPrefix = ""):
         
     ### Summarize and illustrate the results of the different training and validation dataset
     df = histAll
+    print(df)
     df['ID'] = df.model.str.split('_').str[-1]
     df = df[df["metric"]!="loss"]
     df = df[[i in ["Sensitivity (peaks)", "Specificity (no peaks)"] for i in df.metric]]
@@ -658,6 +659,7 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
                                                           includeSubstances = trainDS["includeSubstances"], logPrefix = "  | ..")
         substances, integrations = PeakBotMRM.loadIntegrations(substances, trainDS["curatedPeaks"], logPrefix = "  | ..")
         substances, integrations = PeakBotMRM.loadChromatograms(substances, integrations, trainDS["samplesPath"],
+                                                                sampleUseFunction = trainDS["sampleUseFunction"], 
                                                                 allowedMZOffset = allowedMZOffset, 
                                                                 MRMHeader = MRMHeader, logPrefix = "  | ..")
         if showPeakMetrics:
@@ -715,12 +717,11 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
                                                               includeSubstances = valDS["includeSubstances"], logPrefix = "  | ..")
             substances, integrations = PeakBotMRM.loadIntegrations(substances, valDS["curatedPeaks"], logPrefix = "  | ..")
             substances, integrations = PeakBotMRM.loadChromatograms(substances, integrations, valDS["samplesPath"],
+                                                                    sampleUseFunction = valDS["sampleUseFunction"], 
                                                                     allowedMZOffset = allowedMZOffset, 
                                                                     MRMHeader = MRMHeader, logPrefix = "  | ..")
             if showPeakMetrics:
                 investigatePeakMetrics(expDir, substances, integrations, expName = "%s"%(valDS["DSName"]), logPrefix = "  | ..")
-            
-            integrations = constrainAndBalanceDataset(False, checkPeakAttributes, substances, integrations, logPrefix = "  | ..")
             
             dataset = exportOriginalInstancesForValidation(substances, integrations, "AddVal_Ori_%s"%(valDS["DSName"]), logPrefix = "  | ..")
             dataset.shuffle()
