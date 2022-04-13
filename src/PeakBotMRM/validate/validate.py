@@ -66,12 +66,12 @@ def validateExperiment(expName, valDSs, modelFile,
     metricsTable = {}
 
     for valDS in valDSs:
-        substances               = PeakBotMRM.loadTargets(valDS["targetFile"], 
-                                                          excludeSubstances = valDS["excludeSubstances"], 
-                                                          includeSubstances = valDS["includeSubstances"])
-        substances, integrations = PeakBotMRM.loadIntegrations(substances, valDS["curatedPeaks"])
+        substances               = PeakBotMRM.loadTargets(valDS["transitions"], 
+                                                          excludeSubstances = valDS["excludeSubstances"] if "excludeSubstances" in valDS.keys() else None, 
+                                                          includeSubstances = valDS["includeSubstances"] if "includeSubstances" in valDS.keys() else None)
+        substances, integrations = PeakBotMRM.loadIntegrations(substances, valDS["GTPeaks"])
         substances, integrations = PeakBotMRM.loadChromatograms(substances, integrations, valDS["samplesPath"],
-                                                                sampleUseFunction = valDS["sampleUseFunction"], 
+                                                                sampleUseFunction = valDS["sampleUseFunction"] if "sampleUseFunction" in valDS.keys() else None, 
                                                                 allowedMZOffset = allowedMZOffset,
                                                                 MRMHeader = MRMHeader)
 

@@ -654,12 +654,13 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
             
         print("Adding training dataset '%s'"%(trainDS["DSName"]))
         
-        substances               = PeakBotMRM.loadTargets(trainDS["targetFile"], 
-                                                          excludeSubstances = trainDS["excludeSubstances"], 
-                                                          includeSubstances = trainDS["includeSubstances"], logPrefix = "  | ..")
-        substances, integrations = PeakBotMRM.loadIntegrations(substances, trainDS["curatedPeaks"], logPrefix = "  | ..")
+        substances               = PeakBotMRM.loadTargets(trainDS["transitions"], 
+                                                          excludeSubstances = trainDS["excludeSubstances"] if "excludeSubstances" in trainDS.keys() else None, 
+                                                          includeSubstances = trainDS["includeSubstances"] if "includeSubstances" in trainDS.keys() else None, 
+                                                          logPrefix = "  | ..")
+        substances, integrations = PeakBotMRM.loadIntegrations(substances, trainDS["GTPeaks"], logPrefix = "  | ..")
         substances, integrations = PeakBotMRM.loadChromatograms(substances, integrations, trainDS["samplesPath"],
-                                                                sampleUseFunction = trainDS["sampleUseFunction"], 
+                                                                sampleUseFunction = trainDS["sampleUseFunction"] if "sampleUseFunction" in trainDS.keys() else None, 
                                                                 allowedMZOffset = allowedMZOffset, 
                                                                 MRMHeader = MRMHeader, logPrefix = "  | ..")
         if showPeakMetrics:
@@ -712,12 +713,14 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
             
             print("Adding additional validation dataset '%s'"%(valDS["DSName"]))
             
-            substances               = PeakBotMRM.loadTargets(valDS["targetFile"], 
-                                                              excludeSubstances = valDS["excludeSubstances"], 
-                                                              includeSubstances = valDS["includeSubstances"], logPrefix = "  | ..")
-            substances, integrations = PeakBotMRM.loadIntegrations(substances, valDS["curatedPeaks"], logPrefix = "  | ..")
+            substances               = PeakBotMRM.loadTargets(valDS["transitions"], 
+                                                              excludeSubstances = valDS["excludeSubstances"] if "excludeSubstances" in valDS.keys() else None, 
+                                                              includeSubstances = valDS["includeSubstances"] if "includeSubstances" in valDS.keys() else None, 
+                                                              logPrefix = "  | ..")
+            substances, integrations = PeakBotMRM.loadIntegrations(substances, valDS["GTPeaks"], 
+                                                                   logPrefix = "  | ..")
             substances, integrations = PeakBotMRM.loadChromatograms(substances, integrations, valDS["samplesPath"],
-                                                                    sampleUseFunction = valDS["sampleUseFunction"], 
+                                                                    sampleUseFunction = valDS["sampleUseFunction"] if "sampleUseFunction" in valDS.keys() else None, 
                                                                     allowedMZOffset = allowedMZOffset, 
                                                                     MRMHeader = MRMHeader, logPrefix = "  | ..")
             if showPeakMetrics:
