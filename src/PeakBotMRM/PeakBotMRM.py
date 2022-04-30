@@ -847,17 +847,20 @@ def evaluatePeakBotMRM(instancesWithGT, modelPath = None, model = None, verbose 
 
 
 class Substance:
-  def __init__(self, name, Q1, Q3, CE, CEMethod, refRT, peakForm, rtShift, note, polarity):
-    self.name = name
-    self.Q1 = Q1
-    self.Q3 = Q3
-    self.CE = CE
-    self.CEMethod = CEMethod
-    self.refRT = refRT
-    self.peakForm = peakForm
-    self.rtShift = rtShift
-    self.note = note
-    self.polarity = polarity
+    def __init__(self, name, Q1, Q3, CE, CEMethod, refRT, peakForm, rtShift, note, polarity):
+        self.name = name
+        self.Q1 = Q1
+        self.Q3 = Q3
+        self.CE = CE
+        self.CEMethod = CEMethod
+        self.refRT = refRT
+        self.peakForm = peakForm
+        self.rtShift = rtShift
+        self.note = note
+        self.polarity = polarity
+    
+    def __str__(self):
+        return "%s (Q1 '%s', Q3 '%s', CE '%s', CEMethod '%s', ref.RT %.2f)"%(self.name, self.Q1, self.Q3, self.CE, self.CEMethod, self.refRT)
 
 class Integration:
     def __init__(self, foundPeak, rtStart, rtEnd, area, chromatogram, other = None):

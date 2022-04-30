@@ -24,17 +24,42 @@ print("\n")
 
 
 
+def getValidationSet(valDS, MRMHeader, allowedMZOffset):
+    substances               = PeakBotMRM.loadTargets(valDS["transitions"], 
+                                                      excludeSubstances = valDS["excludeSubstances"] if "excludeSubstances" in valDS.keys() else None, 
+                                                      includeSubstances = valDS["includeSubstances"] if "includeSubstances" in valDS.keys() else None, 
+                                                      logPrefix = "  | ..")
+    
+    substances, integrations = PeakBotMRM.loadIntegrations(substances, 
+                                                           valDS["GTPeaks"], 
+                                                           logPrefix = "  | ..")
+    
+    substances, integrations = PeakBotMRM.loadChromatograms(substances, integrations, 
+                                                            valDS["samplesPath"],
+                                                            sampleUseFunction = valDS["sampleUseFunction"] if "sampleUseFunction" in valDS.keys() else None, 
+                                                            allowedMZOffset = allowedMZOffset,
+                                                            MRMHeader = MRMHeader,
+                                                            logPrefix = "  | ..")
+    
+    integrations = PeakBotMRM.train.constrainAndBalanceDataset(False, 
+                                                               valDS["checkPeakAttributes"] if "checkPeakAttributes" in valDS.keys() else None, 
+                                                               substances, 
+                                                               integrations, 
+                                                               logPrefix = "  | ..")
+        
+    return substances,integrations
+
+
+
 def validateExperiment(expName, valDSs, modelFile, 
                        expDir = None, logDir = None, 
                        MRMHeader = "- SRM SIC Q1=(\\d+[.]\\d+) Q3=(\\d+[.]\\d+) start=(\\d+[.]\\d+) end=(\\d+[.]\\d+)",
                        allowedMZOffset = 0.05,
-                       plotSubstance = None, excludeSubstances = None, includeSubstances = None):
+                       plotSubstance = None):
     if expDir is None:
         expDir = os.path.join(".", expName)
     if logDir is None:
         logDir = os.path.join(expDir, "log")
-    if excludeSubstances is None:
-        excludeSubstances = []
         
     
     print("Validating experiment")
@@ -66,15 +91,9 @@ def validateExperiment(expName, valDSs, modelFile,
     metricsTable = {}
 
     for valDS in valDSs:
-        substances               = PeakBotMRM.loadTargets(valDS["transitions"], 
-                                                          excludeSubstances = valDS["excludeSubstances"] if "excludeSubstances" in valDS.keys() else None, 
-                                                          includeSubstances = valDS["includeSubstances"] if "includeSubstances" in valDS.keys() else None)
-        substances, integrations = PeakBotMRM.loadIntegrations(substances, valDS["GTPeaks"])
-        substances, integrations = PeakBotMRM.loadChromatograms(substances, integrations, valDS["samplesPath"],
-                                                                sampleUseFunction = valDS["sampleUseFunction"] if "sampleUseFunction" in valDS.keys() else None, 
-                                                                allowedMZOffset = allowedMZOffset,
-                                                                MRMHeader = MRMHeader)
-
+        
+        substances, integrations = getValidationSet(valDS, MRMHeader, allowedMZOffset)
+        
         PeakBotMRM.train.investigatePeakMetrics(expDir, substances, integrations, expName = "%s"%(valDS["DSName"]))
 
         print("Evaluating model (using model from '%s')"%(modelFile))
@@ -112,6 +131,7 @@ def validateExperiment(expName, valDSs, modelFile,
             truth = np.zeros((4))
             agreement = np.zeros((4))
             
+            ## generate dataset for all samples of the current substance
             for samplei, sample in enumerate(integrations[substanceName].keys()):
                 inte = integrations[substanceName][sample]
                 allSamples.add(sample)
@@ -136,10 +156,17 @@ def validateExperiment(expName, valDSs, modelFile,
                 temp["inte.peak"][samplei,1]    = 1 if not gt_isPeak else 0
                 temp["inte.rtInds"][samplei, 0] = gt_rtStartInd
                 temp["inte.rtInds"][samplei, 1] = gt_rtEndInd
-                
+            
+            ## save some results to a file for testing
+            if substanceName == "Adenosine monophosphate":
+                with open("out.pickle", "wb") as handle:
+                    pickle.dump(temp, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            
+            ## predict and calculate metrics
             pred_peakTypes, pred_rtStartInds, pred_rtEndInds = PeakBotMRM.runPeakBotMRM(temp, model = pbModelPred, verbose = False)
             metrics                                          = PeakBotMRM.evaluatePeakBotMRM(temp, model = pbModelEval, verbose = False)
             
+            ## inspect and summarize the results of the prediction and the metrics, optionally plot
             for samplei, sample in enumerate(integrations[substanceName].keys()):
                 inte = integrations[substanceName][sample] 
                 
@@ -604,7 +631,7 @@ def validateExperiment(expName, valDSs, modelFile,
                 + p9.geom_tile(p9.aes(width=.95, height=.95))
                 + p9.geom_text(p9.aes(label='value'), size=1)
                 + p9.theme(axis_text_x = p9.element_text(rotation=45, hjust=1))
-                + p9.scales.scale_fill_gradientn(["Firebrick", "#440154FF", "#21908CFF", "Ghostwhite", "Ghostwhite", "Ghostwhite", "#21908CFF", "#FDE725FF", "Orange"], [(i+1.001)/2.002 for i in [-1.00001, -1, -0.101, -0.1, 0, 0.1, 0.101, 1, 1.00001]])
+                + p9.scales.scale_fill_gradientn(["Firebrick", "#440154FF", "#21908CFF", "Ghostwhite", "Ghostwhite", "Ghostwhite", "#21908CFF", "#FDE725FF", "Orange"], [(i+1.00001)/2.00002 for i in [-1.00001, -1, -0.101, -0.1, 0, 0.1, 0.101, 1, 1.00001]])
                 + p9.ggtitle(expName + ": Heatmap of predicted and manually derived integration results.\n0 (white) indicates the perfect agreement (manual and prediction for peak/nopeak agree and identical peak areas (+/- 10%) if peaks were detected)\n1.001 (red) indicates a predicted peak but nopeak in the manual integration, while -1.001 (orange) indicates a nopeak in the prediction but a manually integrated peak\ncolors between -1 and 1 indicate the increase (positive) or decrease (negative) of the abundance difference relative manually integrated peak area (in %)\n" + "PBPeak & GTPeak %d (%.1f%%); PBNoPeak & GTNoPeak %d (%.1f%%); PBPeak & GTNoPeak %d (%.1f%%); PBNoPeak & GTPeak %d (%.1f%%)\n"%(sum(indResPD["PBPeak"] & indResPD["GTPeak"]), sum(indResPD["PBPeak"] & indResPD["GTPeak"]) / indResPD.shape[0] * 100, sum(~indResPD["PBPeak"] & ~indResPD["GTPeak"]), sum(~indResPD["PBPeak"] & ~indResPD["GTPeak"])/ indResPD.shape[0] * 100, sum(indResPD["PBPeak"] & ~indResPD["GTPeak"]), sum(indResPD["PBPeak"] & ~indResPD["GTPeak"]) / indResPD.shape[0] * 100, sum(~indResPD["PBPeak"] & indResPD["GTPeak"]), sum(~indResPD["PBPeak"] & indResPD["GTPeak"]) / indResPD.shape[0] * 100) + str(round(indResPD[indResPD["PBPeak"] & indResPD["GTPeak"]]["value"].describe(percentiles=[0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]),2,)).replace("\n", "; ").replace("  ", " ").replace("  ", " ").replace("  ", " ").replace("  ", " "))
             )
             p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_AllResults.pdf"%(valDS["DSName"])), width=50, height=20, limitsize=False, verbose=False)

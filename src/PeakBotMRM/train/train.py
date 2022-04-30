@@ -1,6 +1,7 @@
-from PeakBotMRM.core import tic, toc, arg_find_nearest
+from PeakBotMRM.core import tic, toc, arg_find_nearest, extractStandardizedEIC, getInteRTIndsOnStandardizedEIC
 import PeakBotMRM
-from PeakBotMRM.core import extractStandardizedEIC, getInteRTIndsOnStandardizedEIC
+
+import PeakBotMRM.validate
 
 import os
 import plotnine as p9
@@ -177,10 +178,11 @@ def exportOriginalInstancesForValidation(substances, integrations, experimentNam
 def constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, integrations, verbose = True, logPrefix = ""):
     if verbose: 
         print(logPrefix, "Inspecting dataset (and applying optional peak statistic filter criteria)")
+    assert checkPeakAttributes is None or checkPeakAttributes[0] == 0 or (checkPeakAttributes[0] != 0 and checkPeakAttributes[1] is not None)
     tic()
     peaks = []
     noPeaks = []
-    notUsed = {}
+    useCriteria = {}
     notUsedCount = 0
     for substance in tqdm.tqdm(substances.values(), desc=logPrefix + "   | .. inspecting"):
         if substance.name in integrations.keys():
@@ -212,20 +214,24 @@ def constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, 
                         
                         use = True
                         if checkPeakAttributes is not None:
-                            use = checkPeakAttributes(peakWidth, centerOffset, peakLeftInflection, peakRightInflection, leftIntensityRatio, rightIntensityRatio, eicS, rtsS)
-                        if type(use) == bool and use:
+                            use = True, "no check"
+                            if checkPeakAttributes[0] != 0:
+                                use = checkPeakAttributes[1](peakWidth, centerOffset, peakLeftInflection, peakRightInflection, leftIntensityRatio, rightIntensityRatio, eicS, rtsS)
+                            use = (checkPeakAttributes[0] == 0 or (checkPeakAttributes[0] == -1 and not use[0]) or (checkPeakAttributes[0] == 1 and use[0]), use[1])
+                        if use[0]:
                             peaks.append((substance.name, sample))
                         else:
-                            if use not in notUsed.keys():
-                                notUsed[use] = 0
-                            notUsed[use] += 1
                             notUsedCount += 1
+                        if use[1] not in useCriteria.keys():
+                            useCriteria[use[1]] = 0
+                        useCriteria[use[1]] += 1
                 else:
                     noPeaks.append((substance.name, sample))
     if checkPeakAttributes is not None and verbose:
+        for k, v in useCriteria.items():
+            print(logPrefix, "  | .. .. %d (%.1f%%) peaks used / not used due to '%s'"%(v, v/(notUsedCount+len(peaks))*100, k))
         print(logPrefix, "  | .. .. %d (%.1f%%) of %d peaks were not used due to peak abnormalities according to the user-provided peak-quality function checkPeakAttributes."%(notUsedCount, notUsedCount/(notUsedCount + len(peaks))*100, notUsedCount + len(peaks)))
-        for k, v in notUsed.items():
-            print(logPrefix, "  | .. .. .. %d (%.1f%%) not used due to '%s'"%(v, v/(v+len(peaks))*100, k))
+        
     if verbose: 
         print(logPrefix, "  | .. there are (after peak attribute checking) %d (%.1f%%) peaks and %d (%.1f%%) backgrounds in the dataset."%(len(peaks), len(peaks)/(len(peaks) + len(noPeaks))*100, len(noPeaks), len(noPeaks)/(len(peaks) + len(noPeaks))*100))
     random.shuffle(peaks)
@@ -658,28 +664,32 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
                                                           excludeSubstances = trainDS["excludeSubstances"] if "excludeSubstances" in trainDS.keys() else None, 
                                                           includeSubstances = trainDS["includeSubstances"] if "includeSubstances" in trainDS.keys() else None, 
                                                           logPrefix = "  | ..")
-        substances, integrations = PeakBotMRM.loadIntegrations(substances, trainDS["GTPeaks"], logPrefix = "  | ..")
+        substances, integrations = PeakBotMRM.loadIntegrations(substances, 
+                                                               trainDS["GTPeaks"], 
+                                                               logPrefix = "  | ..")
         substances, integrations = PeakBotMRM.loadChromatograms(substances, integrations, trainDS["samplesPath"],
                                                                 sampleUseFunction = trainDS["sampleUseFunction"] if "sampleUseFunction" in trainDS.keys() else None, 
                                                                 allowedMZOffset = allowedMZOffset, 
-                                                                MRMHeader = MRMHeader, logPrefix = "  | ..")
+                                                                MRMHeader = MRMHeader, 
+                                                                logPrefix = "  | ..")
         if showPeakMetrics:
             investigatePeakMetrics(expDir, substances, integrations, expName = "%s"%(trainDS["DSName"]), logPrefix = "  | ..")
         
-        integrations = constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, integrations, logPrefix = "  | ..")
+        integrations = constrainAndBalanceDataset(balanceDataset, trainDS["checkPeakAttributes"] if "checkPeakAttributes" in trainDS.keys() else None, substances, integrations, logPrefix = "  | ..")
         
         dataset = exportOriginalInstancesForValidation(substances, integrations, "Train_Ori_%s"%(trainDS["DSName"]), logPrefix = "  | ..")
         dataset.shuffle()
         dataset.setName("%s_Train_Ori"%(trainDS["DSName"]))
         validationDSs.append(dataset)
+        
         if useDSForTraining.lower() == "original":
             trainDataset.addData(dataset.data)
         
-        dataset = generateAndExportAugmentedInstancesForTraining(substances, integrations, "Train_Aug_%s"%(trainDS["DSName"]), addRandomNoise, maxRandFactor, maxNoiseLevelAdd, 
-                                                                 shiftRTs, maxShift, useEachInstanceNTimes, balanceAugmentations, logPrefix = "  | ..")
-        dataset.shuffle()
-        dataset.setName("%s_Train_Aug"%(trainDS["DSName"]))
         if useDSForTraining.lower() == "augmented":
+            dataset = generateAndExportAugmentedInstancesForTraining(substances, integrations, "Train_Aug_%s"%(trainDS["DSName"]), addRandomNoise, maxRandFactor, maxNoiseLevelAdd, 
+                                                                     shiftRTs, maxShift, useEachInstanceNTimes, balanceAugmentations, logPrefix = "  | ..")
+            dataset.shuffle()
+            dataset.setName("%s_Train_Aug"%(trainDS["DSName"]))
             trainDataset.addData(dataset.data)
         
         print("")
@@ -713,16 +723,8 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
             
             print("Adding additional validation dataset '%s'"%(valDS["DSName"]))
             
-            substances               = PeakBotMRM.loadTargets(valDS["transitions"], 
-                                                              excludeSubstances = valDS["excludeSubstances"] if "excludeSubstances" in valDS.keys() else None, 
-                                                              includeSubstances = valDS["includeSubstances"] if "includeSubstances" in valDS.keys() else None, 
-                                                              logPrefix = "  | ..")
-            substances, integrations = PeakBotMRM.loadIntegrations(substances, valDS["GTPeaks"], 
-                                                                   logPrefix = "  | ..")
-            substances, integrations = PeakBotMRM.loadChromatograms(substances, integrations, valDS["samplesPath"],
-                                                                    sampleUseFunction = valDS["sampleUseFunction"] if "sampleUseFunction" in valDS.keys() else None, 
-                                                                    allowedMZOffset = allowedMZOffset, 
-                                                                    MRMHeader = MRMHeader, logPrefix = "  | ..")
+            substances, integrations = PeakBotMRM.validate.getValidationSet(valDS, MRMHeader, allowedMZOffset)
+            
             if showPeakMetrics:
                 investigatePeakMetrics(expDir, substances, integrations, expName = "%s"%(valDS["DSName"]), logPrefix = "  | ..")
             
