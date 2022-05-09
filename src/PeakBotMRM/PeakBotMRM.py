@@ -5,12 +5,12 @@ from .core import *
 
 import sys
 import os
+import pathlib
 import pickle
 import uuid
 import re
 import math
 import random
-import copy
 
 import tensorflow as tf
 import tensorflow_addons as tfa
@@ -54,6 +54,8 @@ class Config(object):
     UPDATEPEAKBORDERSTOMIN = True
     INTEGRATIONMETHOD = "minbetweenborders"
     INCLUDEMETAINFORMATION = False
+    
+    MRMHEADER = "- SRM SIC Q1=(\d+\.?\d*[eE]?-?\d+) Q3=(\d+\.?\d*[eE]?-?\d+) start=(\d+\.?\d*[eE]?-?\d+) end=(\d+\.?\d*[eE]?-?\d+)"
 
     @staticmethod
     def getAsStringFancy():
@@ -658,8 +660,7 @@ def trainPeakBotMRMModel(trainDataset, logBaseDir, modelName = None, valDataset 
             if x is not None and y is not None:
                 valDS.addValidationSet((x,y, valDataset.name))
                 if verbose:
-                    print("  | .. .. %d instances"%(x["channel.int"].shape[0]))
-                    print("  | .. .. %s"%(valDataset.getSizeInformation()))
+                    print("  | .. .. %d instances; %s"%(x["channel.int"].shape[0], valDataset.getSizeInformation()))
 
             else:
                 raise RuntimeError("Unknonw additional validation dataset")
@@ -700,6 +701,10 @@ def trainPeakBotMRMModel(trainDataset, logBaseDir, modelName = None, valDataset 
         print("  | .. model built and trained successfully (took %.1f seconds)"%toc("pbTrainNewModel"))
 
     return pb, metricesAddValDS, modelName
+
+
+
+
 
 
 
@@ -847,7 +852,7 @@ def evaluatePeakBotMRM(instancesWithGT, modelPath = None, model = None, verbose 
 
 
 class Substance:
-    def __init__(self, name, Q1, Q3, CE, CEMethod, refRT, peakForm, rtShift, note, polarity):
+    def __init__(self, name, Q1, Q3, CE, CEMethod, refRT, peakForm, rtShift, note, polarity, type, criteria):
         self.name = name
         self.Q1 = Q1
         self.Q3 = Q3
@@ -857,7 +862,9 @@ class Substance:
         self.peakForm = peakForm
         self.rtShift = rtShift
         self.note = note
+        self.criteria = criteria
         self.polarity = polarity
+        self.type = type
     
     def __str__(self):
         return "%s (Q1 '%s', Q3 '%s', CE '%s', CEMethod '%s', ref.RT %.2f)"%(self.name, self.Q1, self.Q3, self.CE, self.CEMethod, self.refRT)
@@ -890,14 +897,15 @@ def loadTargets(targetFile, excludeSubstances = None, includeSubstances = None, 
                        Substance(substance["Name"].replace(" (ISTD)", ""),
                                  substance["Precursor Ion"],
                                  substance["Product Ion"],
-                                 None,
-                                 None, 
+                                 substance["Collision Energy"],
+                                 substance["Collision Method"], 
                                  substance["RT"],
                                  substance["PeakForm"], 
                                  substance["RT shifts"],
                                  substance["Note"],
-                                 substance["Ion Polarity"])) for substance in substances if substance["Name"] not in excludeSubstances and (includeSubstances is None or substance["Name"] in includeSubstances))
-                ##TODO include collisionEnergy here
+                                 substance["Ion Polarity"],
+                                 substance["Type"],
+                                 substance["Criteria"])) for substance in substances if substance["Name"] not in excludeSubstances and (includeSubstances is None or substance["Name"] in includeSubstances))
     if verbose:
         print(logPrefix, "  | .. loaded %d substances"%(len(substances)))
         print(logPrefix, "  | .. of these %d have RT shifts"%(sum((1 if substance.rtShift !="" else 0 for substance in substances.values()))))
@@ -913,14 +921,22 @@ def loadIntegrations(substances, curatedPeaks, verbose = True, logPrefix = ""):
     if verbose:
         print(logPrefix, "Loading integrations from file '%s'"%(curatedPeaks))
     headers, integrationData = parseTSVMultiLineHeader(curatedPeaks, headerRowCount=2, delimiter = ",", commentChar = "#", headerCombineChar = "$")
-    headers = dict((k.replace(" (ISTD)", ""), v) for k,v in headers.items())
-    foo = set([header[:header.find("$")] for header in headers if not header.startswith("Sample$")])
+    headers = dict((k.replace("  (ISTD)", "").replace(" (ISTD)", "").replace("  Results", "").replace(" Results", "").strip(), v) for k,v in headers.items())
+    foo = set(header[:header.find("$")].strip() for header in headers if not header.startswith("Sample$"))
+    
     notUsingSubstances = []
     for substanceName in substances.keys():
         if substanceName not in foo:
             notUsingSubstances.append(substanceName)
     if verbose and len(notUsingSubstances) > 0:
-        print(logPrefix, "  | .. Not using %d substances (%s) as these are not in the integration matrix"%(len(notUsingSubstances), ", ".join(notUsingSubstances)))
+        print(logPrefix, "  | .. Not using %d substances from the transition list as these are not in the integration matrix. These substances are: \033[91m'%s'\033[0m"%(len(notUsingSubstances), "', '".join(notUsingSubstances)))
+    
+    notUsingSubstances = []
+    for substanceName in foo:
+        if substanceName not in substances.keys():
+            notUsingSubstances.append(substanceName)
+    if verbose and len(notUsingSubstances) > 0:
+        print(logPrefix, "  | .. Not using %d substances from the integration matrix as these are not in the transition list. These substances are: \033[91m'%s'\033[0m"%(len(notUsingSubstances), "', '".join(notUsingSubstances)))
     
     foo = dict((k, v) for k, v in substances.items() if k in foo)
     if verbose:
@@ -936,18 +952,19 @@ def loadIntegrations(substances, curatedPeaks, verbose = True, logPrefix = ""):
     for substanceName in substances.keys():
         integrations[substanceName] = {}
         for integration in integrationData:
+            sample = integration[headers["Sample$Data File"]].replace(".d", "")
             area = integration[headers["%s$Area"%(substanceName)]]
             if area == "" or float(area) == 0:
-                integrations[substanceName][integration[headers["Sample$Name"]]] = Integration(False, -1, -1, -1, [])
+                integrations[substanceName][sample] = Integration(False, -1, -1, -1, [])
                 foundNoPeaks += 1
             else:
-                integrations[substanceName][integration[headers["Sample$Name"]]] = Integration(True, 
-                                                                                               float(integration[headers["%s$Int. Start"%(substanceName)]]), 
-                                                                                               float(integration[headers["%s$Int. End"  %(substanceName)]]), 
-                                                                                               float(integration[headers["%s$Area"      %(substanceName)]]),
-                                                                                               [])
+                integrations[substanceName][sample] = Integration(True, 
+                                                                  float(integration[headers["%s$Int. Start"%(substanceName)]]), 
+                                                                  float(integration[headers["%s$Int. End"  %(substanceName)]]), 
+                                                                  float(integration[headers["%s$Area"      %(substanceName)]]),
+                                                                  [])
                 foundPeaks += 1
-            integratedSamples.add(integration[headers["Sample$Name"]])
+            integratedSamples.add(sample)
             totalIntegrations += 1
     if verbose:
         print(logPrefix, "  | .. parsed %d integrations from %d substances and %d samples."%(totalIntegrations, len(substances), len(integratedSamples)))
@@ -960,13 +977,27 @@ def loadIntegrations(substances, curatedPeaks, verbose = True, logPrefix = ""):
 
  
 def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction = None, loadFromPickleIfPossible = True,
-                      allowedMZOffset = 0.05, MRMHeader = "- SRM SIC Q1=(\\d+[.]\\d+) Q3=(\\d+[.]\\d+) start=(\\d+[.]\\d+) end=(\\d+[.]\\d+)",
+                      allowedMZOffset = 0.05, MRMHeader = None,
                       verbose = True, logPrefix = ""):
     ## load chromatograms
     tic("procChroms")
+    
+    if MRMHeader is None:
+        MRMHeader = Config.MRMHEADER
+    
     if verbose:
         print(logPrefix, "Loading chromatograms")
     
+    for sample in os.listdir(samplesPath):
+        pathsample = os.path.join(samplesPath, sample)
+        if  os.path.isdir(pathsample) and pathsample.endswith(".d") and not os.path.isfile(pathsample.replace(".d", ".mzML")):
+            cmd = "msconvert -o \"%s\" --mzML --mz32 -z \"%s\" "%(samplesPath, pathsample)
+            os.system(cmd)
+            if not os.path.isfile(pathsample.replace(".d", ".mzML")):
+                print("Error: Converting the file '%s' failed. Probably msconvert is not registered in your path, please register it. (command is '%s'"%(sample, cmd))
+                sys.exit(-1)
+            print(logPrefix, "  | .. sample '%s' is a folder and ends with '.d'. Thus it was converted to '%s' (command: '%s')"%(sample, sample.replace(".d", ".mzML"), cmd))
+
     samples = [os.path.join(samplesPath, f) for f in os.listdir(samplesPath) if os.path.isfile(os.path.join(samplesPath, f)) and f.lower().endswith(".mzml")]
     usedSamples = set()
     if os.path.isfile(os.path.join(samplesPath, "integrations.pickle")) and loadFromPickleIfPossible:
@@ -977,11 +1008,9 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
     else:
         if verbose:
             print(logPrefix, "  | .. This might take a couple of minutes as all samples/integrations/channels/etc. need to be compared and the current implementation are 4 sub-for-loops")
-            print(samples)
+        
         for sample in tqdm.tqdm(samples, desc="  | .. importing"):
             sampleName = os.path.basename(sample)
-            if verbose: 
-                print("logPrefix, \nsample", sampleName)
             sampleName = sampleName[:sampleName.rfind(".")]
             usedSamples.add(sampleName)
 
@@ -1010,46 +1039,54 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                         if collisionEnergy is not None:
                             collisionEnergy = float(collisionEnergy)
 
-                    collisionType = None
+                    collisionMethod = None
                     if entry.get_element_by_name("collision-induced dissociation") is not None:
-                        collisionType = "collision-induced dissociation"
-                    if collisionType == "collision-induced dissociation":
-                        collisionType = "CID"
+                        collisionMethod = "collision-induced dissociation"
+                    if collisionMethod == "collision-induced dissociation":
+                        collisionMethod = "CID"
 
                     rts = np.array([time for time, intensity in entry.peaks()])
                     eic = np.array([intensity for time, intensity in entry.peaks()])
                     chrom = {"rts": rts, "eic": eic}
 
-                    allChannels.append([Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionType, entry.ID, chrom])
+                    allChannels.append([Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entry.ID, chrom])
 
             ## merge channels with integration results for this sample
-            for i, (Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionType, entryID, chrom) in enumerate(allChannels):
+            alreadyPrinted = []
+            for i, (Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID, chrom) in enumerate(allChannels):
                 usedChannel = []
                 useChannel = True
                 ## test if channel is unique
-                for bi, (bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionType, bentryID, bchrom) in enumerate(allChannels):
+                for bi, (bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID, bchrom) in enumerate(allChannels):
                     if i != bi:  ## correct, cannot be optimized as both channels (earlier and later) shall not be used in case of a collision
                         if abs(Q1 - bq1) <= allowedMZOffset and abs(Q3 - bq3) <= allowedMZOffset and \
                             ((rtstart <= brtstart <= rtend) or (rtstart <= brtend <= rtend)) and \
                             polarity == bpolarity and \
-                            collisionType == bcollisionType: # TODO include collisionEnergy test here:
+                            collisionEnergy == bcollisionEnergy and \
+                            collisionMethod == bcollisionMethod:
                             useChannel = False
                             unusedChannels.append(entryID)
-                            if verbose: 
-                                print(logPrefix, "Problematic channel combination found. Both will be skipped (TODO implement CE reference from the reference data)")
-                                print(logPrefix, "  channel     Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, pol '%10s', CE %5.1f, Method '%s', Header '%s'"%(Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionType, entryID))
-                                print(logPrefix, "  problematic Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, pol '%10s', CE %5.1f, Method '%s', Header '%s'"%(bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionType, bentryID))
-                                print(logPrefix, )
+                            unusedChannels.append(bentryID)
+                            if verbose and "%d - %d"%(i, bi) not in alreadyPrinted: 
+                                print(logPrefix, "    \033[91mProblematic channel combination found in sample '%s'. Both will be skipped\033[0m"%(sampleName))
+                                print(logPrefix, "        * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
+                                print(logPrefix, "        * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID))
+                                print(logPrefix, )      
+                            alreadyPrinted.append("%d - %d"%(i, bi))
+                            alreadyPrinted.append("%d - %d"%(bi, i))                      
                 
-                ## use channel if it is unique and find the integrated substance(s) for it
-                if useChannel:
-                    for substance in substances.values(): ## TODO include collisionEnergy and collisionMethod checks here
-                        if abs(substance.Q1 - Q1) < allowedMZOffset and abs(substance.Q3 - Q3) <= allowedMZOffset and \
-                            rtstart <= substance.refRT <= rtend:
-                            if substance.name in integrations.keys() and sampleName in integrations[substance.name].keys():
-                                foundTargets.append([substance, entry, integrations[substance.name][sampleName]])
-                                usedChannel.append(substance)
-                                integrations[substance.name][sampleName].chromatogram.append(chrom)
+            for i, (Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID, chrom) in enumerate(allChannels):
+                if entryID not in unusedChannels:
+                    ## use channel if it is unique and find the integrated substance(s) for it
+                    if useChannel:
+                        for substance in substances.values():
+                            if abs(substance.Q1 - Q1) < allowedMZOffset and abs(substance.Q3 - Q3) <= allowedMZOffset and \
+                                substance.CE == collisionEnergy and substance.CEMethod == collisionMethod and \
+                                rtstart <= substance.refRT <= rtend:
+                                if substance.name in integrations.keys() and sampleName in integrations[substance.name].keys():
+                                    foundTargets.append([substance, entry, integrations[substance.name][sampleName]])
+                                    usedChannel.append(substance)
+                                    integrations[substance.name][sampleName].chromatogram.append(chrom)
         
 
         with open(os.path.join(samplesPath, "integrations.pickle"), "wb") as fout:
@@ -1065,17 +1102,19 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
             if len(integrations[substance][sample].chromatogram) == 1:
                 foundOnce = True
                 integrations[substance][sample].chromatogram = integrations[substance][sample].chromatogram[0]
+                
             elif len(integrations[substance][sample].chromatogram) > 1:
                 remSubstancesChannelProblems.add(substance)
                 break
+            
             elif len(integrations[substance][sample].chromatogram) == 0:
                 integrations[substance][sample].chromatogram = None
+                
         if not foundOnce:
             remSubstancesChannelProblems.add(substance)
     if len(remSubstancesChannelProblems) > 0:
         if verbose:
-            print(logPrefix, "  | .. %d substances (%s) were not found as the channel selection was ambiguous. These will not be used further"%(len(remSubstancesChannelProblems), ", ".join(sorted(remSubstancesChannelProblems))))
-            print(logPrefix, "  | .. ATTENTION: CE and CET are not yet available (as the reference does not specify these values). Thus, some of the reference compounds cannot be used due to ambiguous channel selection")
+            print(logPrefix, "\033[91m  | .. %d substances were not found as the channel selection was ambiguous and will thus not be used further. These substances are: '%s'. \033[0m"%(len(remSubstancesChannelProblems), "', '".join(sorted(remSubstancesChannelProblems))))
         for r in remSubstancesChannelProblems:
             del integrations[r]
             

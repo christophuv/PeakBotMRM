@@ -205,7 +205,7 @@ def readTSVFile(file, header = True, delimiter = "\t", commentChar = "#", getRow
 
         for rowi, row in enumerate(rd):
             if rowi == 0:
-                headers = row
+                headers = [r.strip() for r in row]
 
                 for celli, cell in enumerate(row):
                     colTypes[celli] = None
@@ -246,6 +246,7 @@ def readTSVFile(file, header = True, delimiter = "\t", commentChar = "#", getRow
     if getRowsAsDicts:
         temp = {}
         for headeri, header in enumerate(headers):
+            header = header.strip()
             temp[header] = headeri
         headers = temp
 
@@ -256,7 +257,7 @@ def readTSVFile(file, header = True, delimiter = "\t", commentChar = "#", getRow
                 t[header] = row[headeri]
             temp.append(t)
         rows = temp
-
+    
     return headers, rows
 
 
@@ -284,17 +285,19 @@ def parseTSVMultiLineHeader(fi, headerRowCount=1, delimiter = "\t", commentChar 
         for rowi, row in enumerate(rd):
 
             if rowi < headerRowCount:
-                lastHead = row[0]
+                lastHead = row[0].strip()
                 for celli, cell in enumerate(row):
+                    cell = cell.strip()
                     if cell == "":
                         row[celli] = lastHead
                     else:
                         lastHead = cell
 
                 if rowi == 0:
-                    headers = row
+                    headers = [r.strip() for r in row]
                 else:
                     for celli, cell in enumerate(row):
+                        cell = cell.strip()
                         headers[celli] = headers[celli] + headerCombineChar + cell
             
             elif row[0].startswith(commentChar):

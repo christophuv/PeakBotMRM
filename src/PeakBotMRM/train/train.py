@@ -3,6 +3,8 @@ import PeakBotMRM
 
 import PeakBotMRM.validate
 
+from datetime import datetime
+import platform
 import os
 import plotnine as p9
 import pandas as pd
@@ -266,7 +268,7 @@ def constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, 
         print(logPrefix)
     return integrations
 
-def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbose = True, logPrefix = ""):
+def investigatePeakMetrics(expDir, substances, integrations, expName = "", plot = True, print2Console = True, verbose = True, logPrefix = ""):
     if verbose:
         print(logPrefix, "Peak statistics for '%s'"%(expName))
     tic()
@@ -276,7 +278,7 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
     ysample = []
     ysubstance = []
     xcur = 0
-    for substanceName in tqdm.tqdm(integrations.keys(), desc="  | .. calculating"):
+    for substanceName in tqdm.tqdm(integrations.keys(), desc="   | .. calculating"):
         for sample in integrations[substanceName].keys():
             inte = integrations[substanceName][sample]
             if substanceName in substances.keys() and inte.chromatogram is not None:
@@ -309,7 +311,17 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
                     peakLeftInflection = inte.rtStart - apexRT
                     peakRightInflection = inte.rtEnd - apexRT
                     leftIntensityRatio = intApex/intLeft if intLeft > 0 else np.Inf
-                    rightIntensityRatio = intApex/intRight if intRight > 0 else np.Inf                    
+                    rightIntensityRatio = intApex/intRight if intRight > 0 else np.Inf
+                    
+                    refRTPos = 0
+                    if refRT < inte.rtStart:
+                        refRTPos = 1
+                    elif refRT < apexRT:
+                        refRTPos = (apexRT - refRT) / (apexRT - inte.rtStart)
+                    elif inte.rtEnd < refRT:
+                        refRTPos = -1
+                    else: # apexRT < refRT
+                        refRTPos = - (refRT - apexRT) / (inte.rtEnd - apexRT)
                     
                     stats["peakProperties"].append([sample, sampleTyp, substanceName, "peakWidth", peakWidth])
                     stats["peakProperties"].append([sample, sampleTyp, substanceName, "peakWidthScans", peakWidthScans])
@@ -324,6 +336,7 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
                         stats["peakProperties"].append([sample, sampleTyp, substanceName, "peakBorderRightIntensityRatioNonInf", intApex/intRight])
                     stats["peakProperties"].append([sample, sampleTyp, substanceName, "eicStandStartToRef", min(rtsS[rtsS>0]) - refRT])
                     stats["peakProperties"].append([sample, sampleTyp, substanceName, "eicStandEndToRef", max(rtsS) - refRT])
+                    stats["peakProperties"].append([sample, sampleTyp, substanceName, "refRTPos", refRTPos])
                     
                     if False:   ## for UMAP and PaCMAP illustrations only
                         temp = apexRT
@@ -480,11 +493,24 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
         
         
     tf = pd.DataFrame(stats["peakProperties"], columns = ["sample", "sampletype", "substance", "type", "value"])
-    if verbose:
+    tf.insert(0, "Experiment", [expName for i in range(tf.shape[0])])
+    if print2Console:
         print(logPrefix, "  | .. There are %d peaks and %d Nopeaks. An overview of the peak stats has been saved to '%s'"%(stats["hasPeak"], stats["hasNoPeak"], os.path.join(expDir, "%s_peakStat.png"%(expName))))
         print(logPrefix, "  | .. .. The distribution of the peaks' properties (offset of apex to expected rt, left and right extends relative to peak apex, peak widths) are: (in minutes)")
         print(logPrefix, tf.groupby("type").describe(percentiles=[0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]))
+    
+    if plot:
+        plotPeakMetrics(tf, expDir, expName)
+    
+    if verbose:
+        if plot:
+            print(logPrefix, "  | .. plotted peak metrics to file '%s'"%(os.path.join(expDir, "%s_peakStat.png"%(expName))))
+        print(logPrefix, "  | .. took %.1f seconds"%toc())
+        print(logPrefix)
         
+    return tf
+
+def plotPeakMetrics(tf, expDir, expName):
     df = tf.copy()
     df.drop(df[df.type == "peakWidthScans"].index, inplace=True)
     df.drop(df[df.type == "peakBorderLeftIntensityRatio"].index, inplace=True)
@@ -519,6 +545,8 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
     df.drop(df[df.type == "peakWidthScans"].index, inplace=True)
     df.drop(df[df.type == "peakBorderLeftIntensityRatio"].index, inplace=True)
     df.drop(df[df.type == "peakBorderRightIntensityRatio"].index, inplace=True)
+    df.drop(df[df.type == "refRTPos"].index, inplace=True)
+    
     plot = (p9.ggplot(df, p9.aes("value"))
             + p9.geom_histogram()
             + p9.facet_wrap("~type", scales="free", ncol=2)
@@ -539,17 +567,12 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", verbo
             + p9.theme(legend_position = "none", panel_spacing_x=0.5))
     p9.options.figure_size = (5.2,5)
     p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_peakStats_4.png"%(expName)), width=5.2, height=35, dpi=300, limitsize=False, verbose=False)
-    
-    if verbose:
-        print(logPrefix, "  | .. plotted peak metrics to file '%s'"%(os.path.join(expDir, "%s_peakStat.png"%(expName))))
-        print(logPrefix, "  | .. took %.1f seconds"%toc())
-        print(logPrefix)
 
 def plotHistory(histObjectFile, plotFile, verbose = True, logPrefix = ""):
     
     histAll = None
-    with portalocker.Lock(histObjectFile, timeout = 60, check_interval = 2) as fh:
-        histAll = pd.read_pickle(histObjectFile)
+    with portalocker.Lock(histObjectFile, mode = "rb+", timeout = 60, check_interval = 2) as fh:
+        histAll = pd.read_pickle(fh)
         
     ### Summarize and illustrate the results of the different training and validation dataset
     df = histAll
@@ -588,7 +611,7 @@ def plotHistory(histObjectFile, plotFile, verbose = True, logPrefix = ""):
         p9.ggsave(plot=p, filename="%s_ROC_zoomed_%s.png"%(plotFile, k), width=20, height=20, dpi=300, limitsize=False, verbose=False)
 
 def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, logDir = None, historyFile = None, 
-                         MRMHeader = "- SRM SIC Q1=(\\d+[.]\\d+) Q3=(\\d+[.]\\d+) start=(\\d+[.]\\d+) end=(\\d+[.]\\d+)",
+                         MRMHeader = None,
                          allowedMZOffset = 0.05, balanceDataset = False, balanceAugmentations = True,
                          addRandomNoise = True, maxRandFactor = 0.1, maxNoiseLevelAdd=0.1, shiftRTs = True, maxShift = 0.15, useEachInstanceNTimes = 5, 
                          checkPeakAttributes = None, showPeakMetrics = True, 
@@ -596,6 +619,8 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
                          verbose = True, logPrefix = ""):
     tic("Overall process")
     
+    if MRMHeader is None:
+        MRMHeader = PeakBotMRM.Config.MRMHEADER
     if expDir is None:
         expDir = os.path.join(".", expName)
     if logDir is None:
@@ -753,17 +778,22 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
     ## add current history
     chist["comment"] = comment
     chist["modelName"] = modelName
+    chist["CreatedOn"] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    chist["CreatedBy"] = platform.node()
 
     ### Summarize the training and validation metrices and losses
-    if not os.path.exists(historyFile):
-        chist.to_pickle(historyFile)
-    else:
-        with portalocker.Lock(historyFile, timeout = 60, check_interval = 2) as fh:
-            if os.path.exists(historyFile):
-                history = pd.read_pickle(historyFile)
-                history = pd.concat((history, chist), axis=0, ignore_index=True)
-            else:
-                history = chist
-            history.to_pickle(historyFile)
+    with portalocker.Lock(historyFile, mode = "ab+", timeout = 60, check_interval = 2) as fh:
+        try:
+            fh.seek(0,0)
+            history = pd.read_pickle(fh)
+            print("Read history file with %d entries, appending new experiment with %d entries\n"%(history.shape[0], chist.shape[0]))
+            history = pd.concat((history, chist), axis=0, ignore_index=True)
+        except:
+            print("\33[93mCould not read history file, creating a new one\33[0m\n")
+            history = chist
+        print("new history has shape", history.shape)
+        fh.seek(0,0)
+        fh.truncate(0)
+        history.to_pickle(fh)
 
     print("\n\n\n")

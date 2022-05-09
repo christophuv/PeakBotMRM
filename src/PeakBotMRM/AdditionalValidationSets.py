@@ -45,9 +45,27 @@ class AdditionalValidationSets(tf.keras.callbacks.Callback):
             hist={}
             if self.verbose: print("Additional validation datasets (epoch %d): "%(epoch+1))
             # evaluate on the additional validation sets
+            maxSetLength = 10
             for validation_set in self.validation_sets:
                 tic("kl234hlkjsfkjh1hlkjhasfdkjlh")
-                outStr = []
+                if len(validation_set) == 2:
+                    validation_data, validation_set_name = validation_set
+                    validation_targets = None
+                    sample_weights = None
+                if len(validation_set) == 3:
+                    validation_data, validation_targets, validation_set_name = validation_set
+                    sample_weights = None
+                elif len(validation_set) == 4:
+                    validation_data, validation_targets, sample_weights, validation_set_name = validation_set
+                else:
+                    raise ValueError()
+                maxSetLength = max(maxSetLength, len(validation_set_name))
+                
+            headers = ["%%%ds"%(maxSetLength)%("dataset"), " instances", "      time", "   loss"]
+            headersPrinted = False
+            for validation_set in self.validation_sets:
+                tic("kl234hlkjsfkjh1hlkjhasfdkjlh")
+                outStr = ["" for r in headers]
                 if len(validation_set) == 2:
                     validation_data, validation_set_name = validation_set
                     validation_targets = None
@@ -81,16 +99,28 @@ class AdditionalValidationSets(tf.keras.callbacks.Callback):
                             tf.summary.scalar(valuename, data=result, step=epoch)
                     except Exception:
                         print("Cannot write scalar to tensorboard. Try installing TensorBoard (command: pip install tensorboard)")
-                    if i > 0: outStr.append(", ")
+                    
                     valuename = metric
                     if i not in self.printWidths.keys():
                         self.printWidths[i] = 0
                     self.printWidths[i] = max(self.printWidths[i], len(valuename))
-                    outStr.append("%s: %.4f"%("%%%ds"%self.printWidths[i]%valuename, result))
+                    
+                    shortValName = valuename.replace("categorical_accuracy", "CatACC").replace("MatthewsCorrelationCoefficient", "MCC").replace("loss", "   loss")
+                    if shortValName not in headers: 
+                        headers.append(shortValName)
+                        outStr.append("")
+                    outStr[headers.index(shortValName)] = "%%%d.4f"%(len(headers[headers.index(shortValName)]))%(result)
+                    
                     hist[validation_set_name + "_" + valuename] = result
-                outStr.append("")
-                outStr.insert(0, "   %%%ds - %8d instances - %3.0fs - "%(self.maxLenNames, validation_data["channel.int"].shape[0], toc("kl234hlkjsfkjh1hlkjhasfdkjlh"))%validation_set_name)
-                if self.verbose: print("".join(outStr))
+                    
+                outStr[headers.index("%%%ds"%(maxSetLength)%("dataset"))] = "%%%ds"%(maxSetLength)%(validation_set_name)
+                outStr[headers.index(" instances")] = "%10d"%(validation_data["channel.int"].shape[0])
+                outStr[headers.index("      time")] = "%10.4f"%(toc("kl234hlkjsfkjh1hlkjhasfdkjlh"))
+                if self.verbose: 
+                    if not headersPrinted:
+                        print(" ".join(headers))
+                        headersPrinted = True
+                    print(" ".join(outStr))
             if self.verbose: print("")
         self.history.append(hist)
 
