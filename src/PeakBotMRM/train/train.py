@@ -43,14 +43,15 @@ def compileInstanceDataset(substances, integrations, experimentName, dataset = N
                     if inte.foundPeak and (aug_OnlyUseAugmentationFromSamples is None or key in aug_OnlyUseAugmentationFromSamples):
                         startInd = np.argmin(np.abs(rts - inte.rtStart))
                         endInd = np.argmin(np.abs(rts - inte.rtEnd))
-                        augPeaks.append({"rtstart"    : inte.rtStart,
-                                         "rtend"      : inte.rtEnd,
-                                         "eiccropped" : eic[startInd:endInd] - np.min(eic[startInd:endInd]),
-                                         "rtscropped" : rts[startInd:endInd],
-                                         "area"       : inte.area,
-                                         "substance"  : substance,
-                                         "sample"     : sample
-                                         })
+                        if endInd - startInd >= 2:
+                            augPeaks.append({"rtstart"    : inte.rtStart,
+                                            "rtend"      : inte.rtEnd,
+                                            "eiccropped" : eic[startInd:endInd] - np.min(eic[startInd:endInd]),
+                                            "rtscropped" : rts[startInd:endInd],
+                                            "area"       : inte.area,
+                                            "substance"  : substance,
+                                            "sample"     : sample
+                                            })
 
                     if not inte.foundPeak and (aug_OnlyUseAugmentationFromSamples is None or key in aug_OnlyUseAugmentationFromSamples):
                         augBackgrounds.append({"eic"       : eic,
@@ -177,8 +178,8 @@ def compileInstanceDataset(substances, integrations, experimentName, dataset = N
                             peakUseStart = max(math.floor(peakEIC.shape[0]/2) - addAtInd, 0)
                             peakUseEnd = min(peakEIC.shape[0], PeakBotMRM.Config.RTSLICES - addAtInd + math.floor(peakEIC.shape[0]/2))
 
-                            ## try and add peak at particular position
-                            scaling = np.random.random() * 4 + 1 if random.randint(0,1) == 1 else np.random.random() * 0.4 + 0.1
+                            ## try and add peak at particular position                            
+                            scaling = np.random.random() * 2 + 1 if random.randint(0,1) == 1 else 1 / (np.random.random() * 2 + 1)
                             eicSTemp = np.copy(eicS)
                             peakSignalTypeTemp = np.copy(peakSignalType)
                             eicSTemp[addstartEIC:addendEIC] = eicSTemp[addstartEIC:addendEIC] + peakEIC[peakUseStart:peakUseEnd] / np.max(peakEIC[peakUseStart:peakUseEnd]) * np.max(eicSTemp) * scaling
@@ -272,11 +273,18 @@ def compileInstanceDataset(substances, integrations, experimentName, dataset = N
 
 def generateAndExportAugmentedInstancesForTraining(substances, integrations, experimentName, 
                                                    addRandomNoise, maxRandFactor, maxNoiseLevelAdd, 
-                                                   shiftRTs, maxShift, useEachInstanceNTimes, balanceAugmentations, dataset = None, verbose = True, logPrefix = ""):
+                                                   shiftRTs, maxShift, useEachInstanceNTimes, balanceAugmentations, 
+                                                   aug_augment, aug_OnlyUseAugmentationFromSamples, aug_addAugPeaks, aug_maxAugPeaksN, aug_plotAugInstances, 
+                                                   dataset = None, verbose = True, logPrefix = ""):
     if verbose: 
         print(logPrefix, "Exporting augmented instances for training")
     tic()
-    dataset = compileInstanceDataset(substances, integrations, experimentName, dataset = dataset, addRandomNoise = addRandomNoise, maxRandFactor = maxRandFactor, maxNoiseLevelAdd = maxNoiseLevelAdd, shiftRTs = shiftRTs, maxShift = maxShift, useEachInstanceNTimes = useEachInstanceNTimes, balanceReps = balanceAugmentations, verbose = verbose, logPrefix = logPrefix)
+    dataset = compileInstanceDataset(substances, integrations, experimentName, dataset = dataset, 
+                                     addRandomNoise = addRandomNoise, maxRandFactor = maxRandFactor, maxNoiseLevelAdd = maxNoiseLevelAdd, 
+                                     shiftRTs = shiftRTs, maxShift = maxShift, 
+                                     useEachInstanceNTimes = useEachInstanceNTimes, balanceReps = balanceAugmentations, 
+                                     aug_augment = aug_augment, aug_OnlyUseAugmentationFromSamples = aug_OnlyUseAugmentationFromSamples, aug_addAugPeaks = aug_addAugPeaks, aug_maxAugPeaksN = aug_maxAugPeaksN, aug_plotAugInstances = aug_plotAugInstances, 
+                                     verbose = verbose, logPrefix = logPrefix)
     if verbose: 
         print(logPrefix, "  | .. took %.1f seconds"%(toc()))
         print(logPrefix)
@@ -554,6 +562,7 @@ def plotHistory(histObjectFile, plotFile, verbose = True, logPrefix = ""):
             + p9.facet_wrap("~comment", ncol=4)
             + p9.theme(legend_position = "none")
             + p9.theme_minimal()
+            + p9.theme(plot_background = p9.element_rect(fill = "White"))
             + p9.ggtitle("ROC") + p9.xlab("FPR") + p9.ylab("TPR") 
             )
     p9.options.figure_size = (5.2, 7)
@@ -571,6 +580,7 @@ def plotHistory(histObjectFile, plotFile, verbose = True, logPrefix = ""):
                 + p9.facet_wrap("~comment", ncol=4)
                 + p9.theme(legend_position = "none")
                 + p9.theme_minimal()
+            + p9.theme(plot_background = p9.element_rect(fill = "White"))
                 + p9.ggtitle("ROC for sets containing the string '%s'"%(k)) + p9.xlab("FPR") + p9.ylab("TPR") 
                 )
         p9.options.figure_size = (5.2, 7)
@@ -587,6 +597,7 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
                          MRMHeader = None,
                          allowedMZOffset = 0.05, balanceDataset = False, balanceAugmentations = True,
                          addRandomNoise = True, maxRandFactor = 0.1, maxNoiseLevelAdd=0.1, shiftRTs = True, maxShift = 0.15, useEachInstanceNTimes = 5, 
+                         aug_augment = True, aug_OnlyUseAugmentationFromSamples = None, aug_addAugPeaks = True, aug_maxAugPeaksN = 3, aug_plotAugInstances = False, 
                          showPeakMetrics = True, 
                          comment="None", useDSForTraining = "augmented", 
                          verbose = True, logPrefix = ""):
@@ -682,7 +693,9 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
         
         if useDSForTraining.lower() == "augmented":
             dataset = generateAndExportAugmentedInstancesForTraining(substances, integrations, "Train_Aug_%s"%(trainDS["DSName"]), addRandomNoise, maxRandFactor, maxNoiseLevelAdd, 
-                                                                     shiftRTs, maxShift, useEachInstanceNTimes, balanceAugmentations, logPrefix = "  | ..")
+                                                                     shiftRTs, maxShift, useEachInstanceNTimes, balanceAugmentations, 
+                                                                     aug_augment, aug_OnlyUseAugmentationFromSamples, aug_addAugPeaks, aug_maxAugPeaksN, aug_plotAugInstances, 
+                                                                     logPrefix = "  | ..")
             dataset.shuffle()
             dataset.setName("%s_Train_Aug"%(trainDS["DSName"]))
             trainDataset.addData(dataset.data)
@@ -762,12 +775,10 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
         try:
             fh.seek(0,0)
             history = pd.read_pickle(fh)
-            print("Read history file with %d entries, appending new experiment with %d entries\n"%(history.shape[0], chist.shape[0]))
             history = pd.concat((history, chist), axis=0, ignore_index=True)
         except:
-            print("\033[93mCould not read history file, creating a new one\033[0m\n")
+            print("Generating new history")
             history = chist
-        print("new history has shape", history.shape)
         fh.seek(0,0)
         fh.truncate(0)
         history.to_pickle(fh)

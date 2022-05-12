@@ -379,14 +379,16 @@ def extractStandardizedEIC(eic, rts, refRT):
         raise
     return rtsS, eicS
 
-def getInteRTIndsOnStandardizedEIC(rtsS, eicS, refRT, peakType, rtStart, rtEnd):
+def getInteRTIndsOnStandardizedEIC(rtsS, eicS, refRT, peakType = None, rtStart = None, rtEnd = None):
     bestRTInd = np.argmin(np.abs(rtsS - refRT))
     bestRTStartInd = -1
     bestRTEndInd = -1
-    if peakType:
+    if peakType is not None and peakType and rtStart is not None:
         bestRTStartInd = arg_find_nearest(rtsS, rtStart)
-        bestRTEndInd   = arg_find_nearest(rtsS, rtEnd)
     else:
         bestRTStartInd = -1
+    if peakType is not None and peakType and rtEnd is not None:
+        bestRTEndInd   = arg_find_nearest(rtsS, rtEnd)
+    else:
         bestRTEndInd = -1
     return bestRTInd, peakType, bestRTStartInd, bestRTEndInd, rtStart, rtEnd

@@ -107,7 +107,7 @@ class AdditionalValidationSets(tf.keras.callbacks.Callback):
                     
                     shortValName = valuename.replace("categorical_accuracy", "CatACC").replace("MatthewsCorrelationCoefficient", "MCC")
                     if shortValName == "loss":
-                        shortValName == "  loss"
+                        shortValName == "   loss"
                     if shortValName not in headers: 
                         headers.append(shortValName)
                         outStr.append("")

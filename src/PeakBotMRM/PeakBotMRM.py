@@ -1009,6 +1009,11 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
     if verbose:
         print(logPrefix, "Loading chromatograms")
     
+    createNewIntegrations = False
+    if integrations is None:
+        integrations = {}
+        createNewIntegrations = True
+    
     for sample in os.listdir(samplesPath):
         pathsample = os.path.join(samplesPath, sample)
         if  os.path.isdir(pathsample) and pathsample.endswith(".d") and not os.path.isfile(pathsample.replace(".d", ".mzML")):
@@ -1104,6 +1109,11 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                             if abs(substance.Q1 - Q1) < allowedMZOffset and abs(substance.Q3 - Q3) <= allowedMZOffset and \
                                 substance.CE == collisionEnergy and substance.CEMethod == collisionMethod and \
                                 rtstart <= substance.refRT <= rtend:
+                                if createNewIntegrations and substance.name not in integrations.keys():
+                                    integrations[substance.name] = {}
+                                if createNewIntegrations and sampleName not in integrations[substance.name].keys():
+                                    integrations[substance.name][sampleName] = Integration(foundPeak = None, rtStart = None, rtEnd = None, area = None, chromatogram = [])
+                                
                                 if substance.name in integrations.keys() and sampleName in integrations[substance.name].keys():
                                     foundTargets.append([substance, entry, integrations[substance.name][sampleName]])
                                     usedChannel.append(substance)

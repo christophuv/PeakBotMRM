@@ -53,7 +53,7 @@ def getValidationSet(valDS, MRMHeader, allowedMZOffset):
 
 def validateExperiment(expName, valDSs, modelFile, 
                        expDir = None, logDir = None, 
-                       MRMHeader = "- SRM SIC Q1=(\\d+[.]\\d+) Q3=(\\d+[.]\\d+) start=(\\d+[.]\\d+) end=(\\d+[.]\\d+)",
+                       MRMHeader = None,
                        allowedMZOffset = 0.05,
                        plotSubstance = None):
     if expDir is None:
@@ -61,8 +61,11 @@ def validateExperiment(expName, valDSs, modelFile,
     if logDir is None:
         logDir = os.path.join(expDir, "log")
         
+    if MRMHeader is None:
+        MRMHeader = PeakBotMRM.Config.MRMHEADER
+        
     
-    print("Validating experiment")
+    print("Validating experiments")
     print("  | .. Parameters")
     print("  | .. .. expName: '%s'"%(expName))
     print("  | .. .. modelFile: '%s'"%(modelFile))
