@@ -13,12 +13,11 @@ setup(
     long_description=open('README.md').read(),
     install_requires=[
         ## main libraries for machine learning related tasks
-        "tensorflow == 2.5.0",
-        "tensorflow_addons == 0.15.0",
+        "tensorflow >= 2.8.0",
+        "tensorflow_addons >= 0.16.1",
 
         ## other main function libraries
-        "numpy == 1.19.5", 
-        "numba == 0.53.1",
+        # "numpy",  ## removed as a dependency of tensorflow 
         "pandas",
         "matplotlib",
         "plotnine",

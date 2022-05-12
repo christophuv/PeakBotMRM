@@ -105,7 +105,9 @@ class AdditionalValidationSets(tf.keras.callbacks.Callback):
                         self.printWidths[i] = 0
                     self.printWidths[i] = max(self.printWidths[i], len(valuename))
                     
-                    shortValName = valuename.replace("categorical_accuracy", "CatACC").replace("MatthewsCorrelationCoefficient", "MCC").replace("loss", "   loss")
+                    shortValName = valuename.replace("categorical_accuracy", "CatACC").replace("MatthewsCorrelationCoefficient", "MCC")
+                    if shortValName == "loss":
+                        shortValName == "  loss"
                     if shortValName not in headers: 
                         headers.append(shortValName)
                         outStr.append("")
@@ -120,7 +122,10 @@ class AdditionalValidationSets(tf.keras.callbacks.Callback):
                     if not headersPrinted:
                         print(" ".join(headers))
                         headersPrinted = True
+                    if "Training" in validation_set_name: print("\33[93m", end="")
+                    if "Ref_" in validation_set_name: print("\33[92m", end="")
                     print(" ".join(outStr))
+                    if "Ref_" in validation_set_name or "Training" in validation_set_name: print("\33[0m", end="")
             if self.verbose: print("")
         self.history.append(hist)
 

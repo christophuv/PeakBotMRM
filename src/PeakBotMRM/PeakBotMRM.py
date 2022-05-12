@@ -11,6 +11,7 @@ import uuid
 import re
 import math
 import random
+import natsort
 
 import tensorflow as tf
 import tensorflow_addons as tfa
@@ -152,6 +153,11 @@ def getDatasetTemplate(templateSize = 1024 * 32, includeMetaInfo = None):
                    "ref.Rt shifts" : ["" for i in range(templateSize)],
                    "ref.Note"      : ["" for i in range(templateSize)],
                    "loss.IOU_Area" : np.ones((templateSize), dtype=float),
+                   "ref.criteria"  : ["" for i in range(templateSize)],
+                   "ref.polarity"  : ["" for i in range(templateSize)],
+                   "ref.type"      : ["" for i in range(templateSize)],
+                   "ref.CE"        : ["" for i in range(templateSize)],
+                   "ref.CMethod"   : ["" for i in range(templateSize)],
                 }
         }
     return template
@@ -233,7 +239,7 @@ class MemoryDataset(Dataset):
                 else:
                     raise RuntimeError("Key '%s' has unknown type"%(k))
     
-    def getData(self, start, elems = None):
+    def getData(self, start = 0, elems = None):
         if elems == None:
             elems = Config.BATCHSIZE
             
@@ -241,6 +247,7 @@ class MemoryDataset(Dataset):
             elems = self.getElements() - start
         
         temp = {}
+        assertLen = -1
         for k in list(self.data.keys()):
             if isinstance(self.data[k], np.ndarray):
                 if len(self.data[k].shape)==1:
@@ -253,13 +260,17 @@ class MemoryDataset(Dataset):
                     temp[k] = self.data[k][start:(start+elems),:,:,:]
                 else:
                     raise RuntimeError("Too large np.ndarray")
+                if assertLen < 0: assertLen = self.data[k].shape[0]
+                assert assertLen == self.data[k].shape[0]
 
             elif isinstance(self.data[k], list):
                 temp[k] = self.data[k][start:(start+elems)]
+                if assertLen < 0: assertLen = len(self.data[k])
+                assert assertLen == len(self.data[k])
             
             else:
                 raise RuntimeError("Unknown class for key '%s'"%(k))
-            
+        
         return temp, elems
             
     def shuffle(self):
@@ -893,19 +904,25 @@ def loadTargets(targetFile, excludeSubstances = None, includeSubstances = None, 
     if verbose: 
         print(logPrefix, "Loading targets from file '%s'"%(targetFile))
     headers, substances = readTSVFile(targetFile, header = True, delimiter = "\t", convertToMinIfPossible = True, getRowsAsDicts = True)
-    substances = dict((substance["Name"], 
-                       Substance(substance["Name"].replace(" (ISTD)", ""),
-                                 substance["Precursor Ion"],
-                                 substance["Product Ion"],
-                                 substance["Collision Energy"],
-                                 substance["Collision Method"], 
-                                 substance["RT"],
-                                 substance["PeakForm"], 
-                                 substance["RT shifts"],
-                                 substance["Note"],
-                                 substance["Ion Polarity"],
-                                 substance["Type"],
-                                 substance["Criteria"])) for substance in substances if substance["Name"] not in excludeSubstances and (includeSubstances is None or substance["Name"] in includeSubstances))
+    temp = {}
+    for substance in substances:
+        substance["Name"] = substance["Name"].replace("  (ISTD)", "").replace(" (ISTD)", "").replace("  Results", "").replace(" Results", "")
+        if (excludeSubstances is None or substance["Name"] not in excludeSubstances) and (includeSubstances is None or substance["Name"] in includeSubstances):
+            temp[substance["Name"]] = Substance(substance["Name"],
+                                                substance["Precursor Ion"],
+                                                substance["Product Ion"],
+                                                substance["Collision Energy"],
+                                                substance["Collision Method"], 
+                                                substance["RT"],
+                                                substance["PeakForm"], 
+                                                substance["RT shifts"],
+                                                substance["Note"],
+                                                substance["Ion Polarity"],
+                                                substance["Type"],
+                                                substance["Criteria"]
+                                               )
+    substances = temp 
+    
     if verbose:
         print(logPrefix, "  | .. loaded %d substances"%(len(substances)))
         print(logPrefix, "  | .. of these %d have RT shifts"%(sum((1 if substance.rtShift !="" else 0 for substance in substances.values()))))
@@ -929,14 +946,14 @@ def loadIntegrations(substances, curatedPeaks, verbose = True, logPrefix = ""):
         if substanceName not in foo:
             notUsingSubstances.append(substanceName)
     if verbose and len(notUsingSubstances) > 0:
-        print(logPrefix, "  | .. Not using %d substances from the transition list as these are not in the integration matrix. These substances are: \033[91m'%s'\033[0m"%(len(notUsingSubstances), "', '".join(notUsingSubstances)))
+        print(logPrefix, "\033[91m  | .. Not using %d substances from the transition list as these are not in the integration matrix. These substances are: \033[0m'%s'"%(len(notUsingSubstances), "', '".join(natsort.natsorted(notUsingSubstances))))
     
     notUsingSubstances = []
     for substanceName in foo:
         if substanceName not in substances.keys():
             notUsingSubstances.append(substanceName)
     if verbose and len(notUsingSubstances) > 0:
-        print(logPrefix, "  | .. Not using %d substances from the integration matrix as these are not in the transition list. These substances are: \033[91m'%s'\033[0m"%(len(notUsingSubstances), "', '".join(notUsingSubstances)))
+        print(logPrefix, "\033[91m  | .. Not using %d substances from the integration matrix as these are not in the transition list. These substances are: \033[0m'%s'"%(len(notUsingSubstances), "', '".join(natsort.natsorted(notUsingSubstances))))
     
     foo = dict((k, v) for k, v in substances.items() if k in foo)
     if verbose:
@@ -954,16 +971,20 @@ def loadIntegrations(substances, curatedPeaks, verbose = True, logPrefix = ""):
         for integration in integrationData:
             sample = integration[headers["Sample$Data File"]].replace(".d", "")
             area = integration[headers["%s$Area"%(substanceName)]]
-            if area == "" or float(area) == 0:
-                integrations[substanceName][sample] = Integration(False, -1, -1, -1, [])
-                foundNoPeaks += 1
-            else:
-                integrations[substanceName][sample] = Integration(True, 
-                                                                  float(integration[headers["%s$Int. Start"%(substanceName)]]), 
-                                                                  float(integration[headers["%s$Int. End"  %(substanceName)]]), 
-                                                                  float(integration[headers["%s$Area"      %(substanceName)]]),
-                                                                  [])
-                foundPeaks += 1
+            try:
+                if area == "" or float(area) == 0:
+                    integrations[substanceName][sample] = Integration(False, -1, -1, -1, [])
+                    foundNoPeaks += 1
+                else:
+                    integrations[substanceName][sample] = Integration(True, 
+                                                                      float(integration[headers["%s$Int. Start"%(substanceName)]]), 
+                                                                      float(integration[headers["%s$Int. End"  %(substanceName)]]), 
+                                                                      float(integration[headers["%s$Area"      %(substanceName)]]),
+                                                                      [])
+                    foundPeaks += 1
+            except Exception as ex:
+                print("Exception, area is", area)
+                raise ex
             integratedSamples.add(sample)
             totalIntegrations += 1
     if verbose:
@@ -1114,7 +1135,7 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
             remSubstancesChannelProblems.add(substance)
     if len(remSubstancesChannelProblems) > 0:
         if verbose:
-            print(logPrefix, "\033[91m  | .. %d substances were not found as the channel selection was ambiguous and will thus not be used further. These substances are: '%s'. \033[0m"%(len(remSubstancesChannelProblems), "', '".join(sorted(remSubstancesChannelProblems))))
+            print(logPrefix, "\033[91m  | .. %d substances were not found as the channel selection was ambiguous and will thus not be used further. These substances are: \033[0m'%s'. "%(len(remSubstancesChannelProblems), "', '".join(natsort.natsorted(remSubstancesChannelProblems))))
         for r in remSubstancesChannelProblems:
             del integrations[r]
             
@@ -1124,23 +1145,40 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
             print(logPrefix, "  | .. Using all samples")
     else:
         remSamples = set()
-        for substance in integrations.keys():
-            for sample in integrations[substance].keys():
+        allSamples = set()
+        usedSamples = set()
+        for substance in list(integrations.keys()):
+            for sample in list(integrations[substance].keys()):
+                allSamples.add(sample)
                 if not sampleUseFunction(sample):
-                    del integrations[substance][sample]
+                    integrations[substance].pop(sample)
                     remSamples.add(sample)
+                else:
+                    usedSamples.add(sample)
+            
+            
         if verbose:
-            print(logPrefix, "  | .. removed samples %s"%(", ".join(("'%s'"%s for s in remSamples))))
+            print(logPrefix, "\033[93m  | .. %d (%.1f%%) of %d samples were removed. These are: \033[0m'%s'"%(len(remSamples), len(remSamples)/len(allSamples)*100, len(allSamples), "', '".join(("'%s'"%s for s in natsort.natsorted(remSamples)))))
+            print(logPrefix, "\033[93m  | .. The %d remaining samples are: \033[0m'%s'"%(len(usedSamples), "', '".join(usedSamples)))
     
     ## remove all integrations with more than one scanEvent
     referencePeaks = 0
     noReferencePeaks = 0
+    useSubstances = []
     for substance in integrations.keys():
+        useSub = False
         for sample in integrations[substance].keys():
             if integrations[substance][sample].chromatogram is not None:
                 referencePeaks += 1
+                useSub = True
             else:
-                noReferencePeaks += 1    
+                noReferencePeaks += 1
+        if useSub:
+            useSubstances.append(substance)
+    
+    substances = dict((k, v) for k, v in substances.items() if k in useSubstances)
+    integrations = dict((k, v) for k, v in integrations.items() if k in useSubstances)
+    
     if verbose:
         print(logPrefix, "  | .. There are %d sample.substances with unambiguous chromatograms (and %d sample.substances with ambiguous chromatograms) from %d samples"%(referencePeaks, noReferencePeaks, len(usedSamples)))
     

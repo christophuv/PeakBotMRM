@@ -4,13 +4,12 @@ import PeakBotMRM
 import PeakBotMRM.validate
 
 from datetime import datetime
+import time
 import platform
 import os
+import math
 import plotnine as p9
 import pandas as pd
-#from umap import UMAP
-#import pacmap
-#from annoy import AnnoyIndex
 import numpy as np
 import tqdm
 import random
@@ -23,7 +22,43 @@ import portalocker
 def compileInstanceDataset(substances, integrations, experimentName, dataset = None, 
                            addRandomNoise=False, maxRandFactor=0.1, maxNoiseLevelAdd=0.1, 
                            shiftRTs=False, maxShift=0.1, useEachInstanceNTimes=1, balanceReps = False, 
+                           aug_augment = True, aug_OnlyUseAugmentationFromSamples = None, aug_addAugPeaks = True, aug_maxAugPeaksN = 3, aug_plotAugInstances = False, 
                            verbose = True, logPrefix = ""):
+    
+    augPeaks = []
+    augBackgrounds = []
+    if aug_augment:
+        ## extract peaks and backgrounds for synthetic dataset generation and for data augmentation (e.g., add peaks on top of existing eics)
+        if verbose: 
+            print(logPrefix, "  | .. Extracting peaks and backgrounds for augmentation")
+        for substance in tqdm.tqdm(integrations.keys(), desc = logPrefix + "   | .. reference extraction"):
+            for sample in integrations[substance].keys():
+                key = "%s $ %s"%(substance, sample)
+                inte = integrations[substance][sample]
+
+                if inte.chromatogram is not None:
+                    rts = inte.chromatogram["rts"]
+                    eic = inte.chromatogram["eic"]
+
+                    if inte.foundPeak and (aug_OnlyUseAugmentationFromSamples is None or key in aug_OnlyUseAugmentationFromSamples):
+                        startInd = np.argmin(np.abs(rts - inte.rtStart))
+                        endInd = np.argmin(np.abs(rts - inte.rtEnd))
+                        augPeaks.append({"rtstart"    : inte.rtStart,
+                                         "rtend"      : inte.rtEnd,
+                                         "eiccropped" : eic[startInd:endInd] - np.min(eic[startInd:endInd]),
+                                         "rtscropped" : rts[startInd:endInd],
+                                         "area"       : inte.area,
+                                         "substance"  : substance,
+                                         "sample"     : sample
+                                         })
+
+                    if not inte.foundPeak and (aug_OnlyUseAugmentationFromSamples is None or key in aug_OnlyUseAugmentationFromSamples):
+                        augBackgrounds.append({"eic"       : eic,
+                                               "rts"       : rts,
+                                               "substance" : substance,
+                                               "sample"    : sample
+                                               })
+    
     template = None    
     curInstanceInd = 0
     totalInstances = 0
@@ -41,6 +76,10 @@ def compileInstanceDataset(substances, integrations, experimentName, dataset = N
         print(logPrefix, "  | .. Random RT shifts will be added. The range is -%.3f - %.3f minutes"%(maxShift, maxShift))
         print(logPrefix, "  | .. Note: the first instance will be the unmodified, original EIC")
         print(logPrefix, "  | .. Chromatographic peaks with a shifted peak apex will first be corrected to the designated RT and then randomly moved for the training instance")
+    if aug_augment: 
+        print(logPrefix, "  | .. Instances will be augmented")
+        if aug_addAugPeaks: 
+            print(logPrefix, "  | .. .. with chromatographic peaks (maximum of %d). for more details please refer to the code"%(aug_maxAugPeaksN))
     if verbose: 
         print(logPrefix, "  | .. Each instance shall be used %d times and the peak/background classes shall%s be balanced"%(useEachInstanceNTimes, "" if balanceReps else " not"))
     
@@ -61,6 +100,7 @@ def compileInstanceDataset(substances, integrations, experimentName, dataset = N
         useEachBackgroundInstanceNTimes = int(round(useEachInstanceNTimes / (noPeaks / max(peaks, noPeaks))))
     if verbose:
         print(logPrefix, "  | .. Each peak instance will be used %d times and each background instance %d times"%(useEachPeakInstanceNTimes, useEachBackgroundInstanceNTimes))
+    insNum = 0
     for substanceName in tqdm.tqdm(integrations.keys(), desc=logPrefix + "   | .. compiling substance"):
         refRT = substances[substanceName].refRT
         for sample in integrations[substanceName].keys():
@@ -104,7 +144,76 @@ def compileInstanceDataset(substances, integrations, experimentName, dataset = N
                         
                         ## add noise on top of EIC
                         eicS = eicS + np.ones(eicS.shape[0]) * np.random.rand(1)[0] * np.max(eicS) * maxNoiseLevelAdd
-                    
+                        
+                    ## randomly add augmentation peak
+                    if repi > 0 and aug_augment and aug_addAugPeaks: 
+                        ## random number of augmentation peaks to be added
+                        augPeaksToAdd = np.random.randint(1, aug_maxAugPeaksN)
+                        
+                        ## initialize empty EIC
+                        peakSignalType = np.zeros(PeakBotMRM.Config.RTSLICES, dtype=int)
+                        if inte.foundPeak:
+                            peakSignalType[bestRTStartInd:bestRTEndInd] = 1
+                        
+                        dat = {"eic": [], "rts": [], "type": []}
+                        if aug_plotAugInstances:
+                            for i in range(eicS.shape[0]):
+                                if(rtsS[i] > 0):
+                                    dat["eic"].append(eicS[i])
+                                    dat["rts"].append(rtsS[i])
+                                    dat["type"].append("ori")
+                            
+                        peaksPop = 1
+                        maxTries = 10
+                        while augPeaksToAdd > 0 and maxTries > 0:
+                            maxTries = maxTries - 1
+                            
+                            ## randomly select a peak to be used and a position to add peak at
+                            pI = np.random.randint(0, len(augPeaks))
+                            peakEIC = augPeaks[pI]["eiccropped"]
+                            addAtInd = np.random.randint(math.ceil(PeakBotMRM.Config.RTSLICES*0.1), math.floor(PeakBotMRM.Config.RTSLICES*0.9))
+                            addstartEIC = max(addAtInd - math.floor(peakEIC.shape[0]/2), 0)
+                            addendEIC = min(addAtInd + math.ceil(peakEIC.shape[0]/2), PeakBotMRM.Config.RTSLICES)
+                            peakUseStart = max(math.floor(peakEIC.shape[0]/2) - addAtInd, 0)
+                            peakUseEnd = min(peakEIC.shape[0], PeakBotMRM.Config.RTSLICES - addAtInd + math.floor(peakEIC.shape[0]/2))
+
+                            ## try and add peak at particular position
+                            scaling = np.random.random() * 4 + 1 if random.randint(0,1) == 1 else np.random.random() * 0.4 + 0.1
+                            eicSTemp = np.copy(eicS)
+                            peakSignalTypeTemp = np.copy(peakSignalType)
+                            eicSTemp[addstartEIC:addendEIC] = eicSTemp[addstartEIC:addendEIC] + peakEIC[peakUseStart:peakUseEnd] / np.max(peakEIC[peakUseStart:peakUseEnd]) * np.max(eicSTemp) * scaling
+                            peakSignalTypeTemp[addstartEIC:addendEIC] = peakSignalTypeTemp[addstartEIC:addendEIC] + 2**peaksPop
+
+                            ## if there are overlapping peaks diretly in the eics center, discard the addition
+                            if inte.foundPeak and any(peakSignalTypeTemp[bestRTStartInd : bestRTEndInd] > 1):
+                                continue
+                            elif not inte.foundPeak and any(peakSignalTypeTemp[math.ceil(PeakBotMRM.Config.RTSLICES*0.45) : math.floor(PeakBotMRM.Config.RTSLICES*0.55)] > 1):
+                                continue
+
+                            eicS = eicSTemp
+                            peakSignalType = peakSignalTypeTemp
+
+                            augPeaksToAdd = augPeaksToAdd - 1
+                            peaksPop += 1
+                        
+                        if aug_plotAugInstances:
+                            for i in range(eicS.shape[0]):
+                                if(rtsS[i] > 0):
+                                    dat["eic"].append(eicS[i])
+                                    dat["rts"].append(rtsS[i])
+                                    dat["type"].append("aug")
+                            
+                            plot = (p9.ggplot(pd.DataFrame(dat), p9.aes(x='rts', y='eic', colour="type"))
+                                + p9.geom_line()
+                                + p9.ggtitle("Instance with %s"%("peak" if inte.foundPeak else "background"))
+                            )
+                            if inte.foundPeak:
+                                plot = plot + p9.geom_vline(xintercept = [inte.rtStart, inte.rtEnd])
+                            else:
+                                plot = plot + p9.geom_vline(xintercept = [refRT])
+                            p9.ggsave(plot=plot, filename=os.path.join("./Training", "%d.png"%(insNum)), width=7, height=4, dpi=72, limitsize=False, verbose=False)
+                        insNum += 1
+                                                
                     ## test if eic has detected signals
                     if np.sum(eicS) > 0 and np.all(eicS >= 0):
                         ## add instance to training data
@@ -130,10 +239,15 @@ def compileInstanceDataset(substances, integrations, experimentName, dataset = N
                             template["ref.substance" ][curInstanceInd] = substanceName
                             template["ref.sample"    ][curInstanceInd] = sample
                             template["ref.experiment"][curInstanceInd] = experimentName + ";" + sample + ";" + substanceName
-                            template["ref.rt"        ][curInstanceInd] = substances[substanceName]["RT"]
-                            template["ref.PeakForm"  ][curInstanceInd] = substances[substanceName]["PeakForm"] 
-                            template["ref.Rt shifts" ][curInstanceInd] = substances[substanceName]["Rt shifts"]
-                            template["ref.Note"      ][curInstanceInd] = substances[substanceName]["Note"]
+                            template["ref.rt"        ][curInstanceInd] = substances[substanceName].refRT
+                            template["ref.PeakForm"  ][curInstanceInd] = substances[substanceName].peakForm
+                            template["ref.Rt shifts" ][curInstanceInd] = substances[substanceName].rtShift
+                            template["ref.Note"      ][curInstanceInd] = substances[substanceName].note
+                            template["ref.criteria"  ][curInstanceInd] = substances[substanceName].criteria
+                            template["ref.polarity"  ][curInstanceInd] = substances[substanceName].polarity
+                            template["ref.type"      ][curInstanceInd] = substances[substanceName].type
+                            template["ref.CE"        ][curInstanceInd] = substances[substanceName].CE
+                            template["ref.CMethod"   ][curInstanceInd] = substances[substanceName].CEMethod
                             template["loss.IOU_Area" ][curInstanceInd] = 1
                         
                         curInstanceInd += 1
@@ -149,7 +263,8 @@ def compileInstanceDataset(substances, integrations, experimentName, dataset = N
                         template = None
                         curInstanceInd = 0
     dataset.addData(template)
-    dataset.removeOtherThan(0, totalInstances)
+    if dataset.getElements() > 0:
+        dataset.removeOtherThan(0, totalInstances)
     if verbose:
         print(logPrefix, "  | .. Exported %d instances."%(dataset.getElements()))
         
@@ -171,7 +286,7 @@ def exportOriginalInstancesForValidation(substances, integrations, experimentNam
     if verbose:
         print(logPrefix, "Exporting original instances for validation")
     tic()
-    dataset = compileInstanceDataset(substances, integrations, experimentName, dataset = dataset, addRandomNoise = False, shiftRTs = False, verbose = verbose, logPrefix = logPrefix)
+    dataset = compileInstanceDataset(substances, integrations, experimentName, dataset = dataset, addRandomNoise = False, shiftRTs = False, aug_augment = False, verbose = verbose, logPrefix = logPrefix)
     if verbose: 
         print(logPrefix, "  | .. took %.1f seconds"%(toc()))
         print(logPrefix)
@@ -214,12 +329,13 @@ def constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, 
                         leftIntensityRatio = intApex/intLeft if intLeft > 0 else np.Inf
                         rightIntensityRatio = intApex/intRight if intRight > 0 else np.Inf
                         
-                        use = True
+                        use = True, "check disabled"
                         if checkPeakAttributes is not None:
                             use = True, "no check"
                             if checkPeakAttributes[0] != 0:
                                 use = checkPeakAttributes[1](peakWidth, centerOffset, peakLeftInflection, peakRightInflection, leftIntensityRatio, rightIntensityRatio, eicS, rtsS)
                             use = (checkPeakAttributes[0] == 0 or (checkPeakAttributes[0] == -1 and not use[0]) or (checkPeakAttributes[0] == 1 and use[0]), use[1])
+                            
                         if use[0]:
                             peaks.append((substance.name, sample))
                         else:
@@ -227,15 +343,17 @@ def constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, 
                         if use[1] not in useCriteria.keys():
                             useCriteria[use[1]] = 0
                         useCriteria[use[1]] += 1
+                        
                 else:
                     noPeaks.append((substance.name, sample))
     if checkPeakAttributes is not None and verbose:
         for k, v in useCriteria.items():
             print(logPrefix, "  | .. .. %d (%.1f%%) peaks used / not used due to '%s'"%(v, v/(notUsedCount+len(peaks))*100, k))
-        print(logPrefix, "  | .. .. %d (%.1f%%) of %d peaks were not used due to peak abnormalities according to the user-provided peak-quality function checkPeakAttributes."%(notUsedCount, notUsedCount/(notUsedCount + len(peaks))*100, notUsedCount + len(peaks)))
+        
+        print(logPrefix, "  | .. .. %d (%.1f%%) of %d peaks were not used due to peak abnormalities according to the user-provided peak-quality function checkPeakAttributes."%(notUsedCount, notUsedCount/(notUsedCount + len(peaks))*100 if (notUsedCount + len(peaks)) > 0 else 0, notUsedCount + len(peaks)))
         
     if verbose: 
-        print(logPrefix, "  | .. there are (after peak attribute checking) %d (%.1f%%) peaks and %d (%.1f%%) backgrounds in the dataset."%(len(peaks), len(peaks)/(len(peaks) + len(noPeaks))*100, len(noPeaks), len(noPeaks)/(len(peaks) + len(noPeaks))*100))
+        print(logPrefix, "  | .. there are (after peak attribute checking) %d (%.1f%%) peaks and %d (%.1f%%) backgrounds in the dataset."%(len(peaks), len(peaks)/(len(peaks) + len(noPeaks))*100 if len(peaks) + len(noPeaks) > 0 else 0, len(noPeaks), len(noPeaks)/(len(peaks) + len(noPeaks))*100 if (len(peaks) + len(noPeaks)) > 0 else 0))
     random.shuffle(peaks)
     random.shuffle(noPeaks)
     a = min(len(peaks), len(noPeaks))
@@ -273,11 +391,6 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", plot 
         print(logPrefix, "Peak statistics for '%s'"%(expName))
     tic()
     stats = {"hasPeak":0, "hasNoPeak":0, "peakProperties":[]}
-    X = np.zeros((10000, PeakBotMRM.Config.RTSLICES), dtype=np.float)
-    Y = np.zeros((10000), dtype=np.float)
-    ysample = []
-    ysubstance = []
-    xcur = 0
     for substanceName in tqdm.tqdm(integrations.keys(), desc="   | .. calculating"):
         for sample in integrations[substanceName].keys():
             inte = integrations[substanceName][sample]
@@ -287,7 +400,6 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", plot 
                 refRT = substances[substanceName].refRT        
                 rtsS, eicS = extractStandardizedEIC(eic, rts, refRT)
                 
-                temp = refRT 
                 sampleTyp = "sample"
                 if "_BLK" in sample:
                     sampleTyp = "Blank"
@@ -338,160 +450,10 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", plot 
                     stats["peakProperties"].append([sample, sampleTyp, substanceName, "eicStandEndToRef", max(rtsS) - refRT])
                     stats["peakProperties"].append([sample, sampleTyp, substanceName, "refRTPos", refRTPos])
                     
-                    if False:   ## for UMAP and PaCMAP illustrations only
-                        temp = apexRT
                     
                 else:
                     stats["hasNoPeak"] = stats["hasNoPeak"] + 1
                 
-                if xcur >= X.shape[0]:
-                    X = np.concatenate((X, np.zeros((10000, PeakBotMRM.Config.RTSLICES), dtype=np.float)), axis=0)
-                    Y = np.concatenate((Y, np.zeros((10000), dtype=np.float)), axis=0)
-                
-                rtsS, eicS = extractStandardizedEIC(eic, rts, temp)
-                X[xcur,:] = eicS
-                X[xcur,:] = X[xcur,:] - np.min(X[xcur,:])
-                X[xcur,:] = X[xcur,:] / np.max(X[xcur,:])
-                Y[xcur] = 0 if inte.foundPeak else 1
-                ysample.append("Cal" if "CAL" in sample else ("Nist" if "NIST" in sample else "sample"))
-                ysubstance.append(substanceName)
-                xcur = xcur + 1
-    Xori = X[0:xcur,:]
-    Yori = Y[0:xcur]
-    
-    
-    ## PacMap embedding (deactivated due to problems with the library)
-    if False:
-        for s in set(["allSubstances"] + ysubstance):
-            if verbose:
-                print(logPrefix, "  | .. generating Pacmap embedding..")
-            
-            if s != "allSubstances":
-                inds = [ind for ind, i in enumerate(ysubstance) if i == s]
-                if sum(inds) > 0:
-                    X = Xori[inds, :]
-                    Y = Yori[inds]
-            else:
-                X = Xori
-                Y = Yori
-            
-            ## adapted from https://pypi.org/project/pacmap/
-            
-            n, dim = X.shape
-            n_neighbors = 10
-            tree = AnnoyIndex(dim, metric='euclidean')
-            for i in range(n):
-                tree.add_item(i, X[i, :])
-            tree.build(20)
-
-            nbrs = np.zeros((n, 20), dtype=np.int32)
-            for i in range(n):
-                nbrs_ = tree.get_nns_by_item(i, 20 + 1) # The first nbr is always the point itself
-                nbrs[i, :] = nbrs_[1:]
-
-            scaled_dist = np.ones((n, n_neighbors)) # No scaling is needed
-
-            # Type casting is needed for numba acceleration
-            X = X.astype(np.float32)
-            scaled_dist = scaled_dist.astype(np.float32)
-            # make sure n_neighbors is the same number you want when fitting the data
-            pair_neighbors = pacmap.sample_neighbors_pair(X, scaled_dist, nbrs, np.int32(n_neighbors))
-
-            # initializing the pacmap instance
-            # feed the pair_neighbors into the instance
-            embedding = pacmap.PaCMAP(n_dims=2, n_neighbors=n_neighbors, MN_ratio=0.5, FP_ratio=2.0, pair_neighbors=pair_neighbors) 
-
-            # fit the data (The index of transformed data corresponds to the index of the original data)
-            X_trans = embedding.fit_transform(X, init="pca")
-            print(X.shape, Y.shape, X_trans.shape)
-
-            df=pd.DataFrame({"x": X_trans[:,0], "y": X_trans[:,1], "label": Y, "sample": ysample if s == "allSubstances" else [ysample[i] for i in inds], "substance": ysubstance if s == "allSubstances" else [ysubstance[i] for i in inds]})
-            df['label'] = df['label'].astype(int)
-            df.sort_values(by='label', axis=0, ascending=True, inplace=True)
-            df.to_pickle(os.path.join(expDir, "pacmap.pd.pickle"))
-            plot = (p9.ggplot(df, p9.aes("x", "y", color="label"))
-                    + p9.geom_point(alpha = 0.1 if s == "allSubstances" else 1)
-                    + p9.ggtitle("PaCMAP of EICs") + p9.xlab("PaCMAP 1") + p9.ylab("PaCMAP 2"))
-            p9.options.figure_size = (5.2,5)
-            p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_peakStats_PaACMAP.png"%(expName)), width=5.2, height=5, dpi=300, verbose=False)
-            p9.options.figure_size = (5.2,5)
-            p9.ggsave(plot=(plot + p9.facet_wrap("~label")), filename=os.path.join(expDir, "SubstanceFigures", "%s_PACMAP_%s.png"%(expName, s)), width=5.2, height=5, dpi=300, verbose=False)
-            
-            plot = (p9.ggplot(df, p9.aes("x", "y", color="sample"))
-                    + p9.geom_point(alpha = 0.1 if s == "allSubstances" else 1)
-                    + p9.facet_wrap("~label")
-                    + p9.theme(legend_position="bottom")
-                    + p9.ggtitle("PaCMAP of EICs (color: substance)") + p9.xlab("PaCMAP 1") + p9.ylab("PaCMAP 2"))
-            p9.options.figure_size = (10,8)
-            p9.ggsave(plot=(plot + p9.facet_wrap("~label")), filename=os.path.join(expDir, "SubstanceFigures", "%s_PACMAPfacLabSub_%s.png"%(expName, s)), width=10, height=8, dpi=300, verbose=False)
-        
-    ## UMAP embedding (deactivated due to problems with the library)
-    if False:        
-        if verbose: 
-            print(logPrefix, "  | .. generating UMAP EIC embedding..")
-        
-        ## adapted from https://towardsdatascience.com/umap-dimensionality-reduction-an-incredibly-robust-machine-learning-algorithm-b5acb01de568
-        
-        reducer = UMAP(n_neighbors=20, # default 15, The size of local neighborhood (in terms of number of neighboring sample points) used for manifold approximation.
-                n_components=2, # default 2, The dimension of the space to embed into.
-                metric='euclidean', # default 'euclidean', The metric to use to compute distances in high dimensional space.
-                n_epochs=1000, # default None, The number of training epochs to be used in optimizing the low dimensional embedding. Larger values result in more accurate embeddings. 
-                learning_rate=1.0, # default 1.0, The initial learning rate for the embedding optimization.
-                init='spectral', # default 'spectral', How to initialize the low dimensional embedding. Options are: {'spectral', 'random', A numpy array of initial embedding positions}.
-                min_dist=0.1, # default 0.1, The effective minimum distance between embedded points.
-                spread=1.0, # default 1.0, The effective scale of embedded points. In combination with ``min_dist`` this determines how clustered/clumped the embedded points are.
-                low_memory=False, # default False, For some datasets the nearest neighbor computation can consume a lot of memory. If you find that UMAP is failing due to memory constraints consider setting this option to True.
-                set_op_mix_ratio=1.0, # default 1.0, The value of this parameter should be between 0.0 and 1.0; a value of 1.0 will use a pure fuzzy union, while 0.0 will use a pure fuzzy intersection.
-                local_connectivity=1, # default 1, The local connectivity required -- i.e. the number of nearest neighbors that should be assumed to be connected at a local level.
-                repulsion_strength=1.0, # default 1.0, Weighting applied to negative samples in low dimensional embedding optimization.
-                negative_sample_rate=5, # default 5, Increasing this value will result in greater repulsive force being applied, greater optimization cost, but slightly more accuracy.
-                transform_queue_size=4.0, # default 4.0, Larger values will result in slower performance but more accurate nearest neighbor evaluation.
-                a=None, # default None, More specific parameters controlling the embedding. If None these values are set automatically as determined by ``min_dist`` and ``spread``.
-                b=None, # default None, More specific parameters controlling the embedding. If None these values are set automatically as determined by ``min_dist`` and ``spread``.
-                random_state=42, # default: None, If int, random_state is the seed used by the random number generator;
-                metric_kwds=None, # default None) Arguments to pass on to the metric, such as the ``p`` value for Minkowski distance.
-                angular_rp_forest=False, # default False, Whether to use an angular random projection forest to initialise the approximate nearest neighbor search.
-                target_n_neighbors=-1, # default -1, The number of nearest neighbors to use to construct the target simplcial set. If set to -1 use the ``n_neighbors`` value.
-                #target_metric='categorical', # default 'categorical', The metric used to measure distance for a target array is using supervised dimension reduction. By default this is 'categorical' which will measure distance in terms of whether categories match or are different. 
-                #target_metric_kwds=None, # dict, default None, Keyword argument to pass to the target metric when performing supervised dimension reduction. If None then no arguments are passed on.
-                #target_weight=0.5, # default 0.5, weighting factor between data topology and target topology.
-                transform_seed=42, # default 42, Random seed used for the stochastic aspects of the transform operation.
-                verbose=False, # default False, Controls verbosity of logging.
-                unique=False, # default False, Controls if the rows of your data should be uniqued before being embedded. 
-                )
-
-        # Fit and transform the data
-        X_trans = reducer.fit_transform(X)
-
-        df=pd.DataFrame({"x": X_trans[:,0], "y": X_trans[:,1], "label": Y, "sample": ysample, "substance": ysubstance})
-        df['label'] = df['label'].astype(int)
-        df.sort_values(by='label', axis=0, ascending=True, inplace=True)
-        df.to_pickle(os.path.join(expDir, "umap.pd.pickle"))
-        plot = (p9.ggplot(df, p9.aes("x", "y", color="label"))
-                + p9.geom_point(alpha = 0.1)
-                + p9.ggtitle("UMAP of EICs") + p9.xlab("UMAP 1") + p9.ylab("UMAP 2"))
-        p9.options.figure_size = (5.2,5)
-        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_peakStats_UMAP.png"%(expName)), width=5.2, height=5, dpi=300, verbose=False)
-        p9.options.figure_size = (5.2,5)
-        p9.ggsave(plot=(plot + p9.facet_wrap("~label")), filename=os.path.join(expDir, "%s_peakStats_UMAPfacLab.png"%(expName)), width=5.2, height=5, dpi=300, verbose=False)
-        
-
-        # Fit and transform the data
-        X_trans = reducer.fit_transform(X, Y)
-
-        df=pd.DataFrame({"x": X_trans[:,0], "y": X_trans[:,1], "label": Y, "sample": ysample, "substance": ysubstance})
-        df['label'] = df['label'].astype(int)
-        df.sort_values(by='label', axis=0, ascending=True, inplace=True)
-        df.to_pickle(os.path.join(expDir, "umapsup.pd.pickle"))
-        plot = (p9.ggplot(df, p9.aes("x", "y", color="label"))
-                + p9.geom_point(alpha = 0.1)
-                + p9.ggtitle("UMAP of EICs") + p9.xlab("UMAP 1") + p9.ylab("UMAP 2"))
-        p9.options.figure_size = (5.2,5)
-        p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_peakStats_UMAPsup.png"%(expName)), width=5.2, height=5, dpi=300, verbose=False)
-        p9.options.figure_size = (5.2,5)
-        p9.ggsave(plot=(plot + p9.facet_wrap("~label")), filename=os.path.join(expDir, "%s_peakStats_UMAPsupfacLab.png"%(expName)), width=5.2, height=5, dpi=300, verbose=False)
-        
-        
     tf = pd.DataFrame(stats["peakProperties"], columns = ["sample", "sampletype", "substance", "type", "value"])
     tf.insert(0, "Experiment", [expName for i in range(tf.shape[0])])
     if print2Console:
@@ -590,6 +552,8 @@ def plotHistory(histObjectFile, plotFile, verbose = True, logPrefix = ""):
             + p9.geom_point(alpha=0.5)
             + p9.geom_line(alpha=0.5)
             + p9.facet_wrap("~comment", ncol=4)
+            + p9.theme(legend_position = "none")
+            + p9.theme_minimal()
             + p9.ggtitle("ROC") + p9.xlab("FPR") + p9.ylab("TPR") 
             )
     p9.options.figure_size = (5.2, 7)
@@ -598,23 +562,32 @@ def plotHistory(histObjectFile, plotFile, verbose = True, logPrefix = ""):
     p9.ggsave(plot=p, filename="%s_ROC_zoomed.png"%(plotFile), width=20, height=20, dpi=300, limitsize=False, verbose=False)
     
     for k in set(df["set"]):
-        temp = df[df["set"] == k]    
-        plot = (p9.ggplot(temp, p9.aes("FPR", "TPR", colour="comment", shape="set", group="model"))
+        print("Plotting for set '%s'"%(k))        
+        temp = df[df["set"] == k]
+        
+        plot = (p9.ggplot(temp, p9.aes("FPR", "TPR", colour="comment",  group="model"))
                 + p9.geom_point(alpha=0.5)
-                + p9.geom_line(alpha=0.5)
+                #+ p9.geom_line(alpha=0.5)
                 + p9.facet_wrap("~comment", ncol=4)
-                + p9.ggtitle("ROC") + p9.xlab("FPR") + p9.ylab("TPR") 
+                + p9.theme(legend_position = "none")
+                + p9.theme_minimal()
+                + p9.ggtitle("ROC for sets containing the string '%s'"%(k)) + p9.xlab("FPR") + p9.ylab("TPR") 
                 )
         p9.options.figure_size = (5.2, 7)
-        p9.ggsave(plot=plot, filename="%s_ROC_%s.png"%(plotFile, k), width=20, height=20, dpi=300, limitsize=False, verbose=False)
-        p = (plot + p9.scales.xlim(0,0.21) + p9.scales.ylim(0.9,1))
-        p9.ggsave(plot=p, filename="%s_ROC_zoomed_%s.png"%(plotFile, k), width=20, height=20, dpi=300, limitsize=False, verbose=False)
+        p9.ggsave(plot=plot, filename="%s_ROC_%s.png"%(plotFile, k), width=10, height=10, dpi=150, limitsize=False, verbose=False)
+        try:
+            p = (plot + p9.scales.xlim(0,0.21) + p9.scales.ylim(0.9,1))
+            p9.ggsave(plot=p, filename="%s_ROC_zoomed_%s.png"%(plotFile, k), width=10, height=10, dpi=150, limitsize=False, verbose=False)
+        except:
+            pass
+        
+        print("")
 
 def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, logDir = None, historyFile = None, 
                          MRMHeader = None,
                          allowedMZOffset = 0.05, balanceDataset = False, balanceAugmentations = True,
                          addRandomNoise = True, maxRandFactor = 0.1, maxNoiseLevelAdd=0.1, shiftRTs = True, maxShift = 0.15, useEachInstanceNTimes = 5, 
-                         checkPeakAttributes = None, showPeakMetrics = True, 
+                         showPeakMetrics = True, 
                          comment="None", useDSForTraining = "augmented", 
                          verbose = True, logPrefix = ""):
     tic("Overall process")
@@ -651,10 +624,7 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
     print("  | .. .. MRMHeader: '%s'"%(MRMHeader))
     print("  | .. .. allowedMZOffset: '%s'"%(allowedMZOffset))
     print("  | .. .. addRandomNoise: '%s'"%(addRandomNoise))
-    
-    print("  | .. Check peak attributes")
-    print("  | .. .. %s"%("not checking and not restricting" if checkPeakAttributes is None else "checking and restricting with user-provided function checkPeakAttributes"))
-    
+        
     if balanceDataset or balanceAugmentations:
         print("  | .. Balancing dataset")
         if balanceDataset:
@@ -750,14 +720,20 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
             
             substances, integrations = PeakBotMRM.validate.getValidationSet(valDS, MRMHeader, allowedMZOffset)
             
-            if showPeakMetrics:
-                investigatePeakMetrics(expDir, substances, integrations, expName = "%s"%(valDS["DSName"]), logPrefix = "  | ..")
-            
-            dataset = exportOriginalInstancesForValidation(substances, integrations, "AddVal_Ori_%s"%(valDS["DSName"]), logPrefix = "  | ..")
-            dataset.shuffle()
-            dataset.setName("%s_AddVal_Ori"%(valDS["DSName"]))
-            validationDSs.append(dataset)
-    
+            if len(integrations) > 0:
+                
+                if showPeakMetrics:
+                    investigatePeakMetrics(expDir, substances, integrations, expName = "%s"%(valDS["DSName"]), logPrefix = "  | ..")
+                
+                dataset = exportOriginalInstancesForValidation(substances, integrations, "AddVal_Ori_%s"%(valDS["DSName"]), logPrefix = "  | ..")
+                dataset.shuffle()
+                dataset.setName("%s_AddVal_Ori"%(valDS["DSName"]))
+                if dataset.getElements() > 0:
+                    validationDSs.append(dataset)
+                else:
+                    print("\033[101m    !!! Not using validation dataset %s !!! \033[0m"%(valDS["DSName"]))
+                    time.sleep(5)
+        
             print("")
     
     print("Preparation for training took %.1f seconds"%(toc("Overall process")))
@@ -789,7 +765,7 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
             print("Read history file with %d entries, appending new experiment with %d entries\n"%(history.shape[0], chist.shape[0]))
             history = pd.concat((history, chist), axis=0, ignore_index=True)
         except:
-            print("\33[93mCould not read history file, creating a new one\33[0m\n")
+            print("\033[93mCould not read history file, creating a new one\033[0m\n")
             history = chist
         print("new history has shape", history.shape)
         fh.seek(0,0)
