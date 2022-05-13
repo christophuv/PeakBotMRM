@@ -1,15 +1,17 @@
 ## General imports
+from email.errors import HeaderParseError
+from sklearn.metrics import calinski_harabasz_score
 import tqdm
 import os
 import datetime
 import platform
 import numpy as np
-import matplotlib.pyplot as plt
+from sklearn.linear_model import LinearRegression
 import random
 random.seed(2021)
 import os
-import math
-
+import natsort
+import json
 
 import PeakBotMRM
 import PeakBotMRM.train
@@ -18,18 +20,19 @@ print("\n")
 
 
 
-def getPredictionSet(valDS, MRMHeader, allowedMZOffset):
-    substances               = PeakBotMRM.loadTargets(valDS["transitions"], 
-                                                      excludeSubstances = valDS["excludeSubstances"] if "excludeSubstances" in valDS.keys() else None, 
-                                                      includeSubstances = valDS["includeSubstances"] if "includeSubstances" in valDS.keys() else None, 
+def getPredictionSet(predDS, MRMHeader, allowedMZOffset):
+    substances               = PeakBotMRM.loadTargets(predDS["transitions"], 
+                                                      excludeSubstances = predDS["excludeSubstances"] if "excludeSubstances" in predDS.keys() else None, 
+                                                      includeSubstances = predDS["includeSubstances"] if "includeSubstances" in predDS.keys() else None, 
                                                       logPrefix = "  | ..")
         
     substances, integrations = PeakBotMRM.loadChromatograms(substances, None, 
-                                                            valDS["samplesPath"],
-                                                            sampleUseFunction = valDS["sampleUseFunction"] if "sampleUseFunction" in valDS.keys() else None, 
+                                                            predDS["samplesPath"],
+                                                            sampleUseFunction = predDS["sampleUseFunction"] if "sampleUseFunction" in predDS.keys() else None, 
                                                             allowedMZOffset = allowedMZOffset,
                                                             MRMHeader = MRMHeader,
                                                             logPrefix = "  | ..")
+    
     return substances, integrations
 
 
@@ -39,8 +42,10 @@ def predictExperiment(expName, predDSs, modelFile,
                       MRMHeader = None,
                       allowedMZOffset = 0.05,
                       oneRowHeader4Results = False, 
-                      calSamplesAndLevels = {},
-                      plotSubstance = None):
+                      calSamplesAndLevels = None, 
+                      calSubstanceConcentrations = None,
+                      internalStandards = None, 
+                      calLevelsForCompounds = None):
     if expDir is None:
         expDir = os.path.join(".", expName)
     if logDir is None:
@@ -48,6 +53,15 @@ def predictExperiment(expName, predDSs, modelFile,
         
     if MRMHeader is None:
         MRMHeader = PeakBotMRM.Config.MRMHEADER
+        
+    if calSamplesAndLevels is None:
+        calSamplesAndLevels = {}
+    if calSubstanceConcentrations is None:
+        calSubstanceConcentrations = {}
+    if internalStandards is None:
+        internalStandards = {}
+    if calLevelsForCompounds is None:
+        calLevelsForCompounds = {}
         
     
     print("Predicting experiments")
@@ -76,19 +90,14 @@ def predictExperiment(expName, predDSs, modelFile,
     except:
         pass
         
-    for predDS in predDSs:
+    for predDS in natsort.natsorted(predDSs, key = lambda x: x["DSName"]):
         
-        print("Evaluating validation dataset '%s'"%(predDS["DSName"]))
+        print("Predicting chromatographic peaks in dataset '%s'"%(predDS["DSName"]))
         
         substances, integrations = getPredictionSet(predDS, MRMHeader, allowedMZOffset)
-                
         if len(integrations) > 0:
 
             print("  | .. using model from '%s'"%(modelFile))
-            offsetEIC = 0.2
-            offsetRT1 = 0
-            offsetRT2 = 0
-            offsetRTMod = 1
             pbModelPred = PeakBotMRM.loadModel(modelFile, mode="predict" , verbose = False)
             allSubstances = set()
             allSamples = set()
@@ -99,195 +108,230 @@ def predictExperiment(expName, predDSs, modelFile,
                 subsN.add(substanceName)
                 for sample in integrations[substanceName]:
                     sampN.add(sample)
+            print("  | .. Processing %d samples with %d compounds"%(len(sampN), len(subsN)))
             
-            for substanceName in tqdm.tqdm(integrations.keys(), desc="  | .. validating"):
-                allSubstances.add(substanceName)
-                if plotSubstance == "all" or substanceName in plotSubstance:
-                    fig, ((ax1, ax2), (ax5, ax6), (ax9, ax10)) = plt.subplots(3,2, sharey = "row", sharex = True, gridspec_kw = {'height_ratios':[2,1,1]})
-                    fig.set_size_inches(15, 16)
+            used = {}
+            for sample in sampN:
+                    calLevel = None
+                    if calSamplesAndLevels is not None:
+                        for samplePart, level in calSamplesAndLevels.items():
+                            if samplePart in sample:
+                                calLevel = level
+                    if calLevel is not None:
+                        if calLevel not in used.keys():
+                            used[calLevel] = []
+                        used[calLevel].append(sample)
+            raiseExp = False
+            for k, v in used.items():
+                if len(v) > 1:
+                    print("\33[91m  | .. Error: Calibration level '%s' found with multiple files. These are: \33[0m '%s'"%(k, "', '".join(v)))
+                    raiseExp = True
+            if raiseExp:
+                print("\33[91m  | .. Error: One or several calibration levels are not unique. Aborting...\33[0m")
+                raise RuntimeError("Aborting to non-unique calibration levels")
+            elif len(used) < len(calSamplesAndLevels):
+                print("\33[93m  | .. Found %d of the %d provided calibration levels. Please double-check if these have been specified correctly\33[0m"%(len(used), len(calSamplesAndLevels)))
+            else:
+                print("  | .. Found all %d calibration levels"%(len(calSamplesAndLevels)))
+            
+            substancesComments = {}            
+            for substanceName in tqdm.tqdm(natsort.natsorted(integrations.keys()), desc="  | .. predicting"):
+                substancesComments[substanceName] = {}
+                if substanceName in integrations.keys() and len(integrations[substanceName]) > 0:
+                    allSubstances.add(substanceName)
 
-                temp = {"channel.int"  : np.zeros((len(integrations[substanceName]), PeakBotMRM.Config.RTSLICES), dtype=float),
-                        "channel.rts"  : np.zeros((len(integrations[substanceName]), PeakBotMRM.Config.RTSLICES), dtype=float)}
-                
-                ## generate dataset for all samples of the current substance
-                for samplei, sample in enumerate(integrations[substanceName].keys()):
-                    inte = integrations[substanceName][sample]
-                    allSamples.add(sample)
+                    temp = {"channel.int"  : np.zeros((len(integrations[substanceName]), PeakBotMRM.Config.RTSLICES), dtype=float),
+                            "channel.rts"  : np.zeros((len(integrations[substanceName]), PeakBotMRM.Config.RTSLICES), dtype=float)}
                     
-                    rts = inte.chromatogram["rts"]
-                    eic = inte.chromatogram["eic"]
-                    refRT = substances[substanceName].refRT
+                    ## generate dataset for all samples of the current substance
+                    for samplei, sample in enumerate(integrations[substanceName].keys()):
+                        allSamples.add(sample)
+                        inte = integrations[substanceName][sample]
+                        if inte is not None and inte.chromatogram is not None:
+                            allSamples.add(sample)
+                            
+                            rts = inte.chromatogram["rts"]
+                            eic = inte.chromatogram["eic"]
+                            refRT = substances[substanceName].refRT
+                            
+                            ## standardize EIC
+                            rtsS, eicS = extractStandardizedEIC(eic, rts, refRT)
+                            
+                            temp["channel.int"][samplei, :] = eicS
+                            temp["channel.rts"][samplei, :] = rtsS
+                                    
+                    ## predict and calculate metrics
+                    pred_peakTypes, pred_rtStartInds, pred_rtEndInds = PeakBotMRM.runPeakBotMRM(temp, model = pbModelPred, verbose = False)
                     
-                    ## standardize EIC
-                    rtsS, eicS = extractStandardizedEIC(eic, rts, refRT)
-                    
-                    temp["channel.int"][samplei, :] = eicS
-                    temp["channel.rts"][samplei, :] = rtsS
-                                
-                ## predict and calculate metrics
-                pred_peakTypes, pred_rtStartInds, pred_rtEndInds = PeakBotMRM.runPeakBotMRM(temp, model = pbModelPred, verbose = False)
-                
-                ## inspect and summarize the results of the prediction and the metrics, optionally plot
-                for samplei, sample in enumerate(integrations[substanceName].keys()):
-                    inte = integrations[substanceName][sample] 
-                    
-                    rts = inte.chromatogram["rts"]
-                    eic = inte.chromatogram["eic"]
-                    refRT = substances[substanceName].refRT
-                    
-                    ## standardize EIC
-                    rtsS, eicS = extractStandardizedEIC(eic, rts, refRT)
-                
-                    ## test if eic has detected signals
-                    pred_isPeak     = pred_peakTypes[samplei] == 0
-                    pred_rtStartInd = round(pred_rtStartInds[samplei])
-                    pred_rtEndInd   = round(pred_rtEndInds[samplei])
-                    pred_rtStart    = rtsS[min(PeakBotMRM.Config.RTSLICES-1, max(0, pred_rtStartInd))]
-                    pred_rtEnd      = rtsS[min(PeakBotMRM.Config.RTSLICES-1, max(0, pred_rtEndInd))]
-
-                    inte.other["pred.rtstart"]   = pred_rtStart
-                    inte.other["pred.rtend"]     = pred_rtEnd
-                    inte.other["pred.foundPeak"] = pred_isPeak
-                    if inte.other["pred.foundPeak"]:
-                        inte.other["pred.areaPB"] = PeakBotMRM.integrateArea(eic, rts, pred_rtStart, pred_rtEnd)
-                    else:
-                        inte.other["pred.areaPB"] = -1
-                    
-                    if plotSubstance == "all" or substanceName in plotSubstance:
-                        ## plot results; find correct axis to plot to 
-                        ax = ax1 if pred_isPeak else ax2
-                        axR = ax5 if pred_isPeak else ax6
-                        axS = ax9 if pred_isPeak else ax10
-                                            
-                        ax.plot([min(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod), 
-                                 max(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod)], 
-                                 [offsetEIC*samplei, 
-                                 offsetEIC*samplei], 
-                                 "slategrey", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
-                        axR.plot([min(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod), 
-                                 max(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod)], 
-                                 [0,
-                                 0], 
-                                 "slategrey", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
-                        axS.plot([min(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod), 
-                                 max(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod)], 
-                                 [0,
-                                 0], 
-                                 "slategrey", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                    ## inspect and summarize the results of the prediction and the metrics, optionally plot
+                    for samplei, sample in enumerate(integrations[substanceName].keys()):
+                        inte = integrations[substanceName][sample] 
                         
-                        ## plot raw, scaled data according to classification prediction and integration result
-                        b = min(eic)
-                        m = max([i-b for i in eic])
-                        ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts], 
-                                [(e-b)/m+offsetEIC*samplei for e in eic], 
-                                "lightgrey", linewidth=.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
-                        ax.fill_between([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts], 
-                                        [(e-b)/m+offsetEIC*samplei for e in eic], 
-                                        offsetEIC*samplei, 
-                                        facecolor='w', lw=0, zorder=(len(integrations[substanceName].keys())-samplei+1)*2-1)
-                        ## add detected peak
-                        if pred_isPeak:
-                            ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if pred_rtStart <= t <= pred_rtEnd], 
-                                    [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if pred_rtStart <= rts[i] <= pred_rtEnd], 
-                                    "olivedrab", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
-                            ax.fill_between([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if pred_rtStart <= t <= pred_rtEnd], 
-                                            [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if pred_rtStart <= rts[i] <= pred_rtEnd], 
-                                            offsetEIC*samplei, 
-                                            facecolor='yellowgreen', lw=0, zorder=(len(integrations[substanceName].keys())-samplei+1)*2-1)
-                                                    
-                        ## plot raw data
-                        axR.plot(rts, eic, "lightgrey", linewidth=.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
-                        ## add detected peak
-                        if pred_isPeak:
-                            axR.plot([t for t in rts if pred_rtStart <= t <= pred_rtEnd], 
-                                    [e for i, e in enumerate(eic) if pred_rtStart <= rts[i] <= pred_rtEnd], 
-                                    "olivedrab", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                        if inte is not None and inte.chromatogram is not None:
+                            rts = inte.chromatogram["rts"]
+                            eic = inte.chromatogram["eic"]
+                            refRT = substances[substanceName].refRT
+                            
+                            ## standardize EIC
+                            rtsS, eicS = extractStandardizedEIC(eic, rts, refRT)
+                        
+                            ## test if eic has detected signals
+                            pred_isPeak     = pred_peakTypes[samplei] == 0
+                            pred_rtStartInd = round(pred_rtStartInds[samplei])
+                            pred_rtEndInd   = round(pred_rtEndInds[samplei])
+                            pred_rtStart    = rtsS[min(PeakBotMRM.Config.RTSLICES-1, max(0, pred_rtStartInd))]
+                            pred_rtEnd      = rtsS[min(PeakBotMRM.Config.RTSLICES-1, max(0, pred_rtEndInd))]
 
-                        ## plot scaled data
-                        ## add detected peak
-                        minInt = 0
-                        maxInt = 1
-                        if np.sum(eicS) > 0:
-                            minInt = min([e for e in eicS if e > 0])
-                            maxInt = max([e-minInt for e in eicS])
-                        axS.plot(rts, 
-                                [(e-minInt)/maxInt for e in eic], 
-                                "lightgrey", linewidth=.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
-                        if pred_isPeak:
-                            axS.plot([t for t in rts if pred_rtStart <= t <= pred_rtEnd], 
-                                    [(e-minInt)/maxInt for i, e in enumerate(eic) if pred_rtStart <= rts[i] <= pred_rtEnd], 
-                                    "olivedrab", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                            inte.other["processed"]      = ""
+                            inte.other["pred.rtstart"]   = pred_rtStart
+                            inte.other["pred.rtend"]     = pred_rtEnd
+                            inte.other["pred.foundPeak"] = pred_isPeak
+                            if inte.other["pred.foundPeak"]:
+                                inte.other["pred.areaPB"] = PeakBotMRM.integrateArea(eic, rts, pred_rtStart, pred_rtEnd)
+                            else:
+                                inte.other["pred.areaPB"] = -1
+            
+            for substanceName in integrations.keys():
+                isd = None
+                if isd is not None and substanceName in internalStandards.keys():
+                    print("\33[93m  | .. Error: Substance '%s' has several different internal standards configured. Please check this and correct the problem. \33[0m"%(substanceName))
+                    raise RuntimeError("Error: Substance '%s' has several different internal standards configured"%(substanceName))
+                if substanceName in internalStandards.keys():
+                    isd = internalStandards[substanceName]
+                    if "Comment" not in substancesComments[substanceName]:
+                        substancesComments[substanceName]["Comment"] = ""
+                    else:
+                        substancesComments[substanceName]["Comment"] = substancesComments[substanceName]["Comment"] + "; "
+                    substancesComments[substanceName]["Comment"] = substancesComments[substanceName]["Comment"] + "ISTD: '%s'"%(isd)
+                
+                calExp = []
+                calObs = []
+                
+                for samplei, sample in enumerate(integrations[substanceName].keys()):
+                    for samplePart, level in calSamplesAndLevels.items():
+                        if samplePart in sample and (substanceName not in calLevelsForCompounds.keys() or calLevelsForCompounds[substanceName] == "all" or calLevelsForCompounds[substanceName][0] <= level <= calLevelsForCompounds[substanceName][1]):
+                            inteSub = integrations[substanceName][sample]
+                            exp = None
+                            obs = None
+                            if isd is not None:
+                                inteIST = integrations[isd][sample]
+                                if inteSub is not None and inteSub.chromatogram is not None and inteIST is not None and inteIST.chromatogram is not None:
+                                    if inteSub.other["pred.foundPeak"] and not np.isnan(inteSub.other["pred.areaPB"]) and inteIST.other["pred.foundPeak"] and not np.isnan(inteIST.other["pred.areaPB"]):
+                                        ratio = inteSub.other["pred.areaPB"] / inteIST.other["pred.areaPB"]
+                                        inteSub.other["pred.ISTDRatio"] = ratio
+                                        
+                                        exp = level * calSubstanceConcentrations[substanceName] if substanceName in calSubstanceConcentrations.keys() else level
+                                        obs = ratio
+                            else:
+                                if inteSub is not None and inteSub.chromatogram is not None and inteSub.other["pred.foundPeak"] and not np.isnan(inteSub.other["pred.areaPB"]):
+                                    exp = level * calSubstanceConcentrations[substanceName] if substanceName in calSubstanceConcentrations.keys() else level
+                                    obs = inteSub.other["pred.areaPB"]
+                            
+                            if exp is not None and obs is not None and not np.isnan(exp) and not np.isnan(obs):
+                                calExp.append(exp)
+                                calObs.append(obs)
+                    
+                if len(calExp) > 1:
+                    
+                    model, r2, intercept, coef, calObshat = PeakBotMRM.calibrationRegression(calObs, calExp)
+                    substancesComments[substanceName]["RelativeConcentration"] = {"R2": r2, "points": len(calObs), "intercept": intercept, "coef": coef, "method": PeakBotMRM.Config.CALIBRATIONMETHOD}
+                    
+                    for samplei, sample in enumerate(integrations[substanceName].keys()):
+                        inteSub = integrations[substanceName][sample]
+                        if isd is not None:
+                            inteIST = integrations[isd][sample]
+                            if inteSub is not None and inteSub.chromatogram is not None and inteIST is not None and inteIST.chromatogram is not None:
+                                if inteSub.other["pred.foundPeak"] and not np.isnan(inteSub.other["pred.areaPB"]) and inteIST.other["pred.foundPeak"] and not np.isnan(inteIST.other["pred.areaPB"]):
+                                    ratio = inteSub.other["pred.areaPB"] / inteIST.other["pred.areaPB"]
+                                    inteSub.other["pred.ISTDRatio"] = ratio
+                                    
+                                    calPre = model.predict(np.array((ratio)).reshape(-1,1))
+                                    inteSub.other["pred.level"] = calPre
+                        else:
+                            if inteSub is not None and inteSub.chromatogram is not None and inteSub.other["pred.foundPeak"] and not np.isnan(inteSub.other["pred.areaPB"]):
+                                calPre = model.predict(np.array((inteSub.other["pred.areaPB"])).reshape(-1,1))
+                                inteSub.other["pred.level"] = calPre
 
-                if plotSubstance == "all" or substanceName in plotSubstance:
-                    ## add retention time of peak
-                    for ax in [ax1, ax2, ax5, ax6, ax9, ax10]:
-                        ax.axvline(x = substances[substanceName].refRT, zorder = 1E6, alpha = 0.2)
-
-                    ## add title and scale accordingly
-                    for ax in [ax1, ax2]:
-                        ax.set(xlabel = 'time (min)', ylabel = 'rel. abundance')
-                        ax.set_ylim(-0.2, len(integrations[substanceName].keys()) * offsetEIC + 1 + 0.2)
-                    for ax in [ax5, ax6]:
-                        ax.set(xlabel = 'time (min)', ylabel = 'abundance')
-                    for ax in [ax9, ax10]:
-                        ax.set_ylim(-0.1, 1.1)
-                    ax1.set_title('Prediciton peak', loc="left")
-                    ax2.set_title('Prediction no peak', loc="left")
-                    fig.suptitle('%s\n%s\n%s\nGreen EIC and area: prediction; grey EIC: standardized EIC; light grey EIC: raw data'%(substanceName), fontsize=14)
-
-                    plt.tight_layout()
-                    fig.savefig(os.path.join(expDir, "SubstanceFigures","%s_%s.png"%(predDS["DSName"], substanceName)), dpi = 600)
-                    plt.close(fig)
+            for substanceName in integrations.keys():
+                if substanceName in internalStandards.values():
+                    isd = list(internalStandards.keys())[list(internalStandards.values()).index(substanceName)]
+                    if "Comment" not in substancesComments[substanceName]:
+                        substancesComments[substanceName]["Comment"] = ""
+                    else:
+                        substancesComments[substanceName]["Comment"] = substancesComments[substanceName]["Comment"] + "; "
+                    substancesComments[substanceName]["Comment"] = substancesComments[substanceName]["Comment"] + "ISTD for: '%s'"%(isd)
+            
             
             ## generate results table
             print("  | .. Generating results table (%s)"%(os.path.join(expDir, "%s_Results.tsv"%(predDS["DSName"]))))
-            allSubstances = list(allSubstances)
-            allSamples = list(allSamples)
+            substanceOrder = natsort.natsorted(list(allSubstances))
+            samplesOrder = natsort.natsorted(list(allSamples))
             with open(os.path.join(expDir, "%s_Results.tsv"%(predDS["DSName"])), "w") as fout:
+                headersPerSubstance = ["Comment", "PeakStart", "PeakEnd", "PeakAreaPB", "ISTDRatio", "RelativeConcentration"]
+                
                 if oneRowHeader4Results:
                     fout.write("\t")  ## SampleName and CalibrationLevel
-                    for substanceName in allSubstances:
+                    for substanceName in substanceOrder:
                         substanceName = substanceName.replace("\t", "--TAB--")
-                        fout.write("\t%s.PeakStart\t%s.PeakEnd\t%s.PeakAreaPB\t%s.PeakRelativeConcentration"%(substanceName, substanceName, substanceName, substanceName))
+                        for h in headersPerSubstance:
+                            fout.write("\t%s"%(h))
                     fout.write("\n")
                 else:
                     ## Header row 1
                     fout.write("\t")
-                    for substanceName in allSubstances:
-                        fout.write("\t%s\t%s\t%s"%(substanceName.replace("\t", "--TAB--"), "","",""))
+                    for substanceName in substanceOrder:
+                        fout.write("\t%s%s"%(substanceName.replace("\t", "--TAB--"), "\t"*(len(headersPerSubstance)-1)))
                     fout.write("\n")
 
                     ## Header row 2
                     fout.write("Sample\tRelativeConcentrationLevel")
-                    for substanceName in allSubstances:
-                        fout.write("\tPeakStart\tPeakEnd\tPeakAreaPB\tPeakRelativeConcentration")
+                    for substanceName in substanceOrder:
+                        fout.write("\t" + ("\t".join(headersPerSubstance)))
                     fout.write("\n")
+                
+                fout.write("#\t")
+                for substanceName in substanceOrder:
+                    for h in headersPerSubstance:
+                        fout.write("\t")
+                        if substanceName in substancesComments.keys() and h in substancesComments[substanceName].keys():
+                            fout.write("%s"%(json.dumps(substancesComments[substanceName][h])))
+                fout.write("\n")
 
-                for sample in allSamples:
-                    fout.write(sample)
-                    fout.write("\t")
+                for sample in samplesOrder:
+                    fout.write("%s"%(sample, ))
                     calLevel = ""
                     if calSamplesAndLevels is not None:
                         for samplePart, level in calSamplesAndLevels.items():
                             if samplePart in sample:
                                 calLevel = str(level)
+                    fout.write("\t")
                     fout.write(calLevel)
-                    for substanceName in allSubstances:
+                    for substanceName in substanceOrder:
                         if substanceName in integrations.keys() and sample in integrations[substanceName].keys() and integrations[substanceName][sample].chromatogram is not None:
+                            substanceInfo = {}
                             temp = integrations[substanceName][sample]
-                            
-                            ## Prediction
-                            if temp.other["pred.foundPeak"]:
-                                fout.write("\t%s\t%s\t%s"%("%.3f"%(temp.other["pred.rtstart"]) if not np.isnan(temp.other["pred.rtstart"]) else -1, 
-                                                           "%.3f"%(temp.other["pred.rtend"])   if not np.isnan(temp.other["pred.rtend"])   else -1, 
-                                                           "%.3f"%(temp.other["pred.areaPB"])  if not np.isnan(temp.other["pred.areaPB"])  else -1))
+                            if temp.other["processed"] == '':
+                                ## Prediction
+                                if temp.other["pred.foundPeak"]:
+                                    substanceInfo["PeakStart"] = "%.3f"%(temp.other["pred.rtstart"]) if not np.isnan(temp.other["pred.rtstart"]) else -1
+                                    substanceInfo["PeakEnd"] = "%.3f"%(temp.other["pred.rtend"])   if not np.isnan(temp.other["pred.rtend"])   else -1
+                                    substanceInfo["PeakAreaPB"] ="%.3f"%(temp.other["pred.areaPB"])  if not np.isnan(temp.other["pred.areaPB"])  else -1
+                                    substanceInfo["RelativeConcentration"] = "%.5f"%(temp.other["pred.level"])   if "pred.level" in temp.other.keys() else "ASDf"
+                                if "pred.ISTDRatio" in temp.other.keys():
+                                    substanceInfo["ISTDRatio"] = "%f"%(temp.other["pred.ISTDRatio"])
                             else:
-                                fout.write("\t\t\t")
+                                substanceInfo["Comment"] = temp.other["processed"]
                         else:
-                            fout.write("\t\t\t")
+                            substanceInfo["Comment"] = temp.other["processed"]
+                        fout.write("\t")
+                        fout.write("\t".join([substanceInfo[k] if k in substanceInfo.keys() else "" for k in headersPerSubstance]))
                     fout.write("\n")
                 
                 ## include processing information in TSV file
+                fout.write("## Status"); fout.write("\n")
+                fout.write("## .. '' no problems"); fout.write("\n")
+                fout.write("## .. 1 substance not processed as no respective channel was present in the sample"); fout.write("\n")
+                fout.write("## .. 100 other problem"); fout.write("\n")
                 fout.write("## Parameters"); fout.write("\n")
                 fout.write("## .. expName: '%s'"%(expName)); fout.write("\n")
                 fout.write("## .. modelFile: '%s'"%(modelFile)); fout.write("\n")
@@ -296,9 +340,9 @@ def predictExperiment(expName, predDSs, modelFile,
                 fout.write("## .. MRMHeader: '%s'"%(MRMHeader)); fout.write("\n")
                 fout.write("## .. allowedMZOffset: '%s'"%(allowedMZOffset)); fout.write("\n")
                 fout.write("## PeakBotMRM configuration"); fout.write("\n")
-                fout.write("## .. '" + ("'\n## .. '".join(PeakBotMRM.Config.getAsStringFancy().split("\n"))) + "'"); fout.write("\n")
+                fout.write("## .. '" + ("'\n## .. '".join(PeakBotMRM.Config.getAsString().split(";"))) + "'"); fout.write("\n")
                 fout.write("## General information"); fout.write("\n")
-                fout.write("## .. Date: '%s'"%(datetime.now().strftime("%d/%m/%Y %H:%M:%S"))); fout.write("\n")
+                fout.write("## .. Date: '%s'"%(datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S"))); fout.write("\n")
                 fout.write("## .. Computer: '%s'"%(platform.node())); fout.write("\n")
             
             print("\n\n")

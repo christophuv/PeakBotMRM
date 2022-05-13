@@ -17,6 +17,7 @@ import tensorflow as tf
 import tensorflow_addons as tfa
 import numpy as np
 import pandas as pd
+from sklearn.linear_model import LinearRegression
 
 import tqdm
 import pymzml
@@ -33,7 +34,7 @@ class Config(object):
     """Base configuration class"""
 
     NAME    = "PeakBotMRM"
-    VERSION = "0.9"
+    VERSION = "0.9.15"
 
     RTSLICES       = 255   ## should be of 2^n-1
     NUMCLASSES     =   2   ## [Peak, noPeak]
@@ -55,6 +56,7 @@ class Config(object):
     UPDATEPEAKBORDERSTOMIN = True
     INTEGRATIONMETHOD = "minbetweenborders"
     INCLUDEMETAINFORMATION = False
+    CALIBRATIONMETHOD = "1/expConcentration"
     
     MRMHEADER = "- SRM SIC Q1=(\d+\.?\d*[eE]?-?\d+) Q3=(\d+\.?\d*[eE]?-?\d+) start=(\d+\.?\d*[eE]?-?\d+) end=(\d+\.?\d*[eE]?-?\d+)"
 
@@ -73,6 +75,9 @@ class Config(object):
             " UNetLayerSizes: %s"%(Config.UNETLAYERSIZES),
             " LearningRate: Start: %g, DecreaseAfter: %d steps, Multiplier: %g, min. rate: %g"%(Config.LEARNINGRATESTART, Config.LEARNINGRATEDECREASEAFTERSTEPS, Config.LEARNINGRATEMULTIPLIER, Config.LEARNINGRATEMINVALUE),
             " Prefix for instances: '%s'"%Config.INSTANCEPREFIX,
+            " Update peak borders to min: '%s'"%Config.UPDATEPEAKBORDERSTOMIN,
+            " Integration method: '%s'"%Config.INTEGRATIONMETHOD,
+            " Calibration method: '%s'"%Config.CALIBRATIONMETHOD,
         ])
 
     @staticmethod
@@ -89,6 +94,9 @@ class Config(object):
             "UNetLayerSizes: %s"%(Config.UNETLAYERSIZES),
             "LearningRate: Start: %g, DecreaseAfter: %d steps, Multiplier: %g, min. rate: %g"%(Config.LEARNINGRATESTART, Config.LEARNINGRATEDECREASEAFTERSTEPS, Config.LEARNINGRATEMULTIPLIER, Config.LEARNINGRATEMINVALUE),
             "InstancePrefix: '%s'"%(Config.INSTANCEPREFIX),
+            "Update peak borders to min: '%s'"%Config.UPDATEPEAKBORDERSTOMIN,
+            "Integration method: '%s'"%Config.INTEGRATIONMETHOD,
+            "Calibration method: '%s'"%Config.CALIBRATIONMETHOD,
         ])
 
 
@@ -761,6 +769,37 @@ def integrateArea(eic, rts, start, end):
 
 
 
+def calibrationRegression(x, y, type = None):
+    if type is None:
+        type = Config.CALIBRATIONMETHOD    
+    
+    if type == "1": 
+        y = np.array(y)
+        x = np.array(x).reshape((-1, 1))
+        
+        model = LinearRegression(positive = True)
+        model.fit(x, y)
+        yhat = model.predict(x)
+        
+        r2 = model.score(x, y)
+        
+        return model, r2, model.intercept_, model.coef_, yhat
+    
+    if type == "1/expConcentration":
+        y_ = np.array(y)
+        x_ = np.array(x).reshape((-1, 1))
+        
+        model = LinearRegression(positive = True)
+        model.fit(x_, y_, np.ones(len(y))/np.array(x))
+        yhat = model.predict(x_)
+        
+        r2 = model.score(x_, y_)
+        
+        return model, r2, model.intercept_, model.coef_[0], yhat
+
+    raise RuntimeError("Unknown calibration method '%s' specified"%(type))
+
+
 
 
 
@@ -1148,6 +1187,9 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
             print(logPrefix, "\033[91m  | .. %d substances were not found as the channel selection was ambiguous and will thus not be used further. These substances are: \033[0m'%s'. "%(len(remSubstancesChannelProblems), "', '".join(natsort.natsorted(remSubstancesChannelProblems))))
         for r in remSubstancesChannelProblems:
             del integrations[r]
+    for sub in list(integrations.keys()):
+        if sub not in substances.keys():
+            integrations.pop(sub)
             
     
     if sampleUseFunction is None:

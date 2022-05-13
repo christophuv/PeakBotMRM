@@ -538,11 +538,15 @@ def plotPeakMetrics(tf, expDir, expName):
     p9.options.figure_size = (5.2,5)
     p9.ggsave(plot=plot, filename=os.path.join(expDir, "%s_peakStats_4.png"%(expName)), width=5.2, height=35, dpi=300, limitsize=False, verbose=False)
 
-def plotHistory(histObjectFile, plotFile, verbose = True, logPrefix = ""):
+def createHistory(histObjectFile, locationAndPrefix, verbose = True, logPrefix = ""):
     
     histAll = None
     with portalocker.Lock(histObjectFile, mode = "rb+", timeout = 60, check_interval = 2) as fh:
         histAll = pd.read_pickle(fh)
+    
+    temp = histAll[[i in ["Sensitivity (peaks)", "Specificity (no peaks)", "Area IOU"] for i in histAll.metric]]
+    temp = temp.pivot(index = ["set", "model", "comment"], columns = "metric", values = "value").groupby(["set", "comment"]).describe()
+    temp.to_csv(locationAndPrefix + "_resultsTable.tsv", sep="\t")
         
     ### Summarize and illustrate the results of the different training and validation dataset
     df = histAll
@@ -555,43 +559,37 @@ def plotHistory(histObjectFile, plotFile, verbose = True, logPrefix = ""):
     df.metric = df.apply(lambda x: "TPR" if x.metric == "Sensitivity (peaks)" else x.metric, axis=1)
     df = df.pivot(index=["model", "set", "comment"], columns="metric", values="value")
     df.reset_index(inplace=True)
-        
-    plot = (p9.ggplot(df, p9.aes("FPR", "TPR", colour="comment", shape="set", group="model"))
+    
+    print(logPrefix, "  | .. Plot for all instances simultaneously")
+    plot = (p9.ggplot(df, p9.aes("FPR", "TPR", colour="comment", group="model"))
             + p9.geom_point(alpha=0.5)
-            + p9.geom_line(alpha=0.5)
             + p9.facet_wrap("~comment", ncol=4)
             + p9.theme(legend_position = "none")
             + p9.theme_minimal()
             + p9.theme(plot_background = p9.element_rect(fill = "White"))
             + p9.ggtitle("ROC") + p9.xlab("FPR") + p9.ylab("TPR") 
-            )
+           )
     p9.options.figure_size = (5.2, 7)
-    p9.ggsave(plot=plot, filename="%s_ROC.png"%(plotFile), width=20, height=20, dpi=300, limitsize=False, verbose=False)
+    p9.ggsave(plot=plot, filename="%s_ROC.png"%(locationAndPrefix), width=20, height=20, dpi=300, limitsize=False, verbose=False)
     p = (plot + p9.scales.xlim(0,0.21) + p9.scales.ylim(0.9,1))
-    p9.ggsave(plot=p, filename="%s_ROC_zoomed.png"%(plotFile), width=20, height=20, dpi=300, limitsize=False, verbose=False)
-    
-    for k in set(df["set"]):
-        print("Plotting for set '%s'"%(k))        
-        temp = df[df["set"] == k]
+    p9.ggsave(plot=p, filename="%s_ROC_zoomed.png"%(locationAndPrefix), width=20, height=20, dpi=300, limitsize=False, verbose=False)
+        
+    for setName in set(df["set"]):
+        print(logPrefix, "  | .. Plotting for set '%s'"%(setName))        
+        temp = df[df["set"] == setName]
         
         plot = (p9.ggplot(temp, p9.aes("FPR", "TPR", colour="comment",  group="model"))
                 + p9.geom_point(alpha=0.5)
-                #+ p9.geom_line(alpha=0.5)
                 + p9.facet_wrap("~comment", ncol=4)
                 + p9.theme(legend_position = "none")
                 + p9.theme_minimal()
-            + p9.theme(plot_background = p9.element_rect(fill = "White"))
-                + p9.ggtitle("ROC for sets containing the string '%s'"%(k)) + p9.xlab("FPR") + p9.ylab("TPR") 
-                )
+                + p9.theme(plot_background = p9.element_rect(fill = "White"))
+                + p9.ggtitle("ROC for sets containing the string '%s'"%(setName)) + p9.xlab("FPR") + p9.ylab("TPR") 
+               )
         p9.options.figure_size = (5.2, 7)
-        p9.ggsave(plot=plot, filename="%s_ROC_%s.png"%(plotFile, k), width=10, height=10, dpi=150, limitsize=False, verbose=False)
-        try:
-            p = (plot + p9.scales.xlim(0,0.21) + p9.scales.ylim(0.9,1))
-            p9.ggsave(plot=p, filename="%s_ROC_zoomed_%s.png"%(plotFile, k), width=10, height=10, dpi=150, limitsize=False, verbose=False)
-        except:
-            pass
-        
-        print("")
+        p9.ggsave(plot=plot, filename="%s_ROC_%s.png"%(locationAndPrefix, setName), width=10, height=10, dpi=150, limitsize=False, verbose=False)
+        p = (plot + p9.scales.xlim(0,0.21) + p9.scales.ylim(0.9,1))
+        p9.ggsave(plot=p, filename="%s_ROC_zoomed_%s.png"%(locationAndPrefix, setName), width=10, height=10, dpi=150, limitsize=False, verbose=False)
 
 def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, logDir = None, historyFile = None, 
                          MRMHeader = None,
