@@ -12,6 +12,7 @@ import re
 import math
 import random
 import natsort
+import traceback
 
 import tensorflow as tf
 import tensorflow_addons as tfa
@@ -755,11 +756,14 @@ def integrateArea(eic, rts, start, end):
             area = area + eic[i]
 
     elif method.lower() in ["minbetweenborders"]:
+        ## replaced with area integration rather than sum of signals
+        
         minV = 0
-        if endInd > startInd:
+        if endInd > startInd: 
             minV = np.min(eic[startInd:(endInd+1)])
-            area = np.sum(eic[startInd:(endInd+1)])
-        area = area - minV * (endInd - startInd + 1)
+            y = eic[startInd : (endInd + 1)]
+            x = rts[startInd : (endInd + 1)] * 60
+            area = np.sum((y[1:] + y[: -1] - minV * 2) / 2 * np.diff(x))
 
     else:
         raise RuntimeError("Unknown integration method")
@@ -770,32 +774,38 @@ def integrateArea(eic, rts, start, end):
 
 
 def calibrationRegression(x, y, type = None):
-    if type is None:
-        type = Config.CALIBRATIONMETHOD    
+    try:
+        if type is None:
+            type = Config.CALIBRATIONMETHOD    
+        
+        if type == "1": 
+            y = np.array(y)
+            x = np.array(x).reshape((-1, 1))
+            
+            model = LinearRegression(positive = True)
+            model.fit(x, y)
+            yhat = model.predict(x)
+            
+            r2 = model.score(x, y)
+            
+            return model, r2, model.intercept_, model.coef_, yhat
+        
+        if type == "1/expConcentration":
+            y_ = np.array(y)
+            x_ = np.array(x).reshape((-1, 1))
+            
+            model = LinearRegression(positive = True)
+            model.fit(x_, y_, np.ones(len(y))/np.array(x))
+            yhat = model.predict(x_)
+            
+            r2 = model.score(x_, y_)
+            
+            return model, r2, model.intercept_, model.coef_[0], yhat
     
-    if type == "1": 
-        y = np.array(y)
-        x = np.array(x).reshape((-1, 1))
-        
-        model = LinearRegression(positive = True)
-        model.fit(x, y)
-        yhat = model.predict(x)
-        
-        r2 = model.score(x, y)
-        
-        return model, r2, model.intercept_, model.coef_, yhat
-    
-    if type == "1/expConcentration":
-        y_ = np.array(y)
-        x_ = np.array(x).reshape((-1, 1))
-        
-        model = LinearRegression(positive = True)
-        model.fit(x_, y_, np.ones(len(y))/np.array(x))
-        yhat = model.predict(x_)
-        
-        r2 = model.score(x_, y_)
-        
-        return model, r2, model.intercept_, model.coef_[0], yhat
+    except Exception as ex:
+        print("Exception in linear regression calibrationRegression(x, y, type) with x '%s', y '%s', type '%s'"%(str(x), str(y), str(type)))
+        traceback.print_exc()
+        raise ex
 
     raise RuntimeError("Unknown calibration method '%s' specified"%(type))
 
@@ -902,7 +912,7 @@ def evaluatePeakBotMRM(instancesWithGT, modelPath = None, model = None, verbose 
 
 
 class Substance:
-    def __init__(self, name, Q1, Q3, CE, CEMethod, refRT, peakForm, rtShift, note, polarity, type, criteria):
+    def __init__(self, name, Q1, Q3, CE, CEMethod, refRT, peakForm, rtShift, note, polarity, type, criteria, internalStandard, calLevel1Concentration, calSamples, useCalSamples, calculateCalibration):
         self.name = name
         self.Q1 = Q1
         self.Q3 = Q3
@@ -915,9 +925,14 @@ class Substance:
         self.criteria = criteria
         self.polarity = polarity
         self.type = type
+        self.internalStandard = internalStandard
+        self.calLevel1Concentration = calLevel1Concentration
+        self.calSamples = calSamples
+        self.useCalSamples = useCalSamples
+        self.calculateCalibration = calculateCalibration
     
     def __str__(self):
-        return "%s (Q1 '%s', Q3 '%s', CE '%s', CEMethod '%s', ref.RT %.2f)"%(self.name, self.Q1, self.Q3, self.CE, self.CEMethod, self.refRT)
+        return "%s (Q1 '%s', Q3 '%s', CE '%s', CEMethod '%s', ref.RT %.2f, calLvl1: '%s', calSamples '%s', calculateCalibration '%s')"%(self.name, self.Q1, self.Q3, self.CE, self.CEMethod, self.refRT, self.calLevel1Concentration, self.calSamples, self.calculateCalibration)
 
 class Integration:
     def __init__(self, foundPeak, rtStart, rtEnd, area, chromatogram, other = None):
@@ -947,7 +962,8 @@ def loadTargets(targetFile, excludeSubstances = None, includeSubstances = None, 
     for substance in substances:
         substance["Name"] = substance["Name"].replace("  (ISTD)", "").replace(" (ISTD)", "").replace("  Results", "").replace(" Results", "")
         if (excludeSubstances is None or substance["Name"] not in excludeSubstances) and (includeSubstances is None or substance["Name"] in includeSubstances):
-            temp[substance["Name"]] = Substance(substance["Name"],
+            inCalSamples = eval(substance["InCalSamples"])
+            temp[substance["Name"]] = Substance(substance["Name"].strip(),
                                                 substance["Precursor Ion"],
                                                 substance["Product Ion"],
                                                 substance["Collision Energy"],
@@ -958,8 +974,28 @@ def loadTargets(targetFile, excludeSubstances = None, includeSubstances = None, 
                                                 substance["Note"],
                                                 substance["Ion Polarity"],
                                                 substance["Type"],
-                                                substance["Criteria"]
+                                                substance["Criteria"], 
+                                                None if substance["InternalStandard"] == "" else substance["InternalStandard"].strip(),
+                                                substance["Concentration"],
+                                                inCalSamples,
+                                                inCalSamples.keys() if "UseCalSamples" not in substance.keys() or substance["UseCalSamples"] is None or substance["UseCalSamples"] == "" else eval(substance["UseCalSamples"]),
+                                                eval("'%s'.lower() == 'true'"%(substance["CalculateCalibration"]))
                                                )
+    errors = 0
+    for substanceName, substance in temp.items():        
+        if substance.internalStandard is not None:
+            foundIS = False
+            for sub2Name, sub2 in temp.items():
+                if substance.internalStandard == sub2.name:
+                    foundIS = True
+                    
+            if not foundIS:
+                print("\33[91mError: Internal standard '%s' for substance '%s' not in list\33[0m"%(substance.internalStandard, substance.name))
+                errors += 1
+    if errors > 0:
+        print("\33[91mError: One or several internal standards not present\33[0m")
+        raise RuntimeError("Error: One or several internal standards not present")
+        
     substances = temp 
     
     if verbose:

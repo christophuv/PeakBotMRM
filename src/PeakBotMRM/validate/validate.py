@@ -143,26 +143,27 @@ def validateExperiment(expName, valDSs, modelFile,
                     inte = integrations[substanceName][sample]
                     allSamples.add(sample)
                     
-                    rts = inte.chromatogram["rts"]
-                    eic = inte.chromatogram["eic"]
-                    refRT = substances[substanceName].refRT
-                    
-                    ## standardize EIC
-                    rtsS, eicS = extractStandardizedEIC(eic, rts, refRT)
-                    
-                    ## get integration results on standardized area
-                    bestRTInd, gt_isPeak, gt_rtStartInd, gt_rtEndInd, gt_rtStart, gt_rtEnd = \
-                        getInteRTIndsOnStandardizedEIC(rtsS, eicS, refRT, 
-                                                    inte.foundPeak, 
-                                                    inte.rtStart, 
-                                                    inte.rtEnd)
-                    
-                    temp["channel.int"][samplei, :] = eicS
-                    temp["channel.rts"][samplei, :] = rtsS
-                    temp["inte.peak"][samplei,0]    = 1 if gt_isPeak else 0
-                    temp["inte.peak"][samplei,1]    = 1 if not gt_isPeak else 0
-                    temp["inte.rtInds"][samplei, 0] = gt_rtStartInd
-                    temp["inte.rtInds"][samplei, 1] = gt_rtEndInd
+                    if inte.chromatogram is not None:
+                        rts = inte.chromatogram["rts"]
+                        eic = inte.chromatogram["eic"]
+                        refRT = substances[substanceName].refRT
+                        
+                        ## standardize EIC
+                        rtsS, eicS = extractStandardizedEIC(eic, rts, refRT)
+                        
+                        ## get integration results on standardized area
+                        bestRTInd, gt_isPeak, gt_rtStartInd, gt_rtEndInd, gt_rtStart, gt_rtEnd = \
+                            getInteRTIndsOnStandardizedEIC(rtsS, eicS, refRT, 
+                                                        inte.foundPeak, 
+                                                        inte.rtStart, 
+                                                        inte.rtEnd)
+                        
+                        temp["channel.int"][samplei, :] = eicS
+                        temp["channel.rts"][samplei, :] = rtsS
+                        temp["inte.peak"][samplei,0]    = 1 if gt_isPeak else 0
+                        temp["inte.peak"][samplei,1]    = 1 if not gt_isPeak else 0
+                        temp["inte.rtInds"][samplei, 0] = gt_rtStartInd
+                        temp["inte.rtInds"][samplei, 1] = gt_rtEndInd
                 
                 ## save some results to a file for testing
                 if substanceName == "Adenosine monophosphate":
@@ -177,160 +178,162 @@ def validateExperiment(expName, valDSs, modelFile,
                 for samplei, sample in enumerate(integrations[substanceName].keys()):
                     inte = integrations[substanceName][sample] 
                     
-                    rts = inte.chromatogram["rts"]
-                    eic = inte.chromatogram["eic"]
-                    refRT = substances[substanceName].refRT
+                    if inte is not None:
                     
-                    ## standardize EIC
-                    rtsS, eicS = extractStandardizedEIC(eic, rts, refRT)
-                
-                    ## get integration results on standardized area
-                    bestRTInd, gt_isPeak, gt_rtStartInd, gt_rtEndInd, gt_rtStart, gt_rtEnd = \
-                        getInteRTIndsOnStandardizedEIC(rtsS, eicS, refRT, 
-                                                    inte.foundPeak, 
-                                                    inte.rtStart, 
-                                                    inte.rtEnd)
+                        rts = inte.chromatogram["rts"]
+                        eic = inte.chromatogram["eic"]
+                        refRT = substances[substanceName].refRT
                         
-                    ## test if eic has detected signals
-                    pred_isPeak     = pred_peakTypes[samplei] == 0
-                    pred_rtStartInd = round(pred_rtStartInds[samplei])
-                    pred_rtEndInd   = round(pred_rtEndInds[samplei])
-                    pred_rtStart    = rtsS[min(PeakBotMRM.Config.RTSLICES-1, max(0, pred_rtStartInd))]
-                    pred_rtEnd      = rtsS[min(PeakBotMRM.Config.RTSLICES-1, max(0, pred_rtEndInd))]
-                    truth[0] = truth[0] + (1 if gt_isPeak else 0)
-                    truth[3] = truth[3] + (1 if not gt_isPeak else 0)
-                    agreement[0] = agreement[0] + (1 if gt_isPeak and pred_isPeak else 0)
-                    agreement[1] = agreement[1] + (1 if gt_isPeak and not pred_isPeak else 0)
-                    agreement[2] = agreement[2] + (1 if not gt_isPeak and pred_isPeak else 0)
-                    agreement[3] = agreement[3] + (1 if not gt_isPeak and not pred_isPeak else 0)
-
-                    inte.other["pred.rtstart"]   = pred_rtStart
-                    inte.other["pred.rtend"]     = pred_rtEnd
-                    inte.other["pred.foundPeak"] = pred_isPeak
-                    if inte.other["pred.foundPeak"]:
-                        inte.other["pred.areaPB"] = PeakBotMRM.integrateArea(eic, rts, pred_rtStart, pred_rtEnd)
-                    else:
-                        inte.other["pred.areaPB"] = -1
-                    if gt_isPeak:
-                        inte.other["gt.areaPB"] = PeakBotMRM.integrateArea(eic, rts, gt_rtStart, gt_rtEnd)
-                    else:
-                        inte.other["gt.areaPB"] = -1
+                        ## standardize EIC
+                        rtsS, eicS = extractStandardizedEIC(eic, rts, refRT)
                     
-                    ## generate heatmap matrix
-                    val = 0
-                    if gt_isPeak:
-                        if pred_isPeak:
-                            ## manual and prediction report a peak, x% correct
-                            if inte.other["gt.areaPB"] < inte.other["pred.areaPB"]:
-                                val = min(1, inte.other["pred.areaPB"] / inte.other["gt.areaPB"] - 1)
-                            else:
-                                val = -min(1, inte.other["gt.areaPB"] / inte.other["pred.areaPB"] - 1)
-                        else:
-                            ## manual integration reports a peak, but prediction does not, 100% incorrect
-                            val = -1.00001
-                    else:
-                        if pred_isPeak:
-                            ## manual integration reports not a peak, but prediction does, 100% incorrect
-                            val = 1.00001
-                        else:
-                            ## both (manual and prediction) report not a peak, 100% correct
-                            val = 0
+                        ## get integration results on standardized area
+                        bestRTInd, gt_isPeak, gt_rtStartInd, gt_rtEndInd, gt_rtStart, gt_rtEnd = \
+                            getInteRTIndsOnStandardizedEIC(rtsS, eicS, refRT, 
+                                                        inte.foundPeak, 
+                                                        inte.rtStart, 
+                                                        inte.rtEnd)
                             
-                    if val > 1.001 or val < -1.001:
-                        print(substanceName, sample, gt_isPeak, inte["gt.areaPB"], gt_rtStart, gt_rtEnd, pred_isPeak, inte.other["pred.areaPB"], pred_rtStart, pred_rtEnd)
-                    rowInd = perInstanceResultsSubstances.index(substanceName)
-                    colInd = perInstanceResultsSamples.index(sample)
-                    perInstanceResults[rowInd, colInd] = val
-                    perInstanceResultsPD.append((substanceName, sample, val, 
-                                                gt_isPeak , inte.rtStart               , inte.rtEnd              , inte.other["gt.areaPB"]     , inte.area,   
-                                                pred_isPeak, inte.other["pred.rtstart"], inte.other["pred.rtend"], inte.other["pred.areaPB"]))
-                    
-                    if plotSubstance == "all" or substanceName in plotSubstance:
-                        ## plot results; find correct axis to plot to 
-                        ax = ax1
-                        axR = ax5
-                        axS = ax9
-                        if gt_isPeak:
-                            ax = ax1 if pred_isPeak else ax2
-                            axR = ax5 if pred_isPeak else ax6
-                            axS = ax9 if pred_isPeak else ax10
-                        else:
-                            ax = ax3 if pred_isPeak else ax4
-                            axR = ax7 if pred_isPeak else ax8
-                            axS = ax11 if pred_isPeak else ax12
-                                            
-                        ax.plot([min(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod), 
-                                max(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod)], 
-                                [offsetEIC*samplei, 
-                                offsetEIC*samplei], 
-                                "slategrey", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
-                        axR.plot([min(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod), 
-                                max(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod)], 
-                                [0,
-                                0], 
-                                "slategrey", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
-                        axS.plot([min(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod), 
-                                max(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod)], 
-                                [0,
-                                0], 
-                                "slategrey", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
-                        
-                        ## plot raw, scaled data according to classification prediction and integration result
-                        b = min(eic)
-                        m = max([i-b for i in eic])
-                        ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts], 
-                                [(e-b)/m+offsetEIC*samplei for e in eic], 
-                                "lightgrey", linewidth=.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
-                        ax.fill_between([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts], 
-                                        [(e-b)/m+offsetEIC*samplei for e in eic], 
-                                        offsetEIC*samplei, 
-                                        facecolor='w', lw=0, zorder=(len(integrations[substanceName].keys())-samplei+1)*2-1)
-                        ## add detected peak
-                        if pred_isPeak:
-                            ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if pred_rtStart <= t <= pred_rtEnd], 
-                                    [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if pred_rtStart <= rts[i] <= pred_rtEnd], 
-                                    "olivedrab", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
-                            ax.fill_between([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if pred_rtStart <= t <= pred_rtEnd], 
-                                            [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if pred_rtStart <= rts[i] <= pred_rtEnd], 
-                                            offsetEIC*samplei, 
-                                            facecolor='yellowgreen', lw=0, zorder=(len(integrations[substanceName].keys())-samplei+1)*2-1)
-                        ## add integration results
-                        if gt_isPeak:            
-                            ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if gt_rtStart <= t <= gt_rtEnd], 
-                                    [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if gt_rtStart <= rts[i] <= gt_rtEnd], 
-                                    "k", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
-                                                    
-                        ## plot raw data
-                        axR.plot(rts, eic, "lightgrey", linewidth=.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
-                        ## add detected peak
-                        if pred_isPeak:
-                            axR.plot([t for t in rts if pred_rtStart <= t <= pred_rtEnd], 
-                                    [e for i, e in enumerate(eic) if pred_rtStart <= rts[i] <= pred_rtEnd], 
-                                    "olivedrab", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
-                        ## add integration results
-                        if gt_isPeak:            
-                            axR.plot([t for t in rts if gt_rtStart <= t <= gt_rtEnd], 
-                                    [e for i, e in enumerate(eic) if gt_rtStart <= rts[i] <= gt_rtEnd], 
-                                    "k", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                        ## test if eic has detected signals
+                        pred_isPeak     = pred_peakTypes[samplei] == 0
+                        pred_rtStartInd = round(pred_rtStartInds[samplei])
+                        pred_rtEndInd   = round(pred_rtEndInds[samplei])
+                        pred_rtStart    = rtsS[min(PeakBotMRM.Config.RTSLICES-1, max(0, pred_rtStartInd))]
+                        pred_rtEnd      = rtsS[min(PeakBotMRM.Config.RTSLICES-1, max(0, pred_rtEndInd))]
+                        truth[0] = truth[0] + (1 if gt_isPeak else 0)
+                        truth[3] = truth[3] + (1 if not gt_isPeak else 0)
+                        agreement[0] = agreement[0] + (1 if gt_isPeak and pred_isPeak else 0)
+                        agreement[1] = agreement[1] + (1 if gt_isPeak and not pred_isPeak else 0)
+                        agreement[2] = agreement[2] + (1 if not gt_isPeak and pred_isPeak else 0)
+                        agreement[3] = agreement[3] + (1 if not gt_isPeak and not pred_isPeak else 0)
 
-                        ## plot scaled data
-                        ## add detected peak
-                        minInt = 0
-                        maxInt = 1
-                        if np.sum(eicS) > 0:
-                            minInt = min([e for e in eicS if e > 0])
-                            maxInt = max([e-minInt for e in eicS])
-                        axS.plot(rts, 
-                                [(e-minInt)/maxInt for e in eic], 
-                                "lightgrey", linewidth=.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
-                        if pred_isPeak:
-                            axS.plot([t for t in rts if pred_rtStart <= t <= pred_rtEnd], 
-                                    [(e-minInt)/maxInt for i, e in enumerate(eic) if pred_rtStart <= rts[i] <= pred_rtEnd], 
-                                    "olivedrab", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                        inte.other["pred.rtstart"]   = pred_rtStart
+                        inte.other["pred.rtend"]     = pred_rtEnd
+                        inte.other["pred.foundPeak"] = pred_isPeak
+                        if inte.other["pred.foundPeak"]:
+                            inte.other["pred.areaPB"] = PeakBotMRM.integrateArea(eic, rts, pred_rtStart, pred_rtEnd)
+                        else:
+                            inte.other["pred.areaPB"] = -1
                         if gt_isPeak:
-                            axS.plot([t for t in rts if gt_rtStart <= t <= gt_rtEnd], 
-                                    [(e-minInt)/maxInt for i, e in enumerate(eic) if gt_rtStart <= rts[i] <= gt_rtEnd], 
-                                    "k", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                            inte.other["gt.areaPB"] = PeakBotMRM.integrateArea(eic, rts, gt_rtStart, gt_rtEnd)
+                        else:
+                            inte.other["gt.areaPB"] = -1
+                        
+                        ## generate heatmap matrix
+                        val = 0
+                        if gt_isPeak:
+                            if pred_isPeak:
+                                ## manual and prediction report a peak, x% correct
+                                if inte.other["gt.areaPB"] < inte.other["pred.areaPB"]:
+                                    val = min(1, inte.other["pred.areaPB"] / inte.other["gt.areaPB"] - 1)
+                                else:
+                                    val = -min(1, inte.other["gt.areaPB"] / inte.other["pred.areaPB"] - 1)
+                            else:
+                                ## manual integration reports a peak, but prediction does not, 100% incorrect
+                                val = -1.00001
+                        else:
+                            if pred_isPeak:
+                                ## manual integration reports not a peak, but prediction does, 100% incorrect
+                                val = 1.00001
+                            else:
+                                ## both (manual and prediction) report not a peak, 100% correct
+                                val = 0
+                                
+                        if val > 1.001 or val < -1.001:
+                            print(substanceName, sample, gt_isPeak, inte["gt.areaPB"], gt_rtStart, gt_rtEnd, pred_isPeak, inte.other["pred.areaPB"], pred_rtStart, pred_rtEnd)
+                        rowInd = perInstanceResultsSubstances.index(substanceName)
+                        colInd = perInstanceResultsSamples.index(sample)
+                        perInstanceResults[rowInd, colInd] = val
+                        perInstanceResultsPD.append((substanceName, sample, val, 
+                                                    gt_isPeak , inte.rtStart               , inte.rtEnd              , inte.other["gt.areaPB"]     , inte.area,   
+                                                    pred_isPeak, inte.other["pred.rtstart"], inte.other["pred.rtend"], inte.other["pred.areaPB"]))
+                        
+                        if plotSubstance == "all" or substanceName in plotSubstance:
+                            ## plot results; find correct axis to plot to 
+                            ax = ax1
+                            axR = ax5
+                            axS = ax9
+                            if gt_isPeak:
+                                ax = ax1 if pred_isPeak else ax2
+                                axR = ax5 if pred_isPeak else ax6
+                                axS = ax9 if pred_isPeak else ax10
+                            else:
+                                ax = ax3 if pred_isPeak else ax4
+                                axR = ax7 if pred_isPeak else ax8
+                                axS = ax11 if pred_isPeak else ax12
+                                                
+                            ax.plot([min(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod), 
+                                    max(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod)], 
+                                    [offsetEIC*samplei, 
+                                    offsetEIC*samplei], 
+                                    "slategrey", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                            axR.plot([min(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod), 
+                                    max(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod)], 
+                                    [0,
+                                    0], 
+                                    "slategrey", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                            axS.plot([min(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod), 
+                                    max(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod)], 
+                                    [0,
+                                    0], 
+                                    "slategrey", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                            
+                            ## plot raw, scaled data according to classification prediction and integration result
+                            b = min(eic)
+                            m = max([i-b for i in eic])
+                            ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts], 
+                                    [(e-b)/m+offsetEIC*samplei for e in eic], 
+                                    "lightgrey", linewidth=.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                            ax.fill_between([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts], 
+                                            [(e-b)/m+offsetEIC*samplei for e in eic], 
+                                            offsetEIC*samplei, 
+                                            facecolor='w', lw=0, zorder=(len(integrations[substanceName].keys())-samplei+1)*2-1)
+                            ## add detected peak
+                            if pred_isPeak:
+                                ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if pred_rtStart <= t <= pred_rtEnd], 
+                                        [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if pred_rtStart <= rts[i] <= pred_rtEnd], 
+                                        "olivedrab", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                                ax.fill_between([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if pred_rtStart <= t <= pred_rtEnd], 
+                                                [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if pred_rtStart <= rts[i] <= pred_rtEnd], 
+                                                offsetEIC*samplei, 
+                                                facecolor='yellowgreen', lw=0, zorder=(len(integrations[substanceName].keys())-samplei+1)*2-1)
+                            ## add integration results
+                            if gt_isPeak:            
+                                ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if gt_rtStart <= t <= gt_rtEnd], 
+                                        [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if gt_rtStart <= rts[i] <= gt_rtEnd], 
+                                        "k", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                                                        
+                            ## plot raw data
+                            axR.plot(rts, eic, "lightgrey", linewidth=.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                            ## add detected peak
+                            if pred_isPeak:
+                                axR.plot([t for t in rts if pred_rtStart <= t <= pred_rtEnd], 
+                                        [e for i, e in enumerate(eic) if pred_rtStart <= rts[i] <= pred_rtEnd], 
+                                        "olivedrab", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                            ## add integration results
+                            if gt_isPeak:            
+                                axR.plot([t for t in rts if gt_rtStart <= t <= gt_rtEnd], 
+                                        [e for i, e in enumerate(eic) if gt_rtStart <= rts[i] <= gt_rtEnd], 
+                                        "k", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+
+                            ## plot scaled data
+                            ## add detected peak
+                            minInt = 0
+                            maxInt = 1
+                            if np.sum(eicS) > 0:
+                                minInt = min([e for e in eicS if e > 0])
+                                maxInt = max([e-minInt for e in eicS])
+                            axS.plot(rts, 
+                                    [(e-minInt)/maxInt for e in eic], 
+                                    "lightgrey", linewidth=.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                            if pred_isPeak:
+                                axS.plot([t for t in rts if pred_rtStart <= t <= pred_rtEnd], 
+                                        [(e-minInt)/maxInt for i, e in enumerate(eic) if pred_rtStart <= rts[i] <= pred_rtEnd], 
+                                        "olivedrab", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                            if gt_isPeak:
+                                axS.plot([t for t in rts if gt_rtStart <= t <= gt_rtEnd], 
+                                        [(e-minInt)/maxInt for i, e in enumerate(eic) if gt_rtStart <= rts[i] <= gt_rtEnd], 
+                                        "k", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
 
             
                 if substanceName not in metricsTable.keys():
