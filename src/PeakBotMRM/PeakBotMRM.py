@@ -19,6 +19,7 @@ import tensorflow_addons as tfa
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression
+from scipy.optimize import curve_fit
 
 import tqdm
 import pymzml
@@ -1083,6 +1084,10 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
     
     if verbose:
         print(logPrefix, "Loading chromatograms")
+        
+    resetIntegrations = False
+    if integrations is None:
+        resetIntegrations = True
     
     createNewIntegrations = False
     if integrations is None:
@@ -1199,6 +1204,14 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
             pickle.dump((integrations, usedSamples), fout)
             if verbose:
                 print(logPrefix, "  | .. Stored integrations to '%s/integrations.pickle'"%os.path.join(samplesPath, "integrations.pickle"))
+    
+    if resetIntegrations:
+        for s in integrations.keys():
+            for f in integrations[s].keys():
+                integrations[s][f].foundPeak = None
+                integrations[s][f].rtStart = None
+                integrations[s][f].rtEnd = None
+                integrations[s][f].area = None
     
     ## Remove chromatograms with ambiguously selected chromatograms
     remSubstancesChannelProblems = set()
