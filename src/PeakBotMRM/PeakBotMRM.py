@@ -102,6 +102,33 @@ class Config(object):
         ])
 
 
+def getTensorflowVersion():
+    return tf.__version__
+def getCPUInfo():
+    try:
+        import cpuinfo
+        s = cpuinfo.get_cpu_info()["brand_raw"]
+        return s
+    except Exception:
+        return "NA"
+def getCUDAInfo():
+    try:
+        from numba import cuda as ca
+        print("  | .. GPU-device: ", str(ca.get_current_device().name), sep="")
+        pus = tf.config.experimental.list_physical_devices()
+        return "; ".join(["%s (%s)"%(pu.name, pu.device_type) for pu in pus])
+    except Exception:
+        return "NA"
+def getMemoryInfo():
+    try:
+        from psutil import virtual_memory
+        mem = virtual_memory()
+        return "%.1f GB"%(mem.total/1000/1000/1000)
+    except Exception:
+        return "NA"
+    
+    
+
 
 print("Initializing PeakBotMRM")
 try:
