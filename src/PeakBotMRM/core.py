@@ -57,7 +57,12 @@ def tocAddStat(taskName = "", label="NA"):
     
     
 def getHeader(string):
-    return u"\u2500\u2500\u2500  %s  %s"%(string, u"\u2500" * (os.get_terminal_size().columns - 7 - len(string)))
+    length = 50
+    try:
+        length = os.get_terminal_size().columns - 7 - len(string)
+    except:
+        pass
+    return u"\u2500\u2500\u2500  %s  %s"%(string, u"\u2500" * (length))
 
     
     
