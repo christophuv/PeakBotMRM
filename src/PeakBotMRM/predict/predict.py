@@ -88,9 +88,13 @@ def predictExperiment(expName, predDSs, modelFile,
 
             predictDataset(modelFile, substances, integrations)
             
-            substancesComments = calibrateIntegrations(substances, integrations)
+            substancesComments, samplesComments = calibrateIntegrations(substances, integrations)
 
-            exportIntegrations(os.path.join(expDir, "%s_Results.tsv"%(predDS["DSName"])), substances, integrations, substancesComments = substancesComments, additionalCommentsForFile=[
+            exportIntegrations(os.path.join(expDir, "%s_Results.tsv"%(predDS["DSName"])), 
+                               substances, integrations, 
+                               substancesComments = substancesComments, 
+                               samplesComments = samplesComments, 
+                               additionalCommentsForFile=[
                 "PeakBot model: '%s'"%(modelFile)
             ], oneRowHeader4Results = oneRowHeader4Results)
             
@@ -201,19 +205,21 @@ def getCalibrationSamplesAndLevels(substances):
     for substanceName in substances: 
         if substances[substanceName].calSamples is not None: 
             for sampPart, level in substances[substanceName].calSamples.items():
-                if sampPart not in calSamplesAndLevels:
-                    calSamplesAndLevels[sampPart] = level
-                else:
-                    if calSamplesAndLevels[sampPart] != level:
-                        print("\33[91m  | .. Error: Calibration sample '%s' found with multiple levels\33[0m"%(sampPart))
-                        errors += 1
+                if level > 0:
+                    if sampPart not in calSamplesAndLevels:
+                        calSamplesAndLevels[sampPart] = level
+                    else:
+                        if calSamplesAndLevels[sampPart] != level:
+                            print("\33[91m  | .. Error: Calibration sample '%s' found with multiple levels '%s'\33[0m"%(sampPart, str(calSamplesAndLevels)))
+                            print(substances[substanceName].calSamples)
+                            errors += 1
     if errors > 0:
         ## TODO improve errror message for user
         print("\33[91m  | .. Error: Calibration levels are not unique among samples. Please double-check.\33[0m")
         raise RuntimeError("Error: Calibration levels are not unique among samples")
     return calSamplesAndLevels
 
-def exportIntegrations(toFile, substances, integrations, substanceOrder = None, samplesOrder = None, substancesComments = None, oneRowHeader4Results = False, additionalCommentsForFile = None):
+def exportIntegrations(toFile, substances, integrations, substanceOrder = None, samplesOrder = None, substancesComments = None, samplesComments = None, oneRowHeader4Results = False, additionalCommentsForFile = None):
     for substanceName in integrations.keys():
         isd = [substances[s].name for s in substances if substances[s].internalStandard == substanceName]
         if len(isd) > 0:
@@ -280,9 +286,11 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
             for substanceName in substanceOrder:
                 if substanceName in integrations.keys() and sample in integrations[substanceName].keys() and integrations[substanceName][sample].chromatogram is not None:
                     substanceInfo = {}
+                    if samplesComments is not None and substanceName in samplesComments.keys() and sample in samplesComments[substanceName].keys():
+                        substanceInfo["Comment"] = "; ".join((str(s) for s in samplesComments[substanceName][sample]))
                     temp = integrations[substanceName][sample]
                     if temp.other["processed"] == '':
-                                ## Prediction
+                        ## Prediction
                         if temp.other["pred.foundPeak"]:
                             substanceInfo["PeakStart"]             = "%.3f"%(temp.other["pred.rtstart"]) if not np.isnan(temp.other["pred.rtstart"]) else -1
                             substanceInfo["PeakEnd"]               = "%.3f"%(temp.other["pred.rtend"])   if not np.isnan(temp.other["pred.rtend"])   else -1
@@ -317,6 +325,7 @@ def calibrateIntegrations(substances, integrations):
     calSamplesAndLevels = getCalibrationSamplesAndLevels(substances)
     
     substancesComments = {}
+    samplesComments = {}
     
     for substanceName in integrations.keys():
         if substanceName not in substancesComments.keys():
@@ -354,6 +363,11 @@ def calibrateIntegrations(substances, integrations):
                                 obs = inteSub.other["pred.areaPB"]
                                 
                         if exp is not None and obs is not None and not np.isnan(exp) and not np.isnan(obs) and exp > 0 and obs > 0 and level > 0:
+                            if substanceName not in samplesComments.keys():
+                                samplesComments[substanceName] = {}
+                            if sample not in samplesComments[substanceName].keys():
+                                samplesComments[substanceName][sample] = []
+                            samplesComments[substanceName][sample].append("Using for cal. (exp. conc. %s)"%str(exp))
                             calExp.append(exp)
                             calObs.append(obs)
                         
@@ -377,4 +391,4 @@ def calibrateIntegrations(substances, integrations):
                             calPre = model.predict(np.array((inteSub.other["pred.areaPB"])).reshape(-1,1))
                             inteSub.other["pred.level"] = calPre
     
-    return substancesComments
+    return substancesComments, samplesComments
