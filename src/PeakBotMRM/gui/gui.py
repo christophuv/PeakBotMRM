@@ -9,7 +9,6 @@ import PyQt6.QtCore
 import PyQt6.QtGui
 
 import pyqtgraph
-from zmq import PROTOCOL_ERROR_ZMTP_MALFORMED_COMMAND_MESSAGE
 pyqtgraph.setConfigOption('background', 'w')
 pyqtgraph.setConfigOption('foreground', 'k')
 pyqtgraph.setConfigOptions(antialias=True)
