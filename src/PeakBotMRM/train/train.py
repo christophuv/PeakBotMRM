@@ -442,7 +442,20 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", plot 
                         refRTPos = -1
                     else: # apexRT < refRT
                         refRTPos = - (refRT - apexRT) / (inte.rtEnd - apexRT)
+                        
+                    area = inte.area
+                    areaPB = PeakBotMRM.integrateArea(eic, rts, inte.rtStart, inte.rtEnd)
+                    areaEIC = PeakBotMRM.integrateArea(eic, rts, -1, 1E4)
                     
+                    diff = eicS[np.logical_and(rtsS >= inte.rtStart, rtsS <= inte.rtEnd)]
+                    diff = np.diff(diff)
+                    diff = diff / np.abs(diff)
+                    nonSmooth = np.sum(diff[:(diff.shape[0]-1)] != diff[1:]) / diff.shape[0]
+                    
+                    stats["peakProperties"].append([sample, sampleTyp, substanceName, "nonSmoothVal", nonSmooth])    
+                    stats["peakProperties"].append([sample, sampleTyp, substanceName, "peakArea", area])
+                    stats["peakProperties"].append([sample, sampleTyp, substanceName, "peakAreaPB", areaPB])
+                    stats["peakProperties"].append([sample, sampleTyp, substanceName, "peakAreaPBExplained", areaPB/areaEIC])
                     stats["peakProperties"].append([sample, sampleTyp, substanceName, "peakWidth", peakWidth])
                     stats["peakProperties"].append([sample, sampleTyp, substanceName, "peakWidthScans", peakWidthScans])
                     stats["peakProperties"].append([sample, sampleTyp, substanceName, "apexReferenceOffset", centerOffset])
@@ -458,14 +471,13 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", plot 
                     stats["peakProperties"].append([sample, sampleTyp, substanceName, "eicStandEndToRef", max(rtsS) - refRT])
                     stats["peakProperties"].append([sample, sampleTyp, substanceName, "refRTPos", refRTPos])
                     
-                    
                 else:
                     stats["hasNoPeak"] = stats["hasNoPeak"] + 1
                 
     tf = pd.DataFrame(stats["peakProperties"], columns = ["sample", "sampletype", "substance", "type", "value"])
     tf.insert(0, "Experiment", [expName for i in range(tf.shape[0])])
     if print2Console:
-        print(logPrefix, "  | .. There are %d peaks and %d Nopeaks. An overview of the peak stats has been saved to '%s'"%(stats["hasPeak"], stats["hasNoPeak"], os.path.join(expDir, "%s_peakStat.png"%(expName))))
+        print(logPrefix, "  | .. There are %d peaks and %d nopeaks. An overview of the peak stats has been saved to '%s'"%(stats["hasPeak"], stats["hasNoPeak"], os.path.join(expDir, "%s_peakStat.png"%(expName))))
         print(logPrefix, "  | .. .. The distribution of the peaks' properties (offset of apex to expected rt, left and right extends relative to peak apex, peak widths) are: (in minutes)")
         print(logPrefix, tf.groupby("type").describe(percentiles=[0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]))
     

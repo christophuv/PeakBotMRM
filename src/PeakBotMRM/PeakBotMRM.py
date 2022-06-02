@@ -5,7 +5,6 @@ from .core import *
 
 import sys
 import os
-import pathlib
 import pickle
 import uuid
 import re
@@ -19,7 +18,7 @@ import tensorflow_addons as tfa
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression
-from scipy.optimize import curve_fit
+from sklearn.metrics import r2_score
 
 import tqdm
 import pymzml
@@ -58,7 +57,7 @@ class Config(object):
     UPDATEPEAKBORDERSTOMIN = True
     INTEGRATIONMETHOD = "minbetweenborders"
     INCLUDEMETAINFORMATION = False
-    CALIBRATIONMETHOD = "1/expConcentration"
+    CALIBRATIONMETHOD = "y=k*x+d; 1/expConc."
     
     MRMHEADER = "- SRM SIC Q1=(\d+\.?\d*[eE]?-?\d+) Q3=(\d+\.?\d*[eE]?-?\d+) start=(\d+\.?\d*[eE]?-?\d+) end=(\d+\.?\d*[eE]?-?\d+)"
 
@@ -801,34 +800,67 @@ def integrateArea(eic, rts, start, end):
 
 
 
+def calcR2(x, y, yhat):
+    return r2_score(y, yhat)
+    #ybar = np.sum(y)/len(y)
+    #ssreg = np.sum((yhat-ybar)**2)
+    #sstot = np.sum((y - ybar)**2)
+    #return ssreg / sstot
+
+
+
 def calibrationRegression(x, y, type = None):
     try:
         if type is None:
             type = Config.CALIBRATIONMETHOD    
         
-        if type == "1": 
-            y = np.array(y)
+        if type == "y=k*x+d": 
             x = np.array(x).reshape((-1, 1))
+            y = np.array(y)
             
             model = LinearRegression(positive = True)
             model.fit(x, y)
             yhat = model.predict(x)
             
-            r2 = model.score(x, y)
+            r2 = calcR2(x, y, yhat)
             
-            return model, r2, model.intercept_, model.coef_, yhat
+            return model.predict, r2, yhat, (model.intercept_, model.coef_), "y = %f * x + %f"%(model.coef_, model.intercept_)
         
-        if type == "1/expConcentration":
-            y_ = np.array(y)
+        if type == "y=k*x+d; 1/expConc.":
             x_ = np.array(x).reshape((-1, 1))
+            y_ = np.array(y)
             
             model = LinearRegression(positive = True)
             model.fit(x_, y_, np.ones(len(y))/np.array(x))
             yhat = model.predict(x_)
             
-            r2 = model.score(x_, y_)
+            r2 = calcR2(x, y, yhat)
             
-            return model, r2, model.intercept_, model.coef_[0], yhat
+            return model.predict, r2, yhat, (model.intercept_, model.coef_[0]), "y = %f * x + %f"%(model.coef_, model.intercept_)
+
+        if type == "y=k*x**2+l*x+d":
+            x_ = np.array(x)
+            y_ = np.array(y)
+            
+            coeffs = np.polyfit(x, y, 2)
+            model = np.poly1d(coeffs)
+            yhat = model(x)
+            
+            r2 = calcR2(x, y, yhat)
+            
+            return model, r2, yhat, coeffs, "y = %f * x**2 + %f * x + %f"%(coeffs[0], coeffs[1], coeffs[2])
+
+        if type == "y=k*x**2+l*x+d; 1/expConc.":
+            x_ = np.array(x)
+            y_ = np.array(y)
+            
+            coeffs = np.polyfit(x, y, 2, w = np.ones(len(y))/np.array(x))
+            model = np.poly1d(coeffs)
+            yhat = model(x)
+            
+            r2 = calcR2(x, y, yhat)
+            
+            return model, r2, yhat, coeffs, "y = %f * x**2 + %f * x + %f"%(coeffs[0], coeffs[1], coeffs[2])
     
     except Exception as ex:
         print("Exception in linear regression calibrationRegression(x, y, type) with x '%s', y '%s', type '%s'"%(str(x), str(y), str(type)))
@@ -940,7 +972,7 @@ def evaluatePeakBotMRM(instancesWithGT, modelPath = None, model = None, verbose 
 
 
 class Substance:
-    def __init__(self, name, Q1, Q3, CE, CEMethod, refRT, peakForm, rtShift, note, polarity, type, criteria, internalStandard, calLevel1Concentration, calSamples, useCalSamples, calculateCalibration):
+    def __init__(self, name, Q1, Q3, CE, CEMethod, refRT, peakForm, rtShift, note, polarity, type, criteria, internalStandard, calLevel1Concentration, calSamples, useCalSamples, calibrationMethod, calculateCalibration):
         self.name = name
         self.Q1 = Q1
         self.Q3 = Q3
@@ -957,6 +989,7 @@ class Substance:
         self.calLevel1Concentration = calLevel1Concentration
         self.calSamples = calSamples
         self.useCalSamples = useCalSamples
+        self.calibrationMethod = calibrationMethod
         self.calculateCalibration = calculateCalibration
     
     def __str__(self):
@@ -1007,6 +1040,7 @@ def loadTargets(targetFile, excludeSubstances = None, includeSubstances = None, 
                                                 substance["Concentration"],
                                                 inCalSamples,
                                                 inCalSamples.keys() if "UseCalSamples" not in substance.keys() or substance["UseCalSamples"] is None or substance["UseCalSamples"] == "" else eval(substance["UseCalSamples"]),
+                                                substance["CalibrationMethod"],
                                                 eval("'%s'.lower() == 'true'"%(substance["CalculateCalibration"]))
                                                )
     errors = 0
@@ -1102,6 +1136,7 @@ def loadIntegrations(substances, curatedPeaks, verbose = True, logPrefix = ""):
  
 def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction = None, loadFromPickleIfPossible = True,
                       allowedMZOffset = 0.05, MRMHeader = None,
+                      pathToMSConvert = "msconvert.exe", 
                       verbose = True, logPrefix = ""):
     ## load chromatograms
     tic("procChroms")
@@ -1124,7 +1159,7 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
     for sample in os.listdir(samplesPath):
         pathsample = os.path.join(samplesPath, sample)
         if  os.path.isdir(pathsample) and pathsample.endswith(".d") and not os.path.isfile(pathsample.replace(".d", ".mzML")):
-            cmd = "msconvert -o \"%s\" --mzML --mz32 -z \"%s\" "%(samplesPath, pathsample)
+            cmd = "'%s' -o \"%s\" --mzML --mz32 -z \"%s\" "%(pathToMSConvert, samplesPath, pathsample)
             os.system(cmd)
             if not os.path.isfile(pathsample.replace(".d", ".mzML")):
                 print("Error: Converting the file '%s' failed. Probably msconvert is not registered in your path, please register it. (command is '%s'"%(sample, cmd))

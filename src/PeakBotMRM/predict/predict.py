@@ -219,7 +219,7 @@ def getCalibrationSamplesAndLevels(substances):
         raise RuntimeError("Error: Calibration levels are not unique among samples")
     return calSamplesAndLevels
 
-def exportIntegrations(toFile, substances, integrations, substanceOrder = None, samplesOrder = None, substancesComments = None, samplesComments = None, oneRowHeader4Results = False, additionalCommentsForFile = None):
+def exportIntegrations(toFile, substances, integrations, substanceOrder = None, samplesOrder = None, substancesComments = None, samplesComments = None, oneRowHeader4Results = False, additionalCommentsForFile = None, separator = "\t"):
     for substanceName in integrations.keys():
         isd = [substances[s].name for s in substances if substances[s].internalStandard == substanceName]
         if len(isd) > 0:
@@ -244,32 +244,32 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
         samplesOrder = natsort.natsorted(list(allSamps))
     
     with open(toFile, "w") as fout:
-        headersPerSubstance = ["Comment", "PeakStart", "PeakEnd", "PeakAreaPB", "ISTDRatio", "RelativeConcentration"]
+        headersPerSubstance = ["Comment", "Int. Start", "Int. End", "Area", "ISTDRatio", "RelativeConcentration"]
                 
         if oneRowHeader4Results:
-            fout.write("\t")  ## SampleName and CalibrationLevel
+            fout.write(separator)  ## SampleName and CalibrationLevel
             for substanceName in substanceOrder:
-                substanceName = substanceName.replace("\t", "--TAB--")
+                substanceName = substanceName.replace(separator, "--SEPARATOR--")
                 for h in headersPerSubstance:
-                    fout.write("\t%s"%(h))
+                    fout.write("%s%s"%(separator, h))
             fout.write("\n")
         else:
                     ## Header row 1
-            fout.write("\t")
+            fout.write(separator)
             for substanceName in substanceOrder:
-                fout.write("\t%s%s"%(substanceName.replace("\t", "--TAB--"), "\t"*(len(headersPerSubstance)-1)))
+                fout.write("%s%s%s"%(separator, substanceName.replace(separator, "--SEPARATOR--"), separator*(len(headersPerSubstance)-1)))
             fout.write("\n")
 
                     ## Header row 2
-            fout.write("Sample\tRelativeConcentrationLevel")
+            fout.write("Sample%sRelativeConcentrationLevel"%(separator))
             for substanceName in substanceOrder:
-                fout.write("\t" + ("\t".join(headersPerSubstance)))
+                fout.write(separator + (separator.join(headersPerSubstance)))
             fout.write("\n")
                 
-        fout.write("#\t")
+        fout.write("#"+separator)
         for substanceName in substanceOrder:
             for h in headersPerSubstance:
-                fout.write("\t")
+                fout.write(separator)
                 if substanceName in substancesComments.keys() and h in substancesComments[substanceName].keys():
                     fout.write("%s"%(json.dumps(substancesComments[substanceName][h])))
         fout.write("\n")
@@ -281,7 +281,7 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
                 for samplePart, level in calSamplesAndLevels.items():
                     if samplePart in sample:
                         calLevel = str(level)
-            fout.write("\t")
+            fout.write(separator)
             fout.write(calLevel)
             for substanceName in substanceOrder:
                 if substanceName in integrations.keys() and sample in integrations[substanceName].keys() and integrations[substanceName][sample].chromatogram is not None:
@@ -292,9 +292,9 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
                     if temp.other["processed"] == '':
                         ## Prediction
                         if temp.other["pred.foundPeak"]:
-                            substanceInfo["PeakStart"]             = "%.3f"%(temp.other["pred.rtstart"]) if not np.isnan(temp.other["pred.rtstart"]) else -1
-                            substanceInfo["PeakEnd"]               = "%.3f"%(temp.other["pred.rtend"])   if not np.isnan(temp.other["pred.rtend"])   else -1
-                            substanceInfo["PeakAreaPB"]            ="%.3f"%(temp.other["pred.areaPB"])   if not np.isnan(temp.other["pred.areaPB"])  else -1
+                            substanceInfo["Int. Start"]            = "%.3f"%(temp.other["pred.rtstart"]) if not np.isnan(temp.other["pred.rtstart"]) else -1
+                            substanceInfo["Int. End"]              = "%.3f"%(temp.other["pred.rtend"])   if not np.isnan(temp.other["pred.rtend"])   else -1
+                            substanceInfo["Area"]                  = "%.3f"%(temp.other["pred.areaPB"])  if not np.isnan(temp.other["pred.areaPB"])  else -1
                             substanceInfo["RelativeConcentration"] = "%.5f"%(temp.other["pred.level"])   if "pred.level" in temp.other.keys()        else ""
                         if "pred.ISTDRatio" in temp.other.keys():
                             substanceInfo["ISTDRatio"] = "%f"%(temp.other["pred.ISTDRatio"])
@@ -302,8 +302,8 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
                         substanceInfo["Comment"] = temp.other["processed"]
                 else:
                     substanceInfo["Comment"] = temp.other["processed"]
-                fout.write("\t")
-                fout.write("\t".join([substanceInfo[k] if k in substanceInfo.keys() else "" for k in headersPerSubstance]))
+                fout.write(separator)
+                fout.write(separator.join([substanceInfo[k].replace(separator, "--SEPARATOR--") if k in substanceInfo.keys() else "" for k in headersPerSubstance]))
             fout.write("\n")
                 
         ## include processing information in TSV file
@@ -372,8 +372,8 @@ def calibrateIntegrations(substances, integrations):
                             calObs.append(obs)
                         
             if len(calExp) > 1 and substances[substanceName].calculateCalibration:                    
-                model, r2, intercept, coef, calObshat = PeakBotMRM.calibrationRegression(calObs, calExp)
-                substancesComments[substanceName]["RelativeConcentration"] = {"R2": r2, "points": len(calObs), "intercept": intercept, "coef": coef, "method": PeakBotMRM.Config.CALIBRATIONMETHOD, "Concentration4Level1": str(substances[substanceName].calLevel1Concentration)}
+                model, r2, yhat, params, strRepr = PeakBotMRM.calibrationRegression(calObs, calExp, type = substances[substanceName].calibrationMethod)
+                substancesComments[substanceName]["RelativeConcentration"] = {"R2": r2, "points": len(calObs), "formula": strRepr, "method": substances[substanceName].calibrationMethod, "ConcentrationAtLevel1": str(substances[substanceName].calLevel1Concentration)}
                         
                 for samplei, sample in enumerate(integrations[substanceName].keys()):
                     inteSub = integrations[substanceName][sample]
@@ -384,11 +384,11 @@ def calibrateIntegrations(substances, integrations):
                                 ratio = inteSub.other["pred.areaPB"] / inteIST.other["pred.areaPB"]
                                 inteSub.other["pred.ISTDRatio"] = ratio
                                         
-                                calPre = model.predict(np.array((ratio)).reshape(-1,1))
+                                calPre = model(np.array((ratio)).reshape(-1,1))
                                 inteSub.other["pred.level"] = calPre
                     else:
                         if inteSub is not None and inteSub.chromatogram is not None and inteSub.other["pred.foundPeak"] and not np.isnan(inteSub.other["pred.areaPB"]):
-                            calPre = model.predict(np.array((inteSub.other["pred.areaPB"])).reshape(-1,1))
+                            calPre = model(np.array((inteSub.other["pred.areaPB"])).reshape(-1,1))
                             inteSub.other["pred.level"] = calPre
     
     return substancesComments, samplesComments
