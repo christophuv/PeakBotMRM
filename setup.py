@@ -15,6 +15,7 @@ setup(
         ## main libraries for machine learning related tasks
         "tensorflow >= 2.8.0",
         "tensorflow_addons >= 0.16.1",
+        "tensorflow_probability >= 0.16.0",
 
         ## other main function libraries
         # "numpy",  ## removed as a dependency of tensorflow 

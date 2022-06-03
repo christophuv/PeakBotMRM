@@ -244,7 +244,8 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
         samplesOrder = natsort.natsorted(list(allSamps))
     
     with open(toFile, "w") as fout:
-        headersPerSubstance = ["Comment", "Int. Start", "Int. End", "Area", "ISTDRatio", "RelativeConcentration"]
+        headersSample = ["", "", "Name", "Data File", "Type", "Level", "Acq. Date-Time", "Comment"]
+        headersPerSubstance = ["Comment", "RT", "Int. Start", "Int. End", "Area", "ISTDRatio", "Final Conc.", "Accuracy"]
                 
         if oneRowHeader4Results:
             fout.write(separator)  ## SampleName and CalibrationLevel
@@ -253,20 +254,21 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
                 for h in headersPerSubstance:
                     fout.write("%s%s"%(separator, h))
             fout.write("\n")
+            
         else:
-                    ## Header row 1
-            fout.write(separator)
+            ## Header row 1
+            fout.write("Sample" + (separator*(len(headersSample)-1)))
             for substanceName in substanceOrder:
-                fout.write("%s%s%s"%(separator, substanceName.replace(separator, "--SEPARATOR--"), separator*(len(headersPerSubstance)-1)))
+                fout.write(separator + substanceName.replace(separator, "--SEPARATOR--") + (separator*(len(headersPerSubstance)-1)))
             fout.write("\n")
 
-                    ## Header row 2
-            fout.write("Sample%sRelativeConcentrationLevel"%(separator))
+            ## Header row 2
+            fout.write(separator.join(headersSample))
             for substanceName in substanceOrder:
                 fout.write(separator + (separator.join(headersPerSubstance)))
             fout.write("\n")
                 
-        fout.write("#"+separator)
+        fout.write("#" + separator.join("" for k in headersSample))
         for substanceName in substanceOrder:
             for h in headersPerSubstance:
                 fout.write(separator)
@@ -275,14 +277,16 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
         fout.write("\n")
 
         for sample in samplesOrder:
-            fout.write("%s"%(sample, ))
-            calLevel = ""
+            sampleInfo = {}
+            sampleInfo["Name"] = sample
+            sampleInfo[""] = "!"
+            sampleInfo["Level"] = ""
             if calSamplesAndLevels is not None:
                 for samplePart, level in calSamplesAndLevels.items():
                     if samplePart in sample:
-                        calLevel = str(level)
-            fout.write(separator)
-            fout.write(calLevel)
+                        sampleInfo["Level"] = str(level)
+            fout.write(separator.join([sampleInfo[k].replace(separator, "--SEPARATOR--") if k in sampleInfo.keys() else "" for k in headersSample]))
+            
             for substanceName in substanceOrder:
                 if substanceName in integrations.keys() and sample in integrations[substanceName].keys() and integrations[substanceName][sample].chromatogram is not None:
                     substanceInfo = {}
@@ -295,7 +299,7 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
                             substanceInfo["Int. Start"]            = "%.3f"%(temp.other["pred.rtstart"]) if not np.isnan(temp.other["pred.rtstart"]) else -1
                             substanceInfo["Int. End"]              = "%.3f"%(temp.other["pred.rtend"])   if not np.isnan(temp.other["pred.rtend"])   else -1
                             substanceInfo["Area"]                  = "%.3f"%(temp.other["pred.areaPB"])  if not np.isnan(temp.other["pred.areaPB"])  else -1
-                            substanceInfo["RelativeConcentration"] = "%.5f"%(temp.other["pred.level"])   if "pred.level" in temp.other.keys()        else ""
+                            substanceInfo["Final Conc."] = "%.5f"%(temp.other["pred.level"])   if "pred.level" in temp.other.keys()        else ""
                         if "pred.ISTDRatio" in temp.other.keys():
                             substanceInfo["ISTDRatio"] = "%f"%(temp.other["pred.ISTDRatio"])
                     else:
@@ -304,6 +308,7 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
                     substanceInfo["Comment"] = temp.other["processed"]
                 fout.write(separator)
                 fout.write(separator.join([substanceInfo[k].replace(separator, "--SEPARATOR--") if k in substanceInfo.keys() else "" for k in headersPerSubstance]))
+
             fout.write("\n")
                 
         ## include processing information in TSV file

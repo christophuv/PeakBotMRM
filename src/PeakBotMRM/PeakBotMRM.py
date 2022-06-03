@@ -15,6 +15,7 @@ import traceback
 
 import tensorflow as tf
 import tensorflow_addons as tfa
+import tensorflow_probability as tfp
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression
@@ -40,16 +41,16 @@ class Config(object):
     RTSLICES       = 255   ## should be of 2^n-1
     NUMCLASSES     =   2   ## [Peak, noPeak]
 
-    BATCHSIZE      =  16
+    BATCHSIZE      =  32
     STEPSPEREPOCH  =   8
     EPOCHS         = 300
 
     DROPOUT        = 0.2
     UNETLAYERSIZES = [32,64,128,256]
 
-    LEARNINGRATESTART              = 0.005
+    LEARNINGRATESTART              = 0.00015
     LEARNINGRATEDECREASEAFTERSTEPS = 5
-    LEARNINGRATEMULTIPLIER         = 0.96
+    LEARNINGRATEMULTIPLIER         = 0.002
     LEARNINGRATEMINVALUE           = 3e-17
 
     INSTANCEPREFIX = "___PBsample_"
@@ -465,6 +466,24 @@ def convertDatasetToPlain(dataSet, xKeys, yKeys):
 def convertValDatasetToPlain(dataset):
     return convertDatasetToPlain(dataset, {"channel.int":"channel.int"}, {"pred": "pred", "inte.peak":"pred.peak", "inte.rtInds": "pred.rtInds"})
 
+## taken from MPA, https://stackoverflow.com/q/55237112 (3.6.2022 11:18)
+def gaussian_kernel(size, mean, std):
+    d = tfp.distributions.Normal(tf.cast(mean, tf.float32), tf.cast(std, tf.float32))
+    vals = d.prob(tf.range(start=-size, limit=size+1, dtype=tf.float32))
+    return vals / tf.reduce_sum(vals)
+    
+def gaussian_filter(input, sigma):
+    size = int(2*sigma + 0.5)
+    kernel = gaussian_kernel(size=size, mean=0.0, std=sigma)
+    kernel = kernel[:, tf.newaxis, tf.newaxis]
+    conv = tf.nn.conv1d(input, kernel, stride=1, padding="SAME")
+    return conv
+
+def diff1d(signal):
+    s1 = signal[:,  :-1, :]
+    s2 = signal[:, 1:  , :]
+    return tf.concat([tf.zeros([tf.shape(signal)[0], 1, signal.shape[2]], dtype = signal.dtype), s2 - s1], axis = 1)
+
 
 class PeakBotMRM():
     def __init__(self, name, ):
@@ -509,22 +528,42 @@ class PeakBotMRM():
             print("  | .. .. channel.int is", eic)
             print("  |")
         
-        ## Normalize and scale EIC (remove constant baseline and scale to a maximum intensity value of 1)
-        minVal = eicValMin
-        minVal = tf.repeat(minVal, repeats=[Config.RTSLICES], axis=1)
-        eic = tf.math.subtract(eic, minVal)
-
-        maxVal = tf.where(eicValMax == 0, tf.ones_like(eicValMax), eicValMax)
-        maxVal = tf.repeat(maxVal, repeats=[Config.RTSLICES], axis=1)
-        eic = tf.math.divide(eic, maxVal)
         
-        if verbose:            
-            print("  | .. Preprocessing")
-            print("  | .. .. normalization and scaling (for each standardized EIC: 1) subtraction of minimum value; 2) division by maximum value")
-            print("  |")
+        if True:
+            ## Normalize and scale EIC (remove constant baseline and scale to a maximum intensity value of 1)
+            minVal = eicValMin
+            minVal = tf.repeat(minVal, repeats=[Config.RTSLICES], axis=1)
+            eic = tf.math.subtract(eic, minVal)
 
-        ## add "virtual" channel to the EICs as required by the convolutions
-        eic = tf.expand_dims(eic, axis=-1)
+            maxVal = tf.where(eicValMax == 0, tf.ones_like(eicValMax), eicValMax)
+            maxVal = tf.repeat(maxVal, repeats=[Config.RTSLICES], axis=1)
+            eic = tf.math.divide(eic, maxVal)
+            
+            ## add "virtual" channel to the EICs as required by the convolutions
+            eic = tf.expand_dims(eic, axis=-1)
+            
+            if verbose:            
+                print("  | .. Preprocessing")
+                print("  | .. .. normalization and scaling (for each standardized EIC: 1) subtraction of minimum value; 2) division by maximum value")
+        
+        if True:
+            news = eic
+            
+            for sigma in [0.5, 1, 2]:
+                eicSmoothed = gaussian_filter(eic, sigma=sigma)
+                eicDerivative = diff1d(eicSmoothed)
+
+                if verbose:            
+                    print("  | .. .. smoothing EIC with guassian distribution (sigma %f)"%sigma)
+                    print("  | .. .. calculated derivative for smoothed signal (padding with 0 in front)")
+                
+                news = tf.concat([news, eicDerivative], -1)
+            
+            eic = news
+            
+            if verbose:            
+                print("  | .. .. derived input is", eic)
+                print("  |")
         
         x = eic
         for i in range(len(uNetLayerSizes)):
@@ -575,7 +614,7 @@ class PeakBotMRM():
         lossWeights = {
             "pred.peak": 1, 
             "pred.rtInds": None, 
-            "pred": 1/1000 }
+            "pred": 1/10}
         metrics = {
             "pred.peak": ["categorical_accuracy", tfa.metrics.MatthewsCorrelationCoefficient(num_classes=2), Accuracy4Peaks(), Accuracy4NonPeaks()],
             "pred.rtInds": ["MSE"], 
@@ -667,8 +706,7 @@ def trainPeakBotMRMModel(trainDataset, logBaseDir, modelName = None, valDataset 
 
     ## define learning rate schedule
     def lrSchedule(epoch, lr):
-        if (epoch + 1) % Config.LEARNINGRATEDECREASEAFTERSTEPS == 0:
-            lr *= Config.LEARNINGRATEMULTIPLIER
+        lr = lr / (1 + Config.LEARNINGRATEMULTIPLIER)
         tf.summary.scalar('learningRate', data=lr, step=epoch)
 
         return max(lr, Config.LEARNINGRATEMINVALUE)
@@ -1136,7 +1174,7 @@ def loadIntegrations(substances, curatedPeaks, verbose = True, logPrefix = ""):
  
 def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction = None, loadFromPickleIfPossible = True,
                       allowedMZOffset = 0.05, MRMHeader = None,
-                      pathToMSConvert = "msconvert.exe", 
+                      pathToMSConvert = "msconvert.exe", maxValCallback = None, curValCallback = None, 
                       verbose = True, logPrefix = ""):
     ## load chromatograms
     tic("procChroms")
@@ -1156,7 +1194,13 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
         integrations = {}
         createNewIntegrations = True
     
-    for sample in os.listdir(samplesPath):
+    samples = os.listdir(samplesPath)
+    if maxValCallback is not None:
+        maxValCallback(len(samples))
+    for samplei, sample in enumerate(os.listdir(samplesPath)):
+        if curValCallback is not None:
+            curValCallback(samplei)
+            
         pathsample = os.path.join(samplesPath, sample)
         if  os.path.isdir(pathsample) and pathsample.endswith(".d") and not os.path.isfile(pathsample.replace(".d", ".mzML")):
             cmd = "'%s' -o \"%s\" --mzML --mz32 -z \"%s\" "%(pathToMSConvert, samplesPath, pathsample)
@@ -1177,7 +1221,13 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
         if verbose:
             print(logPrefix, "  | .. This might take a couple of minutes as all samples/integrations/channels/etc. need to be compared and the current implementation are 4 sub-for-loops")
         
+        if curValCallback is not None:
+            curValCallback(0)
+        samplei = 0
         for sample in tqdm.tqdm(samples, desc="  | .. importing"):
+            if curValCallback is not None:
+                curValCallback(samplei)
+            samplei = samplei + 1
             sampleName = os.path.basename(sample)
             sampleName = sampleName[:sampleName.rfind(".")]
             usedSamples.add(sampleName)

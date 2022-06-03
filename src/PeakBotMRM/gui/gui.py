@@ -1,8 +1,15 @@
 import sys
+import traceback
 from typing import OrderedDict
 
-import numpy as np
-import pacmap
+import os
+import shutil
+import sys
+sys.path.append(os.path.join("..", "PeakBotMRM", "src"))
+import natsort
+import re
+import pickle
+import subprocess
 
 import PyQt6.QtWidgets
 import PyQt6.QtCore
@@ -16,17 +23,17 @@ from pyqtgraph.dockarea.Dock import Dock
 from pyqtgraph.dockarea.DockArea import DockArea
 from pyqtgraph.parametertree import Parameter, ParameterTree
 
-import os
-import shutil
-import sys
-sys.path.append(os.path.join("..", "PeakBotMRM", "src"))
-import natsort
-import re
-import pickle
-import subprocess
+import numpy as np
+import pacmap
+
+## Specific tensorflow configuration. Can re omitted or adapted to users hardware
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["AUTOGRAPH_VERBOSITY"] = "10"
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 import PeakBotMRM
 import PeakBotMRM.predict
+
 
 
 dpi = 72
@@ -149,7 +156,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         
         self._pyFilePath = os.path.dirname(os.path.abspath(__file__))
         
-        self.__sampleNameReplacements = ["Ref_", "METAB02_", "MCC025_", "R100140_", "R100138_"]
+        self.__sampleNameReplacements = {"Ref_": "", "METAB02_": "", "MCC025_": "", "R100140_": "", "R100138_": ""}
         self.__leftPeakDefault = -0.1
         self.__rightPeakDefault = 0.1
         self.__importantSamplesRegEx = OrderedDict([("_CAL[0-9]+_", "CAL"), ("_NIST[0-9]+_", "NIST"), (".*", "sample")])
@@ -157,6 +164,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.__highlightColor = (178,34,34)
         self.__msConvertPath = "msconvert" #"%LOCALAPPDATA%\\Apps\\ProteoWizard 3.0.22119.ba94f16 32-bit\\msconvert.exe"
         self.__calibrationFunctionstep = 100
+        self.__exportSeparator = ","
         
         if not os.path.exists(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM")):
             os.mkdir(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM"))
@@ -295,10 +303,19 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         
         toolbar.addSeparator()
         
+        temp = self.dockArea.saveState()
+        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "grid-outline.svg")), "Add polygon ROI to PaCMAP embedding", self)
+        item.triggered.connect(lambda: self.dockArea.restoreState(temp))
+        toolbar.addAction(item)
+        
         item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "refresh-outline.svg")), "Refresh all views", self)
         item.triggered.connect(self.refreshViews)
         toolbar.addAction(item)
         
+        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "crop-outline.svg")), "Add polygon ROI to PaCMAP embedding", self)
+        item.triggered.connect(self.addPolyROItoPaCMAP)
+        toolbar.addAction(item)
+                
         toolbar.addSeparator()
         
         item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "settings-outline.svg")), "Settings", self)
@@ -352,6 +369,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     "GUI/__normalColor": self.__normalColor,
                     "GUI/__highlightColor": self.__highlightColor,
                     "GUI/__calibrationFunctionstep": self.__calibrationFunctionstep, 
+                    "GUI/__exportSeparator": self.__exportSeparator.replace("\t", "TAB"), 
                     
                     "GUI/DockAreaState": self.dockArea.saveState(),
                 }
@@ -377,6 +395,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             self.__normalColor = settings["GUI/__normalColor"]
             self.__highlightColor = settings["GUI/__highlightColor"]
             self.__calibrationFunctionstep = settings["GUI/__calibrationFunctionstep"]
+            self.__exportSeparator = settings["GUI/__exportSeparator"].replace("TAB", "\t")
             
             #self.dockArea.restoreState(settings["GUI/DockAreaState"])
     
@@ -419,6 +438,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             ]},
             {'name': 'Other', 'type': 'group', 'children':[
                 {'name': 'MSConvert executible', 'type': 'str', 'value': self.__msConvertPath, 'tip': 'Download MSconvert from <a href="https://proteowizard.sourceforge.io/">https://proteowizard.sourceforge.io/</a>. Choose the version that is "able to convert ventdor files". Install the software. Then try restarting PeakBotMRM. If "msconvert" alone does not work, try "%LOCALAPPDATA%\\Apps\\ProteoWizard 3.0.22119.ba94f16 32-bit\\msconvert.exe"'},
+                {'name': 'Export delimiter', 'type': 'list', 'value': self.__exportSeparator, 'values': ["TAB", ",", ";", "$"]}
             ]},
             #{'name': 'Save/restore gui layout', 'type': 'group', 'children': [
             #    {'name': 'Save to file', 'type': 'action'},
@@ -438,26 +458,29 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             PeakBotMRM.Config.MRMHEADER = p.param("PeakBotMRM Configuration", "MRM header").value()
             
             if p.param("Sample names", "Replacements") is None or p.param("Sample names", "Replacements") == "":
-                self.__sampleNameReplacements = []
+                self.__sampleNameReplacements = {}
             else:
                 try:
                     self.__sampleNameReplacements = eval(p.param("Sample names", "Replacements").value())
+                    if type(self.__sampleNameReplacements) is not dict:
+                        raise RuntimeError("Incorrect object specified")
                 except:
-                    ## TODO improve check here
-                    self.__sampleNameReplacements = ["Error, invalid python object"]
+                    PyQt6.QtWidgets.QMessageBox.critical(None, "PeakBotMRM", "Error<br><br>The entered sample replacements are not a valid python dictionary (e.g. {'longSampleStringThatIsNotRelevant':''}). Please modify.")
+                    self.__sampleNameReplacements = {}
             if p.param("Sample names", "Important samples RegEx") is None or p.param("Sample names", "Important samples RegEx") == "":
-                self.__sampleNameReplacements = []
+                self.__importantSamplesRegEx = {}
             else:
                 try:
                     self.__importantSamplesRegEx = eval(p.param("Sample names", "Important samples RegEx").value())
                 except:
-                    ## TODO improve check here
+                    PyQt6.QtWidgets.QMessageBox.critical(None, "PeakBotMRM", "Error<br><br>The entered sample importances are not a valid python dictionary (e.g. {'_CAL[0-9]+_':'Cal'}). Please modify.")
                     self.__importantSamplesRegEx = ["Error, invalid python object"]
             self.__leftPeakDefault = p.param("New chromatographic peak (relative to ref. RT)", "Default left width").value()
             self.__rightPeakDefault = p.param("New chromatographic peak (relative to ref. RT)", "Default right width").value()
             self.__normalColor = p.param("Plot colors", "Normal color").value().getRgb()
             self.__highlightColor = p.param("Plot colors", "Highlight color").value().getRgb()
             self.__calibrationFunctionstep = p.param("PeakBotMRM Configuration", "Calibration plot step size").value()
+            self.__exportSeparator = p.param("Other", "Export delimiter").value()
                         
         t = ParameterTree()
         t.setParameters(p, showTop=False)
@@ -650,8 +673,14 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             selExp = it.experiment if "experiment" in it.__dict__.keys() else None
             
             if selExp is not None and selExp != "" and selExp in self._integrations.keys():
-                
-                fName = PyQt6.QtWidgets.QFileDialog.getSaveFileName(self, "Save results to file", filter="Tab separated values files (*.tsv);;All files (*.*)")
+                ext = ""
+                if self.__exportSeparator == "\t": 
+                    ext = "Tab separated values files (*.tsv);;All files (*.*)"
+                elif self.__exportSeparator in [",", ";", "$"]: 
+                    ext = "Comma separated values (*.csv);;All files (*.*)"
+                else:
+                    ext = "All files (*.*)"
+                fName = PyQt6.QtWidgets.QFileDialog.getSaveFileName(self, "Save results to file", filter=ext)
                 if fName[0]:
                     substancesComments, samplesComments = PeakBotMRM.predict.calibrateIntegrations(self._substances[selExp], self._integrations[selExp])
 
@@ -699,6 +728,12 @@ class Window(PyQt6.QtWidgets.QMainWindow):
     def loadExperiment(self, expName, transitionFile, integrationsFile, rawDataPath):
         self.tree.blockSignals(True)
         
+        procDiag = PyQt6.QtWidgets.QProgressDialog(self, labelText="Loading experiment '%s'"%(expName))
+        procDiag.setWindowIcon(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "robot.png")))
+        procDiag.setWindowTitle("PeakBotMRM")
+        procDiag.setModal(True)
+        procDiag.show()
+        
         substances               = PeakBotMRM.loadTargets(transitionFile, 
                                                           logPrefix = "  | ..")
         
@@ -713,6 +748,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         substances, integrations = PeakBotMRM.loadChromatograms(substances, integrations, 
                                                                 rawDataPath, 
                                                                 pathToMSConvert = self.__msConvertPath, 
+                                                                maxValCallback = procDiag.setMaximum, curValCallback = procDiag.setValue, 
                                                                 logPrefix = "  | ..")
         
         self._substances[expName] = substances
@@ -728,15 +764,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             substancesItem = PyQt6.QtWidgets.QTreeWidgetItem(rootItem)
             substancesItem.setText(0, "Substances")
             substancesItem.experiment = expName; substancesItem.substance = None; substancesItem.sample = None
-            
-            ## TODO: Dialog is not rendered, only a blank window appears
-            procDiag = PyQt6.QtWidgets.QProgressDialog(self, labelText="Loading experiment '%s'"%(expName),
-                                                       minimum=0, maximum=len(integrations.keys()))
-            procDiag.setWindowIcon(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "robot.png")))
-            procDiag.setWindowTitle("PeakBotMRM")
-            procDiag.setModal(True)
-            procDiag.show()
-            
+                        
             allSamples = []
             curi = 0
             for substance in natsort.natsorted(integrations.keys()):
@@ -761,15 +789,15 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                             sampleItem.setBackground(0, PyQt6.QtGui.QColor.fromRgb(int(self.__highlightColor[0]), int(self.__highlightColor[1]), int(self.__highlightColor[2]), int(255 * 0.2)))
                     sampleItem.experiment = expName; sampleItem.substance = substance; sampleItem.sample = sample; sampleItem.userType = "Single peak"
                     showName = sample
-                    for temp in self.__sampleNameReplacements:
-                        showName = showName.replace(temp, "")
+                    for temp, rep in self.__sampleNameReplacements.items():
+                        showName = showName.replace(temp, rep)
                     sampleItem.setText(0, showName)
                     sampleItem.setText(1, str(inte.area) if inte.foundPeak else "")
                     sampleItem.setText(2, "%.2f - %.2f"%(inte.rtStart, inte.rtEnd) if inte.foundPeak else "")
         
                     allSamples.append(sample)
             
-            procDiag.close()
+        procDiag.close()
         
         self.tree.blockSignals(False)
         
@@ -988,30 +1016,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             self.paCMAP = embedding.fit_transform(np.array(self.paCMAPAllEICsS), init="pca")
             procDiag.close()
         
-        if self.paCMAP is not None and (selExp != self.lastExp or selSam != self.lastSam or selSub != self.lastSub):
-            # visualize the embedding
-            plot.clear()
-            self._plots[9].plot(self.paCMAP[:, 0], self.paCMAP[:, 1], pen=None, symbol='o', symbolPen=(self.__normalColor[0], self.__normalColor[1], self.__normalColor[2], int(255*0.66)), symbolSize=4, symbolBrush=None)
-            highlight = []
-            highlightSingle = None
-            for i in range(len(self.paCMAPsubstances)):
-                if self.paCMAPsubstances[i] == selSub and self.paCMAPSamples[i] == selSam:
-                    highlightSingle = i
-                    
-                if self.paCMAPsubstances[i] == selSub:
-                    highlight.append(i)
-            if len(highlight) > 0:
-                self._plots[9].plot(self.paCMAP[highlight, 0], self.paCMAP[highlight, 1], pen=None, symbol='o', symbolPen=(0, self.__highlightColor[1], self.__highlightColor[2], int(255*1)), symbolSize=4, symbolBrush=(0, self.__highlightColor[1], self.__highlightColor[2], int(255*1)))
-            if highlightSingle is not None:
-                self._plots[9].plot(self.paCMAP[[highlightSingle], 0], self.paCMAP[[highlightSingle], 1], pen=None, symbol='o', symbolPen=(self.__highlightColor[0], self.__highlightColor[1], self.__highlightColor[2], int(255*1)), symbolSize=4, symbolBrush=(self.__highlightColor[0], self.__highlightColor[1], self.__highlightColor[2], int(255*1)))
-            
-            ## TODO
-            if False:
-                if self.polyROI is None:
-                    self.polyROI = pyqtgraph.PolyLineROI([[-0.8, -0.8], [0.8, -0.8], [0.8, 0.8], [-0.8, 0.8]], closed=True, pen=self.__highlightColor)
-                    self.polyROI.sigRegionChanged.connect(self.updatePACMAPROI)
-                    #self.polyROI.shape().
-                self._plots[9].addItem(self.polyROI)
+        if self.paCMAP is not None and (selExp != self.lastExp or selSam != self.lastSam or selSub != self.lastSub):            
+            self.plotPaCMAP(selSub, selSam)
         
         self.lastExp = selExp
         self.lastSub = selSub
@@ -1019,10 +1025,12 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         
         self.tree.blockSignals(False); self.hasPeak.blockSignals(False); self.peakStart.blockSignals(False); self.peakEnd.blockSignals(False); self.istdhasPeak.blockSignals(False); self.istdpeakStart.blockSignals(False); self.istdpeakEnd.blockSignals(False); self.useForCalibration.blockSignals(False); self.calibrationMethod.blockSignals(False);
 
-    def updatePACMAPROI(roi):
+    def plotPaCMAP(self, selSub, selSam, addROI = False):
         def points_in_polygon(polygon, pts):
-            pts = np.asarray(pts,dtype='float32')
             polygon = np.asarray(polygon,dtype='float32')
+            
+            pts = np.asarray(pts,dtype='float32')
+            
             contour2 = np.vstack((polygon[1:], polygon[:1]))
             test_diff = contour2-polygon
             mask1 = (pts[:,None] == polygon).all(-1).any(-1)
@@ -1036,9 +1044,56 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             mask3 = ~(count%2==0)
             mask = mask1 | mask2 | mask3
             return mask
-        print("roi changed", roi)
+        # visualize the embedding
+        self._plots[9].clear()
+        self._plots[9].plot(self.paCMAP[:, 0], self.paCMAP[:, 1], pen=None, symbol='o', symbolPen=(self.__normalColor[0], self.__normalColor[1], self.__normalColor[2], int(255*0.66)), symbolSize=4, symbolBrush=None)
         
+        if self.polyROI is not None:
+            poly = np.array([(q[1].x(), q[1].y()) for q in self.polyROI.getLocalHandlePositions()], dtype="float32")
+            points = self.paCMAP
+            
+            self.polyROI = pyqtgraph.PolyLineROI(poly, closed=True, pen=self.__highlightColor)
+            self.polyROI.sigRegionChangeFinished.connect(self.updatePACMAPROI)
+            self._plots[9].addItem(self.polyROI)
+
+            mask = points_in_polygon(poly, points)
+            self._plots[9].plot(self.paCMAP[mask, 0], self.paCMAP[mask, 1], pen=None, symbol='o', symbolPen="Orange", symbolSize=8, symbolBrush="Orange")
+            
+            ints = []
+            for xi, m in enumerate(mask):            
+                if m:
+                    xsub = self.paCMAPsubstances[xi]
+                    xsam = self.paCMAPSamples[xi]
+                    ints.append(self._integrations[self.lastExp][xsub][xsam])
+                    
+            if len(ints) > 0:
+                self._plots[1].clear()
+                self._plots[2].clear()
+                self.plotIntegrations(ints, "All EICs Sub", plotInds = [1,2], makeUniformRT = True, scaleEIC = True)
+        elif addROI:
+            self.polyROI = pyqtgraph.PolyLineROI([[-0.8, -0.8], [0.8, -0.8], [0.8, 0.8], [-0.8, 0.8]], closed=True, pen=self.__highlightColor)
+            self.polyROI.sigRegionChangeFinished.connect(self.updatePACMAPROI)
+            self._plots[9].addItem(self.polyROI)
         
+        highlight = []
+        highlightSingle = None
+        for i in range(len(self.paCMAPsubstances)):
+            if self.paCMAPsubstances[i] == selSub and self.paCMAPSamples[i] == selSam:
+                highlightSingle = i
+                
+            if self.paCMAPsubstances[i] == selSub:
+                highlight.append(i)
+        if len(highlight) > 0:
+            self._plots[9].plot(self.paCMAP[highlight, 0], self.paCMAP[highlight, 1], pen=None, symbol='o', symbolPen=(0, self.__highlightColor[1], self.__highlightColor[2], int(255*1)), symbolSize=4, symbolBrush=(0, self.__highlightColor[1], self.__highlightColor[2], int(255*1)))
+        if highlightSingle is not None:
+            self._plots[9].plot(self.paCMAP[[highlightSingle], 0], self.paCMAP[[highlightSingle], 1], pen=None, symbol='o', symbolPen=(self.__highlightColor[0], self.__highlightColor[1], self.__highlightColor[2], int(255*1)), symbolSize=4, symbolBrush=(self.__highlightColor[0], self.__highlightColor[1], self.__highlightColor[2], int(255*1)))
+            
+    def updatePACMAPROI(self):
+        self.plotPaCMAP(self.lastSub, self.lastSam)
+        
+    def addPolyROItoPaCMAP(self):
+        self.polyROI = None
+        self.plotPaCMAP(self.lastSub, self.lastSam, addROI = True)
     
     def plotIntegration(self, inte, title, refRT = None, plotInd = 0):
         self._plots[plotInd].plot(inte.chromatogram["rts"], inte.chromatogram["eic"], pen = self.__normalColor)
@@ -1066,16 +1121,22 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self._plots[plotInd].setLabel('left', "Intensity")
         self._plots[plotInd].setLabel('bottom', "Retention time (min)")
         
-    def plotIntegrations(self, intes, title, refRT = None, plotInds = [1,2]):
+    def plotIntegrations(self, intes, title, refRT = None, plotInds = [1,2], makeUniformRT = False, scaleEIC = False):
         
         for ind in range(len(intes)):
             inte = intes[ind]
-            
-            self._plots[plotInds[0]].plot(inte.chromatogram["rts"], inte.chromatogram["eic"], pen = self.__normalColor)
+            x = inte.chromatogram["rts"]
+            y = inte.chromatogram["eic"]
+            if makeUniformRT:
+                x = np.linspace(0, 1, x.shape[0])
+            if scaleEIC:
+                y = y - np.min(y)
+                y = y / np.max(y)
+            self._plots[plotInds[0]].plot(x,y, pen = self.__normalColor)
             if inte.foundPeak:
-                self._plots[plotInds[0]].plot(inte.chromatogram["rts"][np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)], 
-                                              inte.chromatogram["eic"][np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)],
-                                              pen = self.__highlightColor)
+                x = x[np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
+                y = y[np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
+                self._plots[plotInds[0]].plot(x, y, pen = self.__highlightColor)
         if refRT is not None:
             infLine = pyqtgraph.InfiniteLine(pos = [refRT, 0], movable=False, angle=90, label='', pen=self.__normalColor)
             self._plots[plotInds[0]].addItem(infLine)
@@ -1165,13 +1226,14 @@ if app is None:
 
 main = Window()
 main.showMaximized()
+
 try:
-    main.loadExperiment("R100140", "./Reference/transitions.tsv", None, "./Reference/R100140_METAB02_MCC025_20200306")
-    main.loadExperiment("Ref_R100140", "./Reference/transitions.tsv", "./Reference/R100140_Integrations.csv", "./Reference/R100140_METAB02_MCC025_20200306")
+    #main.loadExperiment("R100140", "./Reference/transitions.tsv", None, "./Reference/R100140_METAB02_MCC025_20200306")
+    #main.loadExperiment("Ref_R100140", "./Reference/transitions.tsv", "./Reference/R100140_Integrations.csv", "./Reference/R100140_METAB02_MCC025_20200306")
     main.loadExperiment("R100138", "./Reference/transitions.tsv", None, "./Reference/R100138_METAB02_MCC025_20200304")
-    main.loadExperiment("Ref_R100138", "./Reference/transitions.tsv", "./Reference/R100138_Integrations.csv", "./Reference/R100138_METAB02_MCC025_20200304")
+    #main.loadExperiment("Ref_R100138", "./Reference/transitions.tsv", "./Reference/R100138_Integrations.csv", "./Reference/R100138_METAB02_MCC025_20200304")
 except:
-    pass
+    traceback.print_exc()
 app.exec()
 
 
