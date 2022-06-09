@@ -360,6 +360,25 @@ class MemoryDataset(Dataset):
             else:
                 raise RuntimeError("Unknwon error 1")
             
+    def useOrNotUse(self, useBoolList):
+        for k in self.data.keys():
+            if   isinstance(self.data[k], np.ndarray):
+                if len(self.data[k].shape) == 1:
+                    self.data[k] = self.data[k][useBoolList]
+                elif len(self.data[k].shape) == 2:
+                    self.data[k] = self.data[k][useBoolList,:]
+                elif len(self.data[k].shape) == 3:
+                    self.data[k] = self.data[k][useBoolList,:,:]
+                elif len(self.data[k].shape) == 4:
+                    self.data[k] = self.data[k][useBoolList,:,:,:]
+                else:
+                    raise RuntimeError("Unknown error 2")
+
+            elif isinstance(self.data[k], list):
+                self.data[k] = [self.data[k][i] for i, u in enumerate(useBoolList) if u]
+            else:
+                raise RuntimeError("Unknown error 3")
+            
     def removeOtherThan(self, start, end):
         for k in self.data.keys():
             if   isinstance(self.data[k], np.ndarray):
@@ -548,10 +567,11 @@ class PeakBotMRM():
                 print("  | .. Preprocessing")
                 print("  | .. .. normalization and scaling (for each standardized EIC: 1) subtraction of minimum value; 2) division by maximum value")
         
-        if False:
+        if True:
+            ## Feature engineering: derive derivatives of the EICs and use them as 'derived' input features
             news = eic
             
-            for sigma in [0.5, 1, 2]:
+            for sigma in [0.5, 1, 2, 3]:
                 eicSmoothed = gaussian_filter(eic, sigma=sigma)
                 eicDerivative = diff1d(eicSmoothed)
 

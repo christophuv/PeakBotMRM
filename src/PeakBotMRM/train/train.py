@@ -655,6 +655,7 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
                          addRandomNoise = True, maxRandFactor = 0.1, maxNoiseLevelAdd=0.1, shiftRTs = True, maxShift = 0.15, useEachInstanceNTimes = 5, 
                          aug_augment = True, aug_OnlyUseAugmentationFromSamples = None, aug_addAugPeaks = True, aug_maxAugPeaksN = 3, aug_plotAugInstances = False, 
                          showPeakMetrics = True, 
+                         stratifyDataset = True, intThres = 1E3, peakWidthThres = None,
                          comment="None", useDSForTraining = "augmented", 
                          verbose = True, logPrefix = ""):
     tic("Overall process")
@@ -754,6 +755,51 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
                                                                      logPrefix = "  | ..")
             dataset.shuffle()
             dataset.setName("%s_Train_Aug"%(trainDS["DSName"]))
+            
+            if stratifyDataset:
+                if intThres is not None:
+                    use = dataset.data["inte.peak"][:,0] == 1
+                    areas = dataset.data["inte.area"][use]
+                    
+                    if verbose: 
+                        print(logPrefix, "  | .. There are %d peaks in the dataset, of which %d have smaller peak areas than %.0e (%.1f%%), while %d have peak areas exceeding %.0e (%.1f%%)"%(sum(use), sum(areas < intThres), intThres, sum(areas<intThres) / sum(use) * 100, sum(areas>=intThres), intThres, sum(areas>=intThres) / sum(use) * 100), sep="")
+                        print(logPrefix, "  | .. .. This imbalance will be corrected by stratification of the overrepresented group", sep="")
+                    
+                    rat = sum(areas < intThres) / sum(areas >= intThres)
+                    ovUse = [True for t in dataset.data["inte.peak"]]
+                    for i in range(len(ovUse)):
+                        if dataset.data["inte.peak"][i,0] == 1 and dataset.data["inte.area"][i] > intThres:
+                            if random.random() >= rat:
+                                ovUse[i] = False
+                    dataset.useOrNotUse(ovUse)
+
+                    use = dataset.data["inte.peak"][:,0] == 1
+                    areas = dataset.data["inte.area"][use]
+                    if verbose: 
+                        print(logPrefix, "  | .. After stratification there are %d peaks in the dataset, of which %d have smaller peak areas than %.0e (%.1f%%), while %d have peak areas exceeding %.0e (%.1f%%)"%(sum(use), sum(areas < intThres), intThres, sum(areas<intThres) / sum(use) * 100, sum(areas>=intThres), intThres, sum(areas>=intThres) / sum(use) * 100), sep="")
+                    
+                if peakWidthThres is not None:
+                    use = dataset.data["inte.peak"][:,0] == 1
+                    widths = dataset.data["inte.rtEnd"][use] - dataset.data["inte.rtStart"][use]
+                    
+                    if verbose: 
+                        print(logPrefix, "  | .. There are %d peaks in the dataset, of which %d have wider peaks than %.2f (%.1f%%), while %d have peaks narrower than %.2f (%.1f%%)"%(sum(use), sum(widths > peakWidthThres), peakWidthThres, sum(widths > peakWidthThres) / sum(use) * 100, sum(widths <= peakWidthThres), peakWidthThres, sum(widths <= peakWidthThres) / sum(use) * 100), sep="")
+                        print(logPrefix, "  | .. .. This imbalance will be corrected by stratification of the overrepresented group", sep="")
+                    
+                    rat = sum(widths > peakWidthThres) / sum(widths <= peakWidthThres)
+                    ovUse = [True for t in dataset.data["inte.peak"]]
+                    for i in range(len(ovUse)):
+                        if dataset.data["inte.peak"][i,0] == 1 and (dataset.data["inte.rtEnd"][i] - dataset.data["inte.rtStart"][i]) < peakWidthThres:
+                            if random.random() >= rat:
+                                ovUse[i] = False
+                    dataset.useOrNotUse(ovUse)
+
+                    use = dataset.data["inte.peak"][:,0] == 1
+                    widths = dataset.data["inte.rtEnd"][use] - dataset.data["inte.rtStart"][use]
+                    
+                    if verbose: 
+                        print(logPrefix, "  | .. There are %d peaks in the dataset, of which %d have wider peaks than %.2f (%.1f%%), while %d have peaks narrower than %.2f (%.1f%%)"%(sum(use), sum(widths > peakWidthThres), peakWidthThres, sum(widths > peakWidthThres) / sum(use) * 100, sum(widths <= peakWidthThres), peakWidthThres, sum(widths <= peakWidthThres) / sum(use) * 100), sep="")
+                                
             trainDataset.addData(dataset.data)
         
         print("")
