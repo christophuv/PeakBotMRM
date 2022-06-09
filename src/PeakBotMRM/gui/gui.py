@@ -10,6 +10,7 @@ import natsort
 import re
 import pickle
 import subprocess
+from pathlib import Path
 
 import PyQt6.QtWidgets
 import PyQt6.QtCore
@@ -45,7 +46,7 @@ fontSizeP9 = 8
 
 def sortSamples(sampleNames, importantSamplesRegEx):
     order = []
-    for imp in importantSamplesRegEx:
+    for imp, typ in importantSamplesRegEx.items():
         for samp in natsort.natsorted(sampleNames):
             if re.search(imp, samp) and samp not in order:
                 order.append(samp)
@@ -62,17 +63,159 @@ class QHSeperationLine(PyQt6.QtWidgets.QFrame):
   '''
   a horizontal seperation line\n
   '''
-  def __init__(self):
+  def __init__(self, fixedHeight = 3):
     super().__init__()
     self.setMinimumWidth(1)
-    self.setFixedHeight(20)
+    self.setFixedHeight(fixedHeight)
     self.setFrameShape(PyQt6.QtWidgets.QFrame.Shape.HLine)
-    self.setFrameShadow(PyQt6.QtWidgets.QFrame.Shadow.Sunken)
+    self.setFrameShadow(PyQt6.QtWidgets.QFrame.Shadow.Plain)
     return
 
+class TrainModelDialog(PyQt6.QtWidgets.QDialog):
+    def __init__(self, parent=None, sampleOrder = None):
+        super(TrainModelDialog, self).__init__(parent)
+        
+        if sampleOrder is None:
+            sampleOrder = "{}"
+        
+        self.setWindowTitle("Train new model - parameters")
+        
+        rowi = 0
+        grid = PyQt6.QtWidgets.QGridLayout()
+        grid.addWidget(PyQt6.QtWidgets.QLabel("<b>Train a new model</b>"), rowi, 0)
+        
+        rowi = rowi + 1
+        grid.addWidget(QHSeperationLine(), rowi, 0, 1, 3)
+        
+        rowi = rowi + 1
+        grid.addWidget(PyQt6.QtWidgets.QLabel("Model name"), rowi, 0)
+        self.modelName = PyQt6.QtWidgets.QLineEdit("")
+        grid.addWidget(self.modelName, rowi, 1, 1, 2)
+        
+        rowi = rowi + 1
+        grid.addWidget(PyQt6.QtWidgets.QLabel("Comment"), rowi, 0)
+        self.comment = PyQt6.QtWidgets.QLineEdit("")
+        grid.addWidget(self.comment, rowi, 1, 1, 2)
+        
+        rowi = rowi + 1
+        grid.addWidget(QHSeperationLine(), rowi, 0, 1, 3)
+        
+        rowi = rowi + 1
+        grid.addWidget(PyQt6.QtWidgets.QLabel("Folder to save model and log"), rowi, 0)
+        self.loadFolder = PyQt6.QtWidgets.QPushButton("Open")
+        self.folderPath = PyQt6.QtWidgets.QLabel("")
+        self.loadFolder.clicked.connect(self.openRaw)
+        grid.addWidget(self.loadFolder, rowi, 1, 1, 1)
+        grid.addWidget(self.folderPath, rowi, 2, 1, 1)
+        
+        rowi = rowi + 1
+        grid.addWidget(QHSeperationLine(), rowi, 0, 1, 3)
+        
+        rowi = rowi + 1
+        grid.addWidget(PyQt6.QtWidgets.QLabel("Add random noise"), rowi, 0)
+        self.addRandomNoise = PyQt6.QtWidgets.QCheckBox("")
+        self.addRandomNoise.setChecked(True)
+        grid.addWidget(self.addRandomNoise, rowi, 1, 1, 2)
+        
+        rowi = rowi + 1
+        grid.addWidget(PyQt6.QtWidgets.QLabel("Randomization factor (maximum)"), rowi, 0)
+        self.maxRandFactor = PyQt6.QtWidgets.QDoubleSpinBox()
+        self.maxRandFactor.setMinimum(0.01)
+        self.maxRandFactor.setMaximum(0.5)
+        self.maxRandFactor.setValue(0.1)
+        grid.addWidget(self.maxRandFactor, rowi, 1, 1, 2)
+        
+        rowi = rowi + 1
+        grid.addWidget(PyQt6.QtWidgets.QLabel("Noise level add (maximum)"), rowi, 0)
+        self.maxNoiseLevelAdd = PyQt6.QtWidgets.QDoubleSpinBox()
+        self.maxNoiseLevelAdd.setMinimum(0.01)
+        self.maxNoiseLevelAdd.setMaximum(0.5)
+        self.maxNoiseLevelAdd.setValue(0.1)
+        grid.addWidget(self.maxNoiseLevelAdd, rowi, 1, 1, 2)
+        
+        rowi = rowi + 1
+        grid.addWidget(QHSeperationLine(), rowi, 0, 1, 3)
+        
+        rowi = rowi + 1
+        grid.addWidget(PyQt6.QtWidgets.QLabel("Shift RTs"), rowi, 0)
+        self.shiftRTs = PyQt6.QtWidgets.QCheckBox("")
+        self.shiftRTs.setChecked(True)
+        grid.addWidget(self.shiftRTs, rowi, 1, 1, 2)
+        
+        rowi = rowi + 1
+        grid.addWidget(PyQt6.QtWidgets.QLabel("Rt shift (maximum)"), rowi, 0)
+        self.maxShift = PyQt6.QtWidgets.QDoubleSpinBox()
+        self.maxShift.setMinimum(0.01)
+        self.maxShift.setMaximum(10)
+        self.maxShift.setValue(0.15)
+        grid.addWidget(self.maxShift, rowi, 1, 1, 2)
+        
+        rowi = rowi + 1
+        grid.addWidget(QHSeperationLine(), rowi, 0, 1, 3)
+        
+        rowi = rowi + 1
+        grid.addWidget(PyQt6.QtWidgets.QLabel("Balance augmentations"), rowi, 0)
+        self.balanceAugmentations = PyQt6.QtWidgets.QCheckBox("")
+        self.balanceAugmentations.setChecked(True)
+        grid.addWidget(self.balanceAugmentations, rowi, 1, 1, 2)
+        
+        rowi = rowi + 1
+        grid.addWidget(QHSeperationLine(), rowi, 0, 1, 3)
+        
+        
+        rowi = rowi + 1
+        grid.addWidget(PyQt6.QtWidgets.QLabel("Number of derived instances from each instance"), rowi, 0)
+        self.nInstances = PyQt6.QtWidgets.QSpinBox()
+        self.nInstances.setMinimum(1)
+        self.nInstances.setMaximum(100)
+        self.nInstances.setValue(8)
+        grid.addWidget(self.nInstances, rowi, 1, 1, 2)
+        
+        rowi = rowi + 1
+        grid.addWidget(QHSeperationLine(), rowi, 0, 1, 3)
+        
+        rowi = rowi + 1
+        grid.addWidget(PyQt6.QtWidgets.QLabel("Plot results"), rowi, 0)
+        self.plotResults = PyQt6.QtWidgets.QCheckBox("")
+        self.plotResults.setChecked(True)
+        grid.addWidget(self.plotResults, rowi, 1, 1, 2)
+        
+        rowi = rowi + 1
+        grid.addWidget(QHSeperationLine(), rowi, 0, 1, 3)
+        
+        rowi = rowi + 1
+        grid.addWidget(PyQt6.QtWidgets.QLabel("TODO: add augmentation options and derive default values automatically"), rowi, 0)
+        
+        rowi = rowi + 1
+        grid.addWidget(QHSeperationLine(), rowi, 0, 1, 3)
+        
+        rowi = rowi + 1
+        self.fin = PyQt6.QtWidgets.QPushButton("Start training")
+        self.fin.clicked.connect(self.accept)
+        grid.addWidget(self.fin, rowi, 2, 1, 1)
+        
+        self.cancel = PyQt6.QtWidgets.QPushButton("Cancel")
+        self.cancel.clicked.connect(self.reject)
+        grid.addWidget(self.cancel, rowi, 1, 1, 1)
+        
+        self.setLayout(grid)
+        
+    def openRaw(self):
+        fDir = PyQt6.QtWidgets.QFileDialog.getExistingDirectory(self, "Open folder for model and log")
+        if fDir:
+            self.folderPath.setText(fDir)
+    
+    def getUserData(self):
+        return (self.modelName.text(), self.traPath.text(), self.folderPath.text(), self.resPath.text())
+    
+
+
 class OpenExperimentDialog(PyQt6.QtWidgets.QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, sampleOrder = None):
         super(OpenExperimentDialog, self).__init__(parent)
+        
+        if sampleOrder is None:
+            sampleOrder = "{}"
         
         self.setWindowTitle("New experiment")
         
@@ -87,42 +230,20 @@ class OpenExperimentDialog(PyQt6.QtWidgets.QDialog):
         grid.addWidget(PyQt6.QtWidgets.QLabel("Experiment name"), rowi, 0)
         self.expName = PyQt6.QtWidgets.QLineEdit("")
         grid.addWidget(self.expName, rowi, 1, 1, 2)
-        
+       
         rowi = rowi + 1
-        grid.addWidget(PyQt6.QtWidgets.QLabel("Transitions file"), rowi, 0)
-        self.loadTra = PyQt6.QtWidgets.QPushButton("Open")
-        self.traPath = PyQt6.QtWidgets.QLabel("")
-        self.loadTra.clicked.connect(self.openTransitions)
-        grid.addWidget(self.loadTra, rowi, 1, 1, 1)
-        grid.addWidget(self.traPath, rowi, 2, 1, 1)
-        
-        rowi = rowi + 1
-        grid.addWidget(PyQt6.QtWidgets.QLabel("Raw LCMS data"), rowi, 0)
-        self.loadRaw = PyQt6.QtWidgets.QPushButton("Open")
-        self.rawPath = PyQt6.QtWidgets.QLabel("")
-        self.loadRaw.clicked.connect(self.openRaw)
-        grid.addWidget(self.loadRaw, rowi, 1, 1, 1)
-        grid.addWidget(self.rawPath, rowi, 2, 1, 1)
-        
-        rowi = rowi + 1
-        grid.addWidget(PyQt6.QtWidgets.QLabel("Processed results"), rowi, 0)
-        self.loadRes = PyQt6.QtWidgets.QPushButton("Open")
-        self.resPath = PyQt6.QtWidgets.QLabel("")
-        self.loadRes.clicked.connect(self.openResults)
-        grid.addWidget(self.loadRes, rowi, 1, 1, 1)
-        grid.addWidget(self.resPath, rowi, 2, 1, 1)
-        
-        rowi = rowi + 1
-        grid.addWidget(QHSeperationLine(), rowi, 0, 1, 3)
-        
-        rowi = rowi + 1
-        self.fin = PyQt6.QtWidgets.QPushButton("Open experiment")
-        self.fin.clicked.connect(self.accept)
-        grid.addWidget(self.fin, rowi, 2, 1, 1)
-        
-        self.cancel = PyQt6.QtWidgets.QPushButton("Cancel")
-        self.cancel.clicked.connect(self.reject)
-        grid.addWidget(self.cancel, rowi, 1, 1, 1)
+        grid.addWidget(PyQt6.QtWidgets.QLabel("Important samples"), rowi, 0)
+        self.importantSamples = PyQt6.QtWidgets.QPlainTextEdit(str(sampleOrder))
+        def cahnged():
+            s = self.importantSamples.text()
+            try:
+                eval(s)
+                self.importantSamples.setStyleSheet("border-color: Olivedrab; border-style: solid; border-width: 2px;")
+            except:
+                self.importantSamples.setStyleSheet("border-color: Firebrick; border-style: solid; border-width: 2px;")
+        self.importantSamples.textChanged.connect(cahnged)
+        grid.addWidget(self.loadRes, rowi, 0, 1, 1)
+        grid.addWidget(self.importantSamples, rowi, 1, 2, 2)
         
         self.setLayout(grid)
         
@@ -180,7 +301,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.docks = []
         for i in range(9):
             plot = self.genPlot()
-            dock = Dock(["Sub EIC", "Sub EICs", "Sub peaks", "ISTD EIC", "ISTD EICs", "ISTD peaks", "Sub calibration", "ISTD calibration", "Sub / ISTD calibration"][i])
+            dock = Dock(["Sub EIC", "Sub EICs", "Sub peaks", "ISTD EIC", "ISTD EICs", "ISTD peaks", "Sub calibration", "ISTD calibration", "Sub / ISTD calibration"][i], autoOrientation=False)
+            dock.setOrientation('vertical', force=True)
             self.docks.append(dock)
             dock.addWidget(plot)
             self.dockArea.addDock(dock)
@@ -255,7 +377,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.tree.header().resizeSection(0, 250)
         self.tree.header().resizeSection(1, 50)
         self.tree.header().resizeSection(2, 50)
-        dock = Dock("List")
+        dock = Dock("Loaded experiments")
         self.docks.append(dock)
         dock.addWidget(self.tree)
         dock.setStretch(y = 23)
@@ -304,7 +426,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         toolbar.addSeparator()
         
         temp = self.dockArea.saveState()
-        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "grid-outline.svg")), "Add polygon ROI to PaCMAP embedding", self)
+        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "grid-outline.svg")), "Restore standard GUI layout", self)
         item.triggered.connect(lambda: self.dockArea.restoreState(temp))
         toolbar.addAction(item)
         
@@ -314,6 +436,12 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         
         item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "crop-outline.svg")), "Add polygon ROI to PaCMAP embedding", self)
         item.triggered.connect(self.addPolyROItoPaCMAP)
+        toolbar.addAction(item)
+                
+        toolbar.addSeparator()
+        
+        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "robot_grey.png")), "Train new model with active experiment", self)
+        item.triggered.connect(self.trainNewModel)
         toolbar.addAction(item)
                 
         toolbar.addSeparator()
@@ -330,6 +458,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         
         self._substances = {}
         self._integrations = {}
+        self._sampleInfo = {}
         
         self.lastExp = ""
         self.lastSub = ""
@@ -526,13 +655,19 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         print("load ui layout")
     
     def showPeakBotMRMInfo(self):
-        PyQt6.QtWidgets.QMessageBox.information(self, "PeakBotMRM", "<b>PeakBotMRM</b><br><br>PeakBotMRM was developed by the University of Vienna and CEMM.<br> For further information please contact the authors.<br><br><b>Commercial use prohibited!</b><br><br>(c) 2020 - 2022")
+        PyQt6.QtWidgets.QMessageBox.information(self, "PeakBotMRM", "<b>PeakBotMRM</b><br><br>PeakBotMRM was developed at <a href='https://cemm.at/research/facilities/molecular-discovery-platform/metabolomics-facility'>CEMM</a> and at the <a href='https://chemnet.univie.ac.at/'>University of Vienna</a>.<br> For further information please contact the authors.<br>(c) 2020 - 2022<br><br><b>Commercial use is prohibited!</b><br><br>Figures and illustrations have been desigend using resources from <a href='https://flaticon.com'>https://flaticon.com</a>")
     
     def processAllExperimentEventHelper(self):
         self.processExperimentSHelper(all = True)        
     
     def processActiveExperimentEventHelper(self):
         self.processExperimentSHelper(all = False)
+        
+    def trainNewModel(self):
+        x = TrainModelDialog(self)
+        x.setModal(True)
+        x.exec()
+        PyQt6.QtWidgets.QMessageBox.information(self, "PeakBotMRM", "<b>Train a new model</b><br><br>This function is not yet implemented...")
         
     def processExperimentSHelper(self, all = False):
         menu = PyQt6.QtWidgets.QMenu(self)
@@ -598,6 +733,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 procDiag.setWindowTitle("PeakBotMRM")
                 procDiag.setModal(True)
                 procDiag.show()
+                print("Processing dataset '%s'"%(selExp))
                 PeakBotMRM.predict.predictDataset(peakBotMRMModelFile, self._substances[selExp], self._integrations[selExp], callBackFunction = procDiag.setValue)
                 
                 procDiag.hide()
@@ -674,21 +810,27 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             
             if selExp is not None and selExp != "" and selExp in self._integrations.keys():
                 ext = ""
+                preExt = ""
                 if self.__exportSeparator == "\t": 
                     ext = "Tab separated values files (*.tsv);;All files (*.*)"
+                    preExt = ".tsv"
                 elif self.__exportSeparator in [",", ";", "$"]: 
                     ext = "Comma separated values (*.csv);;All files (*.*)"
+                    preExt = ".csv"
                 else:
                     ext = "All files (*.*)"
-                fName = PyQt6.QtWidgets.QFileDialog.getSaveFileName(self, "Save results to file", filter=ext)
+                    preExt = ".txt"
+                fName = PyQt6.QtWidgets.QFileDialog.getSaveFileName(self, "Save results to file", directory = os.path.join(".", "%s_PB%s"%(selExp, preExt)), filter=ext)
                 if fName[0]:
                     substancesComments, samplesComments = PeakBotMRM.predict.calibrateIntegrations(self._substances[selExp], self._integrations[selExp])
-
+                    
                     PeakBotMRM.predict.exportIntegrations(fName[0], 
                                                           self._substances[selExp], 
                                                           self._integrations[selExp], 
+                                                          separator = self.__exportSeparator, 
                                                           substancesComments = substancesComments, 
                                                           samplesComments = samplesComments, 
+                                                          sampleMetaData = self._sampleInfo[selExp], 
                                                           additionalCommentsForFile=["PeakBot model: '%s'"%("UNKNOWN")], 
                                                           oneRowHeader4Results = False)
                     PyQt6.QtWidgets.QMessageBox.information(self, "Exporting results", "Experiment '%s' has been exported to file<br>'%s'"%(selExp, fName[0]))
@@ -709,6 +851,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     
                     del self._substances[selExp]
                     del self._integrations[selExp]
+                    del self._sampleInfo[selExp]
                     
                     PyQt6.QtWidgets.QMessageBox.information(self, "Closed experiment", "Experiment '%s' has been closed."%(selExp))
         
@@ -718,14 +861,14 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         return plot
     
     def userSelectExperimentalData(self):
-        dialog = OpenExperimentDialog()
+        dialog = OpenExperimentDialog(parent = self, sampleOrder = self.__importantSamplesRegEx)
         dialog.setModal(True)
         okay = dialog.exec()
         if okay:
             expName, transitionsFile, rawDataPath, resultsFile = dialog.getUserData()
-            main.loadExperiment(expName, transitionsFile, resultsFile, rawDataPath)
+            main.loadExperiment(expName, transitionsFile, resultsFile, rawDataPath, importantSamples = eval(dialog.importantSamples.text()))
                 
-    def loadExperiment(self, expName, transitionFile, integrationsFile, rawDataPath):
+    def loadExperiment(self, expName, transitionFile, integrationsFile, rawDataPath, importantSamples = None):
         self.tree.blockSignals(True)
         
         procDiag = PyQt6.QtWidgets.QProgressDialog(self, labelText="Loading experiment '%s'"%(expName))
@@ -734,25 +877,37 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         procDiag.setModal(True)
         procDiag.show()
         
-        substances               = PeakBotMRM.loadTargets(transitionFile, 
-                                                          logPrefix = "  | ..")
+        substances = PeakBotMRM.loadTargets(transitionFile, 
+                                            logPrefix = "  | ..")
         
         integrations = None
         integrationsLoaded = False
         if integrationsFile is not None and integrationsFile != "":
             substances, integrations = PeakBotMRM.loadIntegrations(substances, 
-                                                                integrationsFile, 
-                                                                logPrefix = "  | ..")
+                                                                   integrationsFile, 
+                                                                    logPrefix = "  | ..")
             integrationsLoaded = True
         
-        substances, integrations = PeakBotMRM.loadChromatograms(substances, integrations, 
-                                                                rawDataPath, 
-                                                                pathToMSConvert = self.__msConvertPath, 
-                                                                maxValCallback = procDiag.setMaximum, curValCallback = procDiag.setValue, 
-                                                                logPrefix = "  | ..")
-        
+        substances, integrations, sampleInfo = PeakBotMRM.loadChromatograms(substances, integrations, 
+                                                                            rawDataPath, 
+                                                                            pathToMSConvert = self.__msConvertPath, 
+                                                                            maxValCallback = procDiag.setMaximum, curValCallback = procDiag.setValue, 
+                                                                            logPrefix = "  | ..")
         self._substances[expName] = substances
         self._integrations[expName] = integrations
+        self._sampleInfo[expName] = sampleInfo
+        
+        if importantSamples is not None:
+            for k, v in self._sampleInfo[expName].items():
+                typ = "other"
+                for h, j in importantSamples.items():
+                    if re.search(h, k):
+                        typ = j
+                        break
+                self._sampleInfo[expName][k]["Type"] = j
+        for k, v in self._sampleInfo[expName].items():
+            self._sampleInfo[expName][k]["Name"] = Path(self._sampleInfo[expName][k]["path"]).stem
+            self._sampleInfo[expName][k]["Data File"] = os.path.basename(self._sampleInfo[expName][k]["path"])
         
         rootItem = PyQt6.QtWidgets.QTreeWidgetItem(self.tree)
         rootItem.setText(0, expName)
@@ -781,7 +936,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 else:
                     substanceItem.setText(1, "Not found in transition list")
                 
-                for sample in sortSamples(integrations[substance].keys(), self.__importantSamplesRegEx.keys()):
+                for sample in sortSamples(integrations[substance].keys(), importantSamples if importantSamples is not None else {}):
                     inte = integrations[substance][sample]
                     sampleItem = PyQt6.QtWidgets.QTreeWidgetItem(substanceItem)
                     for calSampPartName in self._substances[expName][substance].useCalSamples:
@@ -1017,6 +1172,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             procDiag.close()
         
         if self.paCMAP is not None and (selExp != self.lastExp or selSam != self.lastSam or selSub != self.lastSub):            
+            self.polyROI = None
             self.plotPaCMAP(selSub, selSam)
         
         self.lastExp = selExp
@@ -1228,10 +1384,17 @@ main = Window()
 main.showMaximized()
 
 try:
-    #main.loadExperiment("R100140", "./Reference/transitions.tsv", None, "./Reference/R100140_METAB02_MCC025_20200306")
+    main.loadExperiment("R100140", "./Reference/transitions.tsv", None, "./Reference/R100140_METAB02_MCC025_20200306", importantSamples = OrderedDict([("_CAL[0-9]+_", "CAL"), ("_NIST[0-9]+_", "NIST"), (".*", "sample")]))
     #main.loadExperiment("Ref_R100140", "./Reference/transitions.tsv", "./Reference/R100140_Integrations.csv", "./Reference/R100140_METAB02_MCC025_20200306")
-    main.loadExperiment("R100138", "./Reference/transitions.tsv", None, "./Reference/R100138_METAB02_MCC025_20200304")
+    #main.loadExperiment("R100138", "./Reference/transitions.tsv", None, "./Reference/R100138_METAB02_MCC025_20200304")
     #main.loadExperiment("Ref_R100138", "./Reference/transitions.tsv", "./Reference/R100138_Integrations.csv", "./Reference/R100138_METAB02_MCC025_20200304")
+    
+    if False:
+        for expName, folder1, rawFolder in [("R100146", "validation", "R100146_METAB02_MCC025_20200403"), ("R100192", "validation", "R100192_METAB02_MCC025_20201125"), 
+                                            ("R100210", "validation", "R100210_METAB02_MCC025_20210305"),
+                                            ("R100147", "training", "R100147_METAB02_MCC025_20200409"), ("R100194", "training", "R100194_METAB02_MCC025_20201203"),
+                                            ("R100211", "training", "R100211_METAB02_MCC025_20210316"), ("R100232", "training", "R100232_B_METAB02_MCC025_20210804")]:
+            main.loadExperiment(expName, "./machine_learning_datasets_peakbot/%s/adaptedTransitions/%s.tsv"%(folder1, expName), None, "./machine_learning_datasets_peakbot/%s/%s"%(folder1, rawFolder), importantSamples = OrderedDict([("_CAL[0-9]+_", "CAL"), ("_NIST[0-9]+_", "NIST"), (".*", "sample")]))
 except:
     traceback.print_exc()
 app.exec()

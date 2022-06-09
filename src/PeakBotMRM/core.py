@@ -357,6 +357,35 @@ def parseTSVMultiLineHeader(fi, headerRowCount=1, delimiter = "\t", commentChar 
 
 
 
+## copied from https://stackoverflow.com/a/30923963
+import xml.etree.ElementTree as ET
+from copy import copy
+def dictify(r,root=True):
+    if root:
+        return {r.tag : dictify(r, False)}
+    d=copy(r.attrib)
+    if r.text:
+        d["_text"]=r.text
+    for x in r.findall("./*"):
+        if x.tag not in d:
+            d[x.tag]=[]
+        d[x.tag].append(dictify(x,False))
+    return d
+def dictifyXMLFile(fil):
+    return dictify(ET.parse(fil).getroot())
+
+## copied from https://stackoverflow.com/a/12627202
+import inspect
+def get_default_args(func):
+    signature = inspect.signature(func)
+    return {
+        k: v.default
+        for k, v in signature.parameters.items()
+        if v.default is not inspect.Parameter.empty
+    }
+
+
+
 
 
 def extractStandardizedEIC(eic, rts, refRT):

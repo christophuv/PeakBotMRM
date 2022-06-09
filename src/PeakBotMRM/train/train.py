@@ -729,11 +729,11 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
         substances, integrations = PeakBotMRM.loadIntegrations(substances, 
                                                                trainDS["GTPeaks"], 
                                                                logPrefix = "  | ..")
-        substances, integrations = PeakBotMRM.loadChromatograms(substances, integrations, trainDS["samplesPath"],
-                                                                sampleUseFunction = trainDS["sampleUseFunction"] if "sampleUseFunction" in trainDS.keys() else None, 
-                                                                allowedMZOffset = allowedMZOffset, 
-                                                                MRMHeader = MRMHeader, 
-                                                                logPrefix = "  | ..")
+        substances, integrations, sampleInfo = PeakBotMRM.loadChromatograms(substances, integrations, trainDS["samplesPath"],
+                                                                            sampleUseFunction = trainDS["sampleUseFunction"] if "sampleUseFunction" in trainDS.keys() else None, 
+                                                                            allowedMZOffset = allowedMZOffset, 
+                                                                            MRMHeader = MRMHeader, 
+                                                                            logPrefix = "  | ..")
         if showPeakMetrics:
             investigatePeakMetrics(expDir, substances, integrations, expName = "%s"%(trainDS["DSName"]), logPrefix = "  | ..")
         

@@ -34,12 +34,12 @@ def getValidationSet(valDS, MRMHeader, allowedMZOffset):
                                                            valDS["GTPeaks"], 
                                                            logPrefix = "  | ..")
     
-    substances, integrations = PeakBotMRM.loadChromatograms(substances, integrations, 
-                                                            valDS["samplesPath"],
-                                                            sampleUseFunction = valDS["sampleUseFunction"] if "sampleUseFunction" in valDS.keys() else None, 
-                                                            allowedMZOffset = allowedMZOffset,
-                                                            MRMHeader = MRMHeader,
-                                                            logPrefix = "  | ..")
+    substances, integrations, sampleInfo = PeakBotMRM.loadChromatograms(substances, integrations, 
+                                                                        valDS["samplesPath"],
+                                                                        sampleUseFunction = valDS["sampleUseFunction"] if "sampleUseFunction" in valDS.keys() else None, 
+                                                                        allowedMZOffset = allowedMZOffset,
+                                                                        MRMHeader = MRMHeader,
+                                                                        logPrefix = "  | ..")
     
     integrations = PeakBotMRM.train.constrainAndBalanceDataset(False, 
                                                                valDS["checkPeakAttributes"] if "checkPeakAttributes" in valDS.keys() else None, 

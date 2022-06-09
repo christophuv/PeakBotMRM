@@ -12,6 +12,8 @@ import math
 import random
 import natsort
 import traceback
+from pathlib import Path
+import subprocess
 
 import tensorflow as tf
 import tensorflow_addons as tfa
@@ -546,7 +548,7 @@ class PeakBotMRM():
                 print("  | .. Preprocessing")
                 print("  | .. .. normalization and scaling (for each standardized EIC: 1) subtraction of minimum value; 2) division by maximum value")
         
-        if True:
+        if False:
             news = eic
             
             for sigma in [0.5, 1, 2]:
@@ -1179,6 +1181,8 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
     ## load chromatograms
     tic("procChroms")
     
+    foundSamples = {}
+    
     if MRMHeader is None:
         MRMHeader = Config.MRMHEADER
     
@@ -1200,15 +1204,50 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
     for samplei, sample in enumerate(os.listdir(samplesPath)):
         if curValCallback is not None:
             curValCallback(samplei)
-            
+        
         pathsample = os.path.join(samplesPath, sample)
-        if  os.path.isdir(pathsample) and pathsample.endswith(".d") and not os.path.isfile(pathsample.replace(".d", ".mzML")):
-            cmd = "'%s' -o \"%s\" --mzML --mz32 -z \"%s\" "%(pathToMSConvert, samplesPath, pathsample)
-            os.system(cmd)
+        if os.path.isdir(pathsample) and pathsample.endswith(".d"):
+            foundSamples[Path(sample).stem] = {"path": pathsample, "converted": pathsample.replace(".d", ".mzML")}
+            
+            d = dictifyXMLFile(os.path.join(pathsample, "AcqData", "sample_info.xml"))
+            def getAcqTime(di):
+                fields = d["SampleInfo"]["Field"]
+                for f in fields:
+                    if f["DisplayName"][0]["_text"] == "Acquisition Time":
+                        return f["Value"][0]["_text"]
+            foundSamples[Path(sample).stem]["Acq. Date-Time"] = getAcqTime(d)
+            def getMethod(di):
+                fields = d["SampleInfo"]["Field"]
+                for f in fields:
+                    if f["DisplayName"][0]["_text"] == "Method":
+                        return f["Value"][0]["_text"]
+            foundSamples[Path(sample).stem]["Method"] = getMethod(d)
+            def getInjVol(di):
+                fields = d["SampleInfo"]["Field"]
+                for f in fields:
+                    if f["DisplayName"][0]["_text"] == "Inj Vol (µl)":
+                        return f["Value"][0]["_text"]
+            foundSamples[Path(sample).stem]["Inj. volume"] = getInjVol(d)
+            def getDilution(di):
+                fields = d["SampleInfo"]["Field"]
+                for f in fields:
+                    if f["DisplayName"][0]["_text"] == "Dilution":
+                        return f["Value"][0]["_text"]
+            foundSamples[Path(sample).stem]["Dilution"] = getDilution(d)
+            def getComment(di):
+                fields = d["SampleInfo"]["Field"]
+                for f in fields:
+                    if f["DisplayName"][0]["_text"] == "Comment":
+                        return f["Value"][0]["_text"]
+            foundSamples[Path(sample).stem]["Comment"] = getComment(d).strip()
+            
             if not os.path.isfile(pathsample.replace(".d", ".mzML")):
-                print("Error: Converting the file '%s' failed. Probably msconvert is not registered in your path, please register it. (command is '%s'"%(sample, cmd))
-                sys.exit(-1)
-            print(logPrefix, "  | .. sample '%s' is a folder and ends with '.d'. Thus it was converted to '%s' (command: '%s')"%(sample, sample.replace(".d", ".mzML"), cmd))
+                cmd = [pathToMSConvert, "-o", samplesPath, "--mzML", "--z", pathsample]
+                subprocess.call(cmd)
+                if not os.path.isfile(pathsample.replace(".d", ".mzML")):
+                    print("Error: Converting the file '%s' failed. Probably msconvert is not registered in your path, please register it. (command is '%s'"%(sample, cmd))
+                    sys.exit(-1)
+                print(logPrefix, "  | .. sample '%s' is a folder and ends with '.d'. Thus it was converted to '%s' (command: '%s')"%(sample, sample.replace(".d", ".mzML"), cmd))
 
     samples = [os.path.join(samplesPath, f) for f in os.listdir(samplesPath) if os.path.isfile(os.path.join(samplesPath, f)) and f.lower().endswith(".mzml")]
     usedSamples = set()
@@ -1352,27 +1391,21 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
         if sub not in substances.keys():
             integrations.pop(sub)
             
-    
-    if sampleUseFunction is None:
-        if verbose:
-            print(logPrefix, "  | .. Using all samples")
-    else:
-        remSamples = set()
-        allSamples = set()
-        usedSamples = set()
-        for substance in list(integrations.keys()):
-            for sample in list(integrations[substance].keys()):
-                allSamples.add(sample)
-                if not sampleUseFunction(sample):
-                    integrations[substance].pop(sample)
-                    remSamples.add(sample)
-                else:
-                    usedSamples.add(sample)
-            
-            
-        if verbose:
-            print(logPrefix, "\033[93m  | .. %d (%.1f%%) of %d samples were removed. These are: \033[0m'%s'"%(len(remSamples), len(remSamples)/len(allSamples)*100, len(allSamples), "', '".join(("'%s'"%s for s in natsort.natsorted(remSamples)))))
-            print(logPrefix, "\033[93m  | .. The %d remaining samples are: \033[0m'%s'"%(len(usedSamples), "', '".join(usedSamples)))
+    remSamples = set()
+    allSamples = set()
+    usedSamples = set()
+    for substance in list(integrations.keys()):
+        for sample in list(integrations[substance].keys()):
+            allSamples.add(sample)
+            if sampleUseFunction is not None and not sampleUseFunction(sample):
+                integrations[substance].pop(sample)
+                remSamples.add(sample)
+            else:
+                usedSamples.add(sample)
+                
+    if verbose and sampleUseFunction is not None:
+        print(logPrefix, "\033[93m  | .. %d (%.1f%%) of %d samples were removed. These are: \033[0m'%s'"%(len(remSamples), len(remSamples)/len(allSamples)*100, len(allSamples), "', '".join(("'%s'"%s for s in natsort.natsorted(remSamples)))))
+        print(logPrefix, "\033[93m  | .. The %d remaining samples are: \033[0m'%s'"%(len(usedSamples), "', '".join(usedSamples)))
     
     ## remove all integrations with more than one scanEvent
     referencePeaks = 0
@@ -1399,4 +1432,4 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
         print(logPrefix, "  | .. took %.1f seconds"%(toc("procChroms")))
         print(logPrefix)
 
-    return substances, integrations
+    return substances, integrations, foundSamples

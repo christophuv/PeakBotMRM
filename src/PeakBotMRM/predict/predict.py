@@ -12,6 +12,7 @@ random.seed(2021)
 import os
 import natsort
 import json
+from pathlib import Path
 
 import PeakBotMRM
 import PeakBotMRM.train
@@ -26,12 +27,12 @@ def getPredictionSet(predDS, MRMHeader, allowedMZOffset):
                                                       includeSubstances = predDS["includeSubstances"] if "includeSubstances" in predDS.keys() else None, 
                                                       logPrefix = "  | ..")
             
-    substances, integrations = PeakBotMRM.loadChromatograms(substances, None, 
-                                                            predDS["samplesPath"],
-                                                            sampleUseFunction = predDS["sampleUseFunction"] if "sampleUseFunction" in predDS.keys() else None, 
-                                                            allowedMZOffset = allowedMZOffset,
-                                                            MRMHeader = MRMHeader,
-                                                            logPrefix = "  | ..")
+    substances, integrations, sampleInfo = PeakBotMRM.loadChromatograms(substances, None, 
+                                                                        predDS["samplesPath"],
+                                                                        sampleUseFunction = predDS["sampleUseFunction"] if "sampleUseFunction" in predDS.keys() else None, 
+                                                                        allowedMZOffset = allowedMZOffset,
+                                                                        MRMHeader = MRMHeader,
+                                                                        logPrefix = "  | ..")
     
     return substances, integrations
 
@@ -219,7 +220,7 @@ def getCalibrationSamplesAndLevels(substances):
         raise RuntimeError("Error: Calibration levels are not unique among samples")
     return calSamplesAndLevels
 
-def exportIntegrations(toFile, substances, integrations, substanceOrder = None, samplesOrder = None, substancesComments = None, samplesComments = None, oneRowHeader4Results = False, additionalCommentsForFile = None, separator = "\t"):
+def exportIntegrations(toFile, substances, integrations, substanceOrder = None, samplesOrder = None, substancesComments = None, samplesComments = None, sampleMetaData = None, oneRowHeader4Results = False, additionalCommentsForFile = None, separator = "\t"):
     for substanceName in integrations.keys():
         isd = [substances[s].name for s in substances if substances[s].internalStandard == substanceName]
         if len(isd) > 0:
@@ -244,7 +245,7 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
         samplesOrder = natsort.natsorted(list(allSamps))
     
     with open(toFile, "w") as fout:
-        headersSample = ["", "", "Name", "Data File", "Type", "Level", "Acq. Date-Time", "Comment"]
+        headersSample = ["", "", "Name", "Data File", "Type", "Level", "Acq. Date-Time", "Method", "Inj. volume", "Dilution", "Comment"]
         headersPerSubstance = ["Comment", "RT", "Int. Start", "Int. End", "Area", "ISTDRatio", "Final Conc.", "Accuracy"]
                 
         if oneRowHeader4Results:
@@ -275,10 +276,11 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
                 if substanceName in substancesComments.keys() and h in substancesComments[substanceName].keys():
                     fout.write("%s"%(json.dumps(substancesComments[substanceName][h])))
         fout.write("\n")
-
         for sample in samplesOrder:
             sampleInfo = {}
-            sampleInfo["Name"] = sample
+            for k in headersSample:
+                if sampleMetaData is not None and sample in sampleMetaData.keys() and k in sampleMetaData[sample].keys():
+                    sampleInfo[k] = sampleMetaData[sample][k]
             sampleInfo[""] = "!"
             sampleInfo["Level"] = ""
             if calSamplesAndLevels is not None:
