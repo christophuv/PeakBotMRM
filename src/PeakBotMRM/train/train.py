@@ -563,7 +563,7 @@ def createHistory(histObjectFile, locationAndPrefix, verbose = True, logPrefix =
     df = histAll
     df = df[df["metric"] == "Area IOU"]
     print(logPrefix, "  | .. Plot for all instances simultaneously")
-    plot = (p9.ggplot(df, p9.aes("value", "model", group="model"))
+    plot = (p9.ggplot(df, p9.aes("value", "comment", group="comment"))
             + p9.geom_jitter(width = 0, height = 0.2, alpha=0.5)
             + p9.geom_vline(xintercept = 0.9)
             + p9.theme(legend_position = "bottom")
