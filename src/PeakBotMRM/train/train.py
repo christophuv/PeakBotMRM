@@ -563,9 +563,38 @@ def createHistory(histObjectFile, locationAndPrefix, verbose = True, logPrefix =
     df = histAll
     df = df[df["metric"] == "Area IOU"]
     print(logPrefix, "  | .. Plot for all instances simultaneously")
-    plot = (p9.ggplot(df, p9.aes("value", "set", group="model"))
+    plot = (p9.ggplot(df, p9.aes("value", "model", group="model"))
             + p9.geom_jitter(width = 0, height = 0.2, alpha=0.5)
             + p9.geom_vline(xintercept = 0.9)
+            + p9.theme(legend_position = "bottom")
+            + p9.theme_minimal()
+            + p9.theme(plot_background = p9.element_rect(fill = "White"))
+            + p9.ggtitle("Area IOU") + p9.xlab("Set") + p9.ylab("Area IOU") 
+           )
+    p9.options.figure_size = (5.2, 7)
+    p9.ggsave(plot=plot, filename="%s_AreaIOU_models.png"%(locationAndPrefix), width=20, height=20, dpi=300, limitsize=False, verbose=False)
+    
+    df = histAll
+    df = df[df["metric"] == "Area IOU"]
+    print(logPrefix, "  | .. Plot for all instances simultaneously")
+    plot = (p9.ggplot(df, p9.aes("value", "set", group="set"))
+            + p9.geom_jitter(width = 0, height = 0.2, alpha=0.5)
+            + p9.geom_vline(xintercept = 0.9)
+            + p9.theme(legend_position = "bottom")
+            + p9.theme_minimal()
+            + p9.theme(plot_background = p9.element_rect(fill = "White"))
+            + p9.ggtitle("Area IOU") + p9.xlab("Set") + p9.ylab("Area IOU") 
+           )
+    p9.options.figure_size = (5.2, 7)
+    p9.ggsave(plot=plot, filename="%s_AreaIOU_sets.png"%(locationAndPrefix), width=20, height=20, dpi=300, limitsize=False, verbose=False)
+    
+    df = histAll
+    df = df[df["metric"] == "Area IOU"]
+    print(logPrefix, "  | .. Plot for all instances simultaneously")
+    plot = (p9.ggplot(df, p9.aes("value", "set"))
+            + p9.geom_jitter(width = 0, height = 0.2, alpha=0.5)
+            + p9.geom_vline(xintercept = 0.9)
+            + p9.facet_wrap("~model")
             + p9.theme(legend_position = "bottom")
             + p9.theme_minimal()
             + p9.theme(plot_background = p9.element_rect(fill = "White"))
