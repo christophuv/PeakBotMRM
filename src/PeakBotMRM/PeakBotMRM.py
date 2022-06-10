@@ -1229,37 +1229,55 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
         if os.path.isdir(pathsample) and pathsample.endswith(".d"):
             foundSamples[Path(sample).stem] = {"path": pathsample, "converted": pathsample.replace(".d", ".mzML")}
             
-            d = dictifyXMLFile(os.path.join(pathsample, "AcqData", "sample_info.xml"))
-            def getAcqTime(di):
-                fields = d["SampleInfo"]["Field"]
-                for f in fields:
-                    if f["DisplayName"][0]["_text"] == "Acquisition Time":
-                        return f["Value"][0]["_text"]
-            foundSamples[Path(sample).stem]["Acq. Date-Time"] = getAcqTime(d)
-            def getMethod(di):
-                fields = d["SampleInfo"]["Field"]
-                for f in fields:
-                    if f["DisplayName"][0]["_text"] == "Method":
-                        return f["Value"][0]["_text"]
-            foundSamples[Path(sample).stem]["Method"] = getMethod(d)
-            def getInjVol(di):
-                fields = d["SampleInfo"]["Field"]
-                for f in fields:
-                    if f["DisplayName"][0]["_text"] == "Inj Vol (µl)":
-                        return f["Value"][0]["_text"]
-            foundSamples[Path(sample).stem]["Inj. volume"] = getInjVol(d)
-            def getDilution(di):
-                fields = d["SampleInfo"]["Field"]
-                for f in fields:
-                    if f["DisplayName"][0]["_text"] == "Dilution":
-                        return f["Value"][0]["_text"]
-            foundSamples[Path(sample).stem]["Dilution"] = getDilution(d)
-            def getComment(di):
-                fields = d["SampleInfo"]["Field"]
-                for f in fields:
-                    if f["DisplayName"][0]["_text"] == "Comment":
-                        return f["Value"][0]["_text"]
-            foundSamples[Path(sample).stem]["Comment"] = getComment(d).strip()
+            try:
+                d = dictifyXMLFile(os.path.join(pathsample, "AcqData", "sample_info.xml"))
+                try:
+                    def getAcqTime(di):
+                        fields = d["SampleInfo"]["Field"]
+                        for f in fields:
+                            if f["DisplayName"][0]["_text"] == "Acquisition Time":
+                                return f["Value"][0]["_text"]
+                    foundSamples[Path(sample).stem]["Acq. Date-Time"] = getAcqTime(d)
+                except:
+                    pass
+                try:
+                    def getMethod(di):
+                        fields = d["SampleInfo"]["Field"]
+                        for f in fields:
+                            if f["DisplayName"][0]["_text"] == "Method":
+                                return f["Value"][0]["_text"]
+                    foundSamples[Path(sample).stem]["Method"] = getMethod(d)
+                except:
+                    pass
+                try:
+                    def getInjVol(di):
+                        fields = d["SampleInfo"]["Field"]
+                        for f in fields:
+                            if f["DisplayName"][0]["_text"] == "Inj Vol (µl)":
+                                return f["Value"][0]["_text"]
+                    foundSamples[Path(sample).stem]["Inj. volume"] = getInjVol(d)
+                except:
+                    pass
+                try:
+                    def getDilution(di):
+                        fields = d["SampleInfo"]["Field"]
+                        for f in fields:
+                            if f["DisplayName"][0]["_text"] == "Dilution":
+                                return f["Value"][0]["_text"]
+                    foundSamples[Path(sample).stem]["Dilution"] = getDilution(d)
+                except:
+                    pass
+                try:
+                    def getComment(di):
+                        fields = d["SampleInfo"]["Field"]
+                        for f in fields:
+                            if f["DisplayName"][0]["_text"] == "Comment":
+                                return f["Value"][0]["_text"]
+                    foundSamples[Path(sample).stem]["Comment"] = getComment(d).strip()
+                except:
+                    pass
+            except:
+                pass
             
             if not os.path.isfile(pathsample.replace(".d", ".mzML")):
                 cmd = [pathToMSConvert, "-o", samplesPath, "--mzML", "--z", pathsample]
