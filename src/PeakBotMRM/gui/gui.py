@@ -15,6 +15,7 @@ from pathlib import Path
 import PyQt6.QtWidgets
 import PyQt6.QtCore
 import PyQt6.QtGui
+import PyQt6.QtWebEngineWidgets
 
 import pyqtgraph
 pyqtgraph.setConfigOption('background', 'w')
@@ -26,6 +27,11 @@ from pyqtgraph.parametertree import Parameter, ParameterTree
 
 import numpy as np
 import pacmap
+
+import pandas as pd
+import plotnine as p9
+import tempfile
+import base64
 
 ## Specific tensorflow configuration. Can re omitted or adapted to users hardware
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -70,6 +76,27 @@ class QHSeperationLine(PyQt6.QtWidgets.QFrame):
     self.setFrameShape(PyQt6.QtWidgets.QFrame.Shape.HLine)
     self.setFrameShadow(PyQt6.QtWidgets.QFrame.Shadow.Plain)
     return
+
+
+class WebViewDialog(PyQt6.QtWidgets.QDialog):
+    def __init__(self, parent=None, title = "", html = "<h>No content</h>", url = None):
+        super(WebViewDialog, self).__init__(parent)
+                
+        self.setWindowTitle(title)
+        
+        grid = PyQt6.QtWidgets.QGridLayout()
+        webView = PyQt6.QtWebEngineWidgets.QWebEngineView()
+        if url is not None:
+            webView.setUrl(url)
+        else:
+            webView.setHtml(html)
+        grid.addWidget(webView, 0, 0)
+        
+        self.setLayout(grid)
+        
+
+
+
 
 class TrainModelDialog(PyQt6.QtWidgets.QDialog):
     def __init__(self, parent=None, sampleOrder = None):
@@ -377,7 +404,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.tree.header().resizeSection(0, 250)
         self.tree.header().resizeSection(1, 50)
         self.tree.header().resizeSection(2, 50)
-        dock = Dock("Loaded experiments")
+        dock = Dock("Experiments")
         self.docks.append(dock)
         dock.addWidget(self.tree)
         dock.setStretch(y = 23)
@@ -413,6 +440,10 @@ class Window(PyQt6.QtWidgets.QMainWindow):
 
         item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "robots.png")), "Run PeakBotMRM detection on all openend experiments", self)
         item.triggered.connect(self.processAllExperimentEventHelper)
+        toolbar.addAction(item)
+
+        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "list-circle-outline.svg")), "Show summary of active experiment", self)
+        item.triggered.connect(self.showSummary)
         toolbar.addAction(item)
 
         item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "download-outline.svg")), "Export instances", self)
@@ -760,8 +791,218 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                     inte = self._integrations[selExp][sampleItem.substance][sampleItem.sample]
                                     sampleItem.setText(1, str(inte.area) if inte.foundPeak else "")
                                     sampleItem.setText(2, "%.2f - %.2f"%(inte.rtStart, inte.rtEnd) if inte.foundPeak else "")
-                            
-            PyQt6.QtWidgets.QMessageBox.information(self, "Processed experiment(s)", "Experiment(s) has/have been processed. ")
+            
+            if len(expToProcess) == 1:
+                self.showSummary()
+            else:    
+                PyQt6.QtWidgets.QMessageBox.information(self, "Processed experiment(s)", "Experiment(s) has/have been processed. ")
+            
+    def showSummary(self):
+        top = """
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Overview of results</title>
+    <style>
+      /* CSS styles */
+      p {
+        font-family: Arial;
+      }
+      h1, h2, h3 {
+        font-family: Arial;
+        color: Slategrey;
+        border: solid 1px   #bdc3c7; 
+        border-radius: 3px;
+        padding-left: 6px;
+        box-shadow: 2px 6px 6px lightgrey;
+      }
+      h1 {
+        border-left: solid 6px #a93226; 
+      }
+      h2 {
+        border-left: solid 6px #f39c12; 
+      }
+      h3 {
+        border-left: solid 6px #2980b9; 
+      }
+    </style>
+  </head>
+  <body>"""
+        bot = """
+  </body>
+</html>"""
+        body = []
+        
+        l = list(self.tree.selectedItems())
+        if len(l) == 1 and "experiment" in l[0].__dict__.keys():
+            with tempfile.TemporaryDirectory() as tmpDir:
+                it = l[0]
+                while it.parent() is not None:
+                    it = it.parent()
+                
+                selExp = it.experiment if "experiment" in it.__dict__.keys() else None
+                
+                procDiag = PyQt6.QtWidgets.QProgressDialog(self, labelText="Generating summary of '%s'"%(selExp))
+                procDiag.setWindowIcon(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "robot.png")))
+                procDiag.setWindowTitle("PeakBotMRM")
+                procDiag.setModal(True)
+                procDiag.show()
+
+                body.append("<h1>Results of %s</h1>"%(selExp))
+                
+                ints = self._integrations[selExp]
+                
+                dat = {"peak": [], "peakWidth": [], "rtDeviation": [], "area": [], "substance": [], "sample": []}
+                for sub in ints.keys():
+                    refRT = self._substances[selExp][sub].refRT
+                    for samp in ints[sub].keys():
+                        dat["substance"].append(sub)
+                        dat["sample"].append(samp)
+                        inte = ints[sub][samp]
+                        dat["peak"].append(inte.foundPeak)
+                        if inte.foundPeak:
+                            dat["peakWidth"].append(inte.rtEnd - inte.rtStart)
+                            eic = np.copy(inte.chromatogram["eic"])
+                            rts = inte.chromatogram["rts"]
+                            eic[rts < inte.rtStart] = 0
+                            eic[rts > inte.rtEnd] = 0
+                            apex = rts[np.argmax(eic)]
+                            dat["rtDeviation"].append(apex - refRT)
+                            dat["area"].append(inte.area)
+                        else:
+                            dat["peakWidth"].append(-1)
+                            dat["rtDeviation"].append(0)
+                            dat["area"].append(0)
+                dat = pd.DataFrame(dat)
+                
+                body.append("<h2>Sample statistics</h2>")
+                temp = dat.pivot(index="sample", columns="substance", values="area").fillna(0)
+
+                from sklearn.decomposition import PCA
+                from sklearn.preprocessing import StandardScaler
+                
+                temp_norm = StandardScaler().fit_transform(temp.to_numpy())
+                temp = pd.DataFrame(temp_norm, columns = temp.columns, index = temp.index)
+                pca = PCA(n_components=2)
+                pca.fit(temp)
+                pcaScores = pca.fit_transform(temp)
+                temp = pd.DataFrame({"X": pcaScores[:,0],
+                                     "Y": pcaScores[:,1],
+                                     "sample": temp.index.values})
+                
+                p = (p9.ggplot(data = temp, mapping = p9.aes(x="X", y="Y", label="sample"))
+                    #+ p9.geom_point()
+                    + p9.geom_text()
+                    + p9.ggtitle("PCA") + p9.xlab("Principal component 1") + p9.ylab("Principal component 2"))
+                p9.ggsave(plot=p, filename=os.path.join(tmpDir, "tempFig.png"), dpi = 72, width = 12, height = 8, units = "in", limitsize = False)
+                body.append("<img src='data:image/png;base64,%s'></img><br>"%(str(base64.b64encode(open(os.path.join(tmpDir, "tempFig.png"), "rb").read()))[2:-1]))
+                body.append("<p>Note: Peak areas are used, no calibration has been carried out prior to the PCA. Z-scaling is used. Blank, calibration, STD samples are also included. </p>")
+                
+                body.append("<h2>Peak statistics</h2>")
+                a = np.sum(dat["peak"])
+                b = dat.shape[0] - a
+                df = pd.DataFrame({"type": ["Peak", "no Peak"], "value": [a, b]})
+                p = (p9.ggplot(data = df, mapping = p9.aes(x="type", y="value"))
+                     + p9.geom_bar(stat="identity") 
+                     + p9.coord_flip()
+                     + p9.ggtitle("Detected peaks"))
+                p9.ggsave(plot=p, filename=os.path.join(tmpDir, "tempFig.png"), dpi = 72, width = 12, height = 8, units = "in", limitsize = False)
+                body.append("<img src='data:image/png;base64,%s'></img><br>"%(str(base64.b64encode(open(os.path.join(tmpDir, "tempFig.png"), "rb").read()))[2:-1]))
+                body.append("<p>There are <b>%d (%.1f%%)</b> peaks and <b>%d (%.1f%%)</b> noPeaks in the experiment</p>"%(a, a/(a+b)*100, b, b/(a+b)*100))
+                
+                ## Peak width
+                body.append("<h3>Peak width</h3>")
+                p = (p9.ggplot(data = dat[dat["peak"] == 1], mapping = p9.aes(x="peakWidth"))
+                    + p9.geom_histogram(bins = 100)
+                    + p9.ggtitle("Peak width (min)"))
+                p9.ggsave(plot=p, filename=os.path.join(tmpDir, "tempFig.png"), dpi = 72, width = 12, height = 8, units = "in", limitsize = False)
+                body.append("<img src='data:image/png;base64,%s'></img><br>"%(str(base64.b64encode(open(os.path.join(tmpDir, "tempFig.png"), "rb").read()))[2:-1]))
+            
+                p = (p9.ggplot(data = dat[dat["peak"] == 1], mapping = p9.aes(x="peakWidth"))
+                    + p9.geom_histogram(bins = 100)
+                    + p9.xlim([0, 2])
+                    + p9.ggtitle("Peak width zoomed (min)"))
+                p9.ggsave(plot=p, filename=os.path.join(tmpDir, "tempFig.png"), dpi = 72, width = 12, height = 8, units = "in", limitsize = False)
+                body.append("<img src='data:image/png;base64,%s'></img><br>"%(str(base64.b64encode(open(os.path.join(tmpDir, "tempFig.png"), "rb").read()))[2:-1]))
+                
+                p = (p9.ggplot(data = dat[dat["peak"] == 1], mapping = p9.aes(x="peakWidth", y="substance"))
+                    + p9.geom_jitter(alpha = 0.1, width = 0, height = 0.2)
+                    + p9.xlim([0, 2])
+                    + p9.scales.scale_y_discrete(limits=list(dat[dat["peak"] == 1].groupby(["substance"]).mean().sort_values(["peakWidth"], ascending = False).reset_index()["substance"]))
+                    + p9.ggtitle("Peak width zoomed (min)"))
+                p9.ggsave(plot=p, filename=os.path.join(tmpDir, "tempFig.png"), dpi = 72, width = 12, height = 32/250*len(ints), units = "in", limitsize = False)
+                body.append("<img src='data:image/png;base64,%s'></img><br>"%(str(base64.b64encode(open(os.path.join(tmpDir, "tempFig.png"), "rb").read()))[2:-1]))
+                                
+                
+                ## Peak area
+                body.append("<h3>Peak areas</h3>")
+                p = (p9.ggplot(data = dat[dat["peak"] == 1], mapping = p9.aes(x="area"))
+                    + p9.geom_histogram(bins = 1000)
+                    + p9.scales.scale_x_log10()
+                    + p9.ggtitle("Peak areas"))
+                p9.ggsave(plot=p, filename=os.path.join(tmpDir, "tempFig.png"), dpi = 72, width = 12, height = 8, units = "in", limitsize = False)
+                body.append("<img src='data:image/png;base64,%s'></img><br>"%(str(base64.b64encode(open(os.path.join(tmpDir, "tempFig.png"), "rb").read()))[2:-1]))
+                
+                p = (p9.ggplot(data = dat[dat["peak"] == 1], mapping = p9.aes(x="area", y = "substance"))
+                    + p9.geom_point(alpha=0.2)
+                    + p9.scales.scale_y_discrete(limits=list(dat[dat["peak"] == 1].groupby(["substance"]).mean().sort_values(["area"], ascending = False).reset_index()["substance"]))
+                    + p9.scales.scale_x_log10()
+                    + p9.ggtitle("Peak areas"))
+                p9.ggsave(plot=p, filename=os.path.join(tmpDir, "tempFig.png"), dpi = 72, width = 12, height = 32/250*len(ints), units = "in", limitsize = False)
+                body.append("<img src='data:image/png;base64,%s'></img>"%(str(base64.b64encode(open(os.path.join(tmpDir, "tempFig.png"), "rb").read()))[2:-1]))
+                
+                
+                ## Peak apex relative to reference rt
+                body.append("<h3>Peak retention times</h3>")
+                p = (p9.ggplot(data = dat[dat["peak"] == 1], mapping = p9.aes(x="rtDeviation"))
+                    + p9.geom_histogram(bins = 100)
+                    + p9.ggtitle("Peak deviation (min; apex - reference)"))
+                p9.ggsave(plot=p, filename=os.path.join(tmpDir, "tempFig.png"), dpi = 72, width = 12, height = 8, units = "in", limitsize = False)
+                body.append("<img src='data:image/png;base64,%s'></img><br>"%(str(base64.b64encode(open(os.path.join(tmpDir, "tempFig.png"), "rb").read()))[2:-1]))
+                
+                p = (p9.ggplot(data = dat[dat["peak"] == 1], mapping = p9.aes(x="rtDeviation", y="substance"))
+                    + p9.geom_jitter(alpha=0.2, width=0, height = 0.2)
+                    + p9.scales.scale_y_discrete(limits=list(dat[dat["peak"] == 1].groupby(["substance"]).mean().sort_values(["rtDeviation"], ascending = False).reset_index()["substance"]))
+                    + p9.ggtitle("Rt deviation (min; apex - reference)"))
+                p9.ggsave(plot=p, filename=os.path.join(tmpDir, "tempFig.png"), dpi = 72, width = 12, height = 32/250*len(ints), units = "in", limitsize = False)
+                body.append("<img src='data:image/png;base64,%s'></img><br>"%(str(base64.b64encode(open(os.path.join(tmpDir, "tempFig.png"), "rb").read()))[2:-1]))
+                
+            
+                for sub in natsort.natsorted(list(ints.keys())):
+                    temp = dat[dat["peak"] == 1]
+                    temp = temp[temp["substance"] == sub]
+                    a = temp.describe(percentiles = [0.1, 0.25, 0.5, 0.75, 0.9])
+                    body.append("<h3>%s</h3>"%(sub))
+                    body.append("<pre>%s</pre>"%(str(a).replace("\n", "<br>")))
+                    
+                    if False:
+                        p = (p9.ggplot(data = temp[temp["substance"] == sub], mapping = p9.aes(x="peakWidth"))
+                            + p9.geom_histogram(bins = 100)
+                            + p9.xlim([0, 2])
+                            + p9.ggtitle("Peak width zoomed for '%s' (min)"%(sub)))
+                        p9.ggsave(plot=p, filename=os.path.join(tmpDir, "tempFig.png"), dpi = 72, width = 12, height = 8, units = "in", limitsize = False)
+                        body.append("<img src='data:image/png;base64,%s'></img>"%(str(base64.b64encode(open(os.path.join(tmpDir, "tempFig.png"), "rb").read()))[2:-1]))
+                        
+                        p = (p9.ggplot(data = temp[temp["substance"] == sub], mapping = p9.aes(x="area"))
+                            + p9.geom_histogram(bins = 300)
+                            + p9.scales.scale_x_log10()
+                            + p9.ggtitle("Peak areas for '%s'"%(sub)))
+                        p9.ggsave(plot=p, filename=os.path.join(tmpDir, "tempFig.png"), dpi = 72, width = 12, height = 8, units = "in", limitsize = False)
+                        body.append("<img src='data:image/png;base64,%s'></img>"%(str(base64.b64encode(open(os.path.join(tmpDir, "tempFig.png"), "rb").read()))[2:-1]))
+                
+                procDiag.hide()
+
+                outFil = os.path.join(tmpDir, "temp.html")
+                with open(outFil, "w") as fout:
+                    fout.write("%s%s%s"%(top, "\n".join(body), bot))
+                
+                print(outFil)
+                x = WebViewDialog(self, title = selExp, url = PyQt6.QtCore.QUrl("file:///%s"%(outFil.replace("\\", "/"))))
+                x.setModal(True)
+                x.setFixedWidth(1100)
+                x.setFixedHeight(900)
+                x.exec()
+        
     
     def resetActivateExperiment(self):
         l = list(self.tree.selectedItems())
