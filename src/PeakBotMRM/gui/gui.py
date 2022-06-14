@@ -1,6 +1,30 @@
+import logging
+logging.root.setLevel(logging.NOTSET)
+logFormatter = logging.Formatter("%(asctime)s [%(levelname)-5.5s]  %(message)s")
+rootLogger = logging.getLogger()
+
+consoleHandler = logging.StreamHandler()
+consoleHandler.setLevel(logging.WARNING)
+consoleHandler.setFormatter(logFormatter)
+rootLogger.addHandler(consoleHandler)
+
+fileHandler = logging.FileHandler("PeakBotMRM_run.log")
+fileHandler.setLevel(logging.INFO)
+fileHandler.setFormatter(logFormatter)
+rootLogger.addHandler(fileHandler)
+
+import os
+import PySimpleGUI as sg
+try:
+    splashImage = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gui-resources", "robot_loading.png")
+    window = sg.Window("", [[sg.Image(splashImage)]], transparent_color=sg.theme_background_color(), no_titlebar=True, keep_on_top=True, finalize=True)
+    window.bring_to_front()
+except:
+    logging.warning("Cannot show splash screen")
+
 import sys
-import traceback
 from typing import OrderedDict
+import functools
 
 import os
 import shutil
@@ -15,7 +39,6 @@ from pathlib import Path
 import PyQt6.QtWidgets
 import PyQt6.QtCore
 import PyQt6.QtGui
-import PyQt6.QtWebEngineWidgets
 
 import pyqtgraph
 pyqtgraph.setConfigOption('background', 'w')
@@ -40,6 +63,11 @@ os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 import PeakBotMRM
 import PeakBotMRM.predict
+
+try:
+    window.close()
+except:
+    pass
 
 
 
@@ -81,8 +109,10 @@ class QHSeperationLine(PyQt6.QtWidgets.QFrame):
 class WebViewDialog(PyQt6.QtWidgets.QDialog):
     def __init__(self, parent=None, title = "", html = "<h>No content</h>", url = None):
         super(WebViewDialog, self).__init__(parent)
-                
         self.setWindowTitle(title)
+             
+        ## TODO this does not work. The import disables any file dialogs. Fix the bug    
+        import PyQt6.QtWebEngineWidgets
         
         grid = PyQt6.QtWidgets.QGridLayout()
         webView = PyQt6.QtWebEngineWidgets.QWebEngineView()
@@ -91,8 +121,11 @@ class WebViewDialog(PyQt6.QtWidgets.QDialog):
         else:
             webView.setHtml(html)
         grid.addWidget(webView, 0, 0)
-        
         self.setLayout(grid)
+        
+
+        
+        
         
 
 
@@ -257,6 +290,33 @@ class OpenExperimentDialog(PyQt6.QtWidgets.QDialog):
         grid.addWidget(PyQt6.QtWidgets.QLabel("Experiment name"), rowi, 0)
         self.expName = PyQt6.QtWidgets.QLineEdit("")
         grid.addWidget(self.expName, rowi, 1, 1, 2)
+        
+        rowi = rowi + 1
+        grid.addWidget(PyQt6.QtWidgets.QLabel("Transitions file"), rowi, 0)
+        self.loadTra = PyQt6.QtWidgets.QPushButton("Open")
+        self.traPath = PyQt6.QtWidgets.QLabel("")
+        self.loadTra.clicked.connect(self.openTransitions)
+        grid.addWidget(self.loadTra, rowi, 1, 1, 1)
+        grid.addWidget(self.traPath, rowi, 2, 1, 1)
+        
+        rowi = rowi + 1
+        grid.addWidget(PyQt6.QtWidgets.QLabel("Raw LCMS data"), rowi, 0)
+        self.loadRaw = PyQt6.QtWidgets.QPushButton("Open")
+        self.rawPath = PyQt6.QtWidgets.QLabel("")
+        self.loadRaw.clicked.connect(self.openRaw)
+        grid.addWidget(self.loadRaw, rowi, 1, 1, 1)
+        grid.addWidget(self.rawPath, rowi, 2, 1, 1)
+        
+        rowi = rowi + 1
+        grid.addWidget(PyQt6.QtWidgets.QLabel("Processed results"), rowi, 0)
+        self.loadRes = PyQt6.QtWidgets.QPushButton("Open")
+        self.resPath = PyQt6.QtWidgets.QLabel("")
+        self.loadRes.clicked.connect(self.openResults)
+        grid.addWidget(self.loadRes, rowi, 1, 1, 1)
+        grid.addWidget(self.resPath, rowi, 2, 1, 1)
+        
+        rowi = rowi + 1
+        grid.addWidget(QHSeperationLine(), rowi, 0, 1, 3)
        
         rowi = rowi + 1
         grid.addWidget(PyQt6.QtWidgets.QLabel("Important samples"), rowi, 0)
@@ -269,8 +329,19 @@ class OpenExperimentDialog(PyQt6.QtWidgets.QDialog):
             except:
                 self.importantSamples.setStyleSheet("border-color: Firebrick; border-style: solid; border-width: 2px;")
         self.importantSamples.textChanged.connect(cahnged)
-        grid.addWidget(self.loadRes, rowi, 0, 1, 1)
         grid.addWidget(self.importantSamples, rowi, 1, 2, 2)
+        
+        rowi = rowi + 1
+        grid.addWidget(QHSeperationLine(), rowi, 0, 1, 3)
+        
+        rowi = rowi + 1
+        self.fin = PyQt6.QtWidgets.QPushButton("Open experiment")
+        self.fin.clicked.connect(self.accept)
+        grid.addWidget(self.fin, rowi, 2, 1, 1)
+        
+        self.cancel = PyQt6.QtWidgets.QPushButton("Cancel")
+        self.cancel.clicked.connect(self.reject)
+        grid.addWidget(self.cancel, rowi, 1, 1, 1)
         
         self.setLayout(grid)
         
@@ -290,7 +361,7 @@ class OpenExperimentDialog(PyQt6.QtWidgets.QDialog):
             self.resPath.setText(fName[0])
         
     def getUserData(self):
-        return (self.expName.text(), self.traPath.text(), self.rawPath.text(), self.resPath.text())
+        return (self.expName.text(), self.traPath.text(), self.rawPath.text(), self.resPath.text(), self.importantSamples.toPlainText())
     
 
 
@@ -438,20 +509,26 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         item.triggered.connect(self.processActiveExperimentEventHelper)
         toolbar.addAction(item)
 
-        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "robots.png")), "Run PeakBotMRM detection on all openend experiments", self)
-        item.triggered.connect(self.processAllExperimentEventHelper)
-        toolbar.addAction(item)
-
         item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "list-circle-outline.svg")), "Show summary of active experiment", self)
         item.triggered.connect(self.showSummary)
         toolbar.addAction(item)
 
-        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "download-outline.svg")), "Export instances", self)
-        item.triggered.connect(self.exportIntegrations)
+        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "download-outline.svg")), "Export active experiment results", self)
+        item.triggered.connect(functools.partial(self.exportIntegrations, all = False))
         toolbar.addAction(item)
 
         item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "thunderstorm-outline.svg")), "Reset instances", self)
         item.triggered.connect(self.resetActivateExperiment)
+        toolbar.addAction(item)
+        
+        toolbar.addSeparator()
+
+        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "robots.png")), "Run PeakBotMRM detection on all openend experiments", self)
+        item.triggered.connect(self.processAllExperimentEventHelper)
+        toolbar.addAction(item)
+
+        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "code-download-outline.svg")), "Export all experiment results", self)
+        item.triggered.connect(functools.partial(self.exportIntegrations, all = True))
         toolbar.addAction(item)
         
         toolbar.addSeparator()
@@ -505,7 +582,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         try:
             subprocess.run(self.__msConvertPath, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except FileNotFoundError as ex:
-            print("\033[91mError: msconvert (%s) not found.\033[0m Download and install from https://proteowizard.sourceforge.io/")
+            logging.error("\033[91mError: msconvert (%s) not found.\033[0m Download and install from https://proteowizard.sourceforge.io/")
             PyQt6.QtWidgets.QMessageBox.critical(None, "PeakBotMRM", "Error<br><br>MSConvert (at '%s') cannot be found. Please verify that it is present/installed and/or set the path to the executible accordingly<br><br>Download MSconvert from <a href='https://proteowizard.sourceforge.io/'>https://proteowizard.sourceforge.io/</a>.<br>Choose the version that is 'able to convert ventdor files'.<br>Install the software.<br>Then try restarting PeakBotMRM. If 'msconvert' alone does not work, try '%%LOCALAPPDATA%%\\Apps\\ProteoWizard 3.0.22119.ba94f16 32-bit\\msconvert.exe'"%(self.__msConvertPath))
 
         
@@ -704,16 +781,17 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         menu = PyQt6.QtWidgets.QMenu(self)
         
         addSep = False
-        for mf in os.listdir(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models")):
-            acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "folder-open-outline.svg")), mf, self)
-            acc.triggered.connect(lambda: self.processExperimentS(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models", mf), all = all))
-            menu.addAction(acc)
-            addSep = True
+        for mf in natsort.natsorted(list(os.listdir(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models")))):
+            if mf.endswith(".h5"):
+                acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "robot.png")), mf, self)
+                acc.triggered.connect(functools.partial(self.processExperimentS, os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models", mf), all = all))
+                menu.addAction(acc)
+                addSep = True
         
         if addSep: 
             menu.addSeparator()
         acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "folder-open-outline.svg")), "Open other model", self)
-        acc.triggered.connect(lambda: self.processExperimentS(None, all = all))
+        acc.triggered.connect(functools.partial(self.processExperimentS, None, all = all))
         menu.addAction(acc)
             
         menu.exec(PyQt6.QtGui.QCursor.pos())
@@ -764,8 +842,10 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 procDiag.setWindowTitle("PeakBotMRM")
                 procDiag.setModal(True)
                 procDiag.show()
-                print("Processing dataset '%s'"%(selExp))
-                PeakBotMRM.predict.predictDataset(peakBotMRMModelFile, self._substances[selExp], self._integrations[selExp], callBackFunction = procDiag.setValue)
+                logging.info("")
+                logging.info("")
+                logging.info("Processing dataset '%s'"%(selExp))
+                PeakBotMRM.predict.predictDataset(peakBotMRMModelFile, self._substances[selExp], self._integrations[selExp], callBackFunction = procDiag.setValue, showConsoleProgress = False)
                 
                 procDiag.hide()
                 
@@ -793,11 +873,13 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                     sampleItem.setText(2, "%.2f - %.2f"%(inte.rtStart, inte.rtEnd) if inte.foundPeak else "")
             
             if len(expToProcess) == 1:
-                self.showSummary()
+                if PyQt6.QtWidgets.QMessageBox.question(self, "Generate summary", "Do you want to generate a summary of the processed results and detected chromatographic peaks?") == PyQt6.QtWidgets.QMessageBox.StandardButton.Yes:
+                    processingInfo = ["PeakBotMRM model file: %s"%(peakBotMRMModelFile), PeakBotMRM.Config.getAsStringFancy().replace("\n", "<br>")]
+                    self.showSummary(processingInfo = processingInfo)
             else:    
                 PyQt6.QtWidgets.QMessageBox.information(self, "Processed experiment(s)", "Experiment(s) has/have been processed. ")
             
-    def showSummary(self):
+    def showSummary(self, processingInfo = None):
         top = """
 <!DOCTYPE html>
 <html>
@@ -850,6 +932,12 @@ class Window(PyQt6.QtWidgets.QMainWindow):
 
                 body.append("<h1>Results of %s</h1>"%(selExp))
                 
+                if processingInfo is not None:
+                    body.append("<h2>Processing info</h2>")
+                    body.append("<p><ul><li>%s</li></ul></p>"%("</li><br><li>".join(processingInfo).replace("  | ..", "")))
+                
+                body.append("<h2>Sample statistics</h2>")
+                
                 ints = self._integrations[selExp]
                 
                 dat = {"peak": [], "peakWidth": [], "rtDeviation": [], "area": [], "substance": [], "sample": []}
@@ -875,7 +963,6 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                             dat["area"].append(0)
                 dat = pd.DataFrame(dat)
                 
-                body.append("<h2>Sample statistics</h2>")
                 temp = dat.pivot(index="sample", columns="substance", values="area").fillna(0)
 
                 from sklearn.decomposition import PCA
@@ -996,12 +1083,21 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 with open(outFil, "w") as fout:
                     fout.write("%s%s%s"%(top, "\n".join(body), bot))
                 
-                print(outFil)
-                x = WebViewDialog(self, title = selExp, url = PyQt6.QtCore.QUrl("file:///%s"%(outFil.replace("\\", "/"))))
-                x.setModal(True)
-                x.setFixedWidth(1100)
-                x.setFixedHeight(900)
-                x.exec()
+                
+                if False:
+                    pass
+                    ## TODO correct this bug; there is a bug with QFileDialog that does not show when the QWebEngineView is imported. 
+                    #x = WebViewDialog(self, title = selExp, url = PyQt6.QtCore.QUrl("file:///%s"%(outFil.replace("\\", "/"))))
+                    #x.setModal(True)
+                    #x.setFixedWidth(1100)
+                    #x.setFixedHeight(900)
+                    #x.exec()
+                else:
+                    import webbrowser
+                    webbrowser.open("file:///%s"%(outFil.replace("\\", "/")), new = 1)
+                    PyQt6.QtWidgets.QMessageBox.information(self, "PeakBotMRM", "A summary of the results is shown in the webbrowser")
+
+                
         
     
     def resetActivateExperiment(self):
@@ -1039,42 +1135,65 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                 
                     PyQt6.QtWidgets.QMessageBox.information(self, "Reset experiment", "Experiment '%s' has been reset. "%(selExp))
     
-    def exportIntegrations(self):
+    def exportIntegrations(self, all = False):
+        ls = []
+        outputFolder = None
+        outputFile = None
+        ext = ""
+        preExt = ""
+        if self.__exportSeparator == "\t": 
+            ext = "Tab separated values files (*.tsv);;All files (*.*)"
+            preExt = ".tsv"
+        elif self.__exportSeparator in [",", ";", "$"]: 
+            ext = "Comma separated values (*.csv);;All files (*.*)"
+            preExt = ".csv"
+        else:
+            ext = "All files (*.*)"
+            preExt = ".txt"
         
-        l = list(self.tree.selectedItems())
-        if len(l) == 1 and "experiment" in l[0].__dict__.keys():
-            it = l[0]
+        if all:
+            ls = [self.tree.topLevelItem(i) for i in range(self.tree.topLevelItemCount())]
+            outputFolder = PyQt6.QtWidgets.QFileDialog.getExistingDirectory(self, "Select output directory")
+
+        else:
+            ls = list(self.tree.selectedItems())
+            if len(ls) == 0:
+                PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "No experiment has been selected. Please select one from the list and retry.")
+                return
+            selExp = ls[0].experiment if "experiment" in ls[0].__dict__.keys() else None
+            
+            fName = PyQt6.QtWidgets.QFileDialog.getSaveFileName(self, "Save results to file", directory = os.path.join(".", "%s_PB%s"%(selExp, preExt)), filter = ext)
+            if fName[0]:
+                outputFile = fName[0]
+            else:
+                return
+        
+        for it in ls:
             while it.parent() is not None:
                 it = it.parent()
             
             selExp = it.experiment if "experiment" in it.__dict__.keys() else None
             
+            if outputFolder is not None:
+                outputFile = os.path.join(outputFolder, "%s%s"%(selExp, preExt))
+            
             if selExp is not None and selExp != "" and selExp in self._integrations.keys():
-                ext = ""
-                preExt = ""
-                if self.__exportSeparator == "\t": 
-                    ext = "Tab separated values files (*.tsv);;All files (*.*)"
-                    preExt = ".tsv"
-                elif self.__exportSeparator in [",", ";", "$"]: 
-                    ext = "Comma separated values (*.csv);;All files (*.*)"
-                    preExt = ".csv"
-                else:
-                    ext = "All files (*.*)"
-                    preExt = ".txt"
-                fName = PyQt6.QtWidgets.QFileDialog.getSaveFileName(self, "Save results to file", directory = os.path.join(".", "%s_PB%s"%(selExp, preExt)), filter=ext)
-                if fName[0]:
-                    substancesComments, samplesComments = PeakBotMRM.predict.calibrateIntegrations(self._substances[selExp], self._integrations[selExp])
+                substancesComments, samplesComments = PeakBotMRM.predict.calibrateIntegrations(self._substances[selExp], self._integrations[selExp])
+                
+                PeakBotMRM.predict.exportIntegrations(outputFile, 
+                                                      self._substances[selExp], 
+                                                      self._integrations[selExp], 
+                                                      separator = self.__exportSeparator, 
+                                                      substancesComments = substancesComments, 
+                                                      samplesComments = samplesComments, 
+                                                      sampleMetaData = self._sampleInfo[selExp], 
+                                                      additionalCommentsForFile=["PeakBot model: '%s'"%("UNKNOWN")], 
+                                                      oneRowHeader4Results = False)
+                if len(ls) == 1:
+                    PyQt6.QtWidgets.QMessageBox.information(self, "Exporting results", "Experiment '%s' has been exported to file<br>'%s'"%(selExp, outputFile))
+        if len(ls) > 1:
+            PyQt6.QtWidgets.QMessageBox.information(self, "Exporting results", "Experiment results have been exported")
                     
-                    PeakBotMRM.predict.exportIntegrations(fName[0], 
-                                                          self._substances[selExp], 
-                                                          self._integrations[selExp], 
-                                                          separator = self.__exportSeparator, 
-                                                          substancesComments = substancesComments, 
-                                                          samplesComments = samplesComments, 
-                                                          sampleMetaData = self._sampleInfo[selExp], 
-                                                          additionalCommentsForFile=["PeakBot model: '%s'"%("UNKNOWN")], 
-                                                          oneRowHeader4Results = False)
-                    PyQt6.QtWidgets.QMessageBox.information(self, "Exporting results", "Experiment '%s' has been exported to file<br>'%s'"%(selExp, fName[0]))
                 
     def closeExperiment(self):
         l = list(self.tree.selectedItems())
@@ -1106,8 +1225,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         dialog.setModal(True)
         okay = dialog.exec()
         if okay:
-            expName, transitionsFile, rawDataPath, resultsFile = dialog.getUserData()
-            main.loadExperiment(expName, transitionsFile, resultsFile, rawDataPath, importantSamples = eval(dialog.importantSamples.text()))
+            expName, transitionsFile, rawDataPath, resultsFile, importantSamples = dialog.getUserData()
+            main.loadExperiment(expName, transitionsFile, resultsFile, rawDataPath, importantSamples = eval(importantSamples))
                 
     def loadExperiment(self, expName, transitionFile, integrationsFile, rawDataPath, importantSamples = None):
         self.tree.blockSignals(True)
@@ -1133,7 +1252,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                                                             rawDataPath, 
                                                                             pathToMSConvert = self.__msConvertPath, 
                                                                             maxValCallback = procDiag.setMaximum, curValCallback = procDiag.setValue, 
-                                                                            logPrefix = "  | ..")
+                                                                            logPrefix = "  | ..",
+                                                                            errorCallback = functools.partial(PyQt6.QtWidgets.QMessageBox.critical, self, "PeakBotMRM - conversion to mzML"))
         self._substances[expName] = substances
         self._integrations[expName] = integrations
         self._sampleInfo[expName] = sampleInfo
@@ -1625,7 +1745,8 @@ main = Window()
 main.showMaximized()
 
 try:
-    main.loadExperiment("R100140", "./Reference/transitions.tsv", None, "./Reference/R100140_METAB02_MCC025_20200306", importantSamples = OrderedDict([("_CAL[0-9]+_", "CAL"), ("_NIST[0-9]+_", "NIST"), (".*", "sample")]))
+    
+    #main.loadExperiment("R100140", "./Reference/transitions.tsv", None, "./Reference/R100140_METAB02_MCC025_20200306", importantSamples = OrderedDict([("_CAL[0-9]+_", "CAL"), ("_NIST[0-9]+_", "NIST"), (".*", "sample")]))
     #main.loadExperiment("Ref_R100140", "./Reference/transitions.tsv", "./Reference/R100140_Integrations.csv", "./Reference/R100140_METAB02_MCC025_20200306")
     #main.loadExperiment("R100138", "./Reference/transitions.tsv", None, "./Reference/R100138_METAB02_MCC025_20200304")
     #main.loadExperiment("Ref_R100138", "./Reference/transitions.tsv", "./Reference/R100138_Integrations.csv", "./Reference/R100138_METAB02_MCC025_20200304")
@@ -1636,8 +1757,22 @@ try:
                                             ("R100147", "training", "R100147_METAB02_MCC025_20200409"), ("R100194", "training", "R100194_METAB02_MCC025_20201203"),
                                             ("R100211", "training", "R100211_METAB02_MCC025_20210316"), ("R100232", "training", "R100232_B_METAB02_MCC025_20210804")]:
             main.loadExperiment(expName, "./machine_learning_datasets_peakbot/%s/adaptedTransitions/%s.tsv"%(folder1, expName), None, "./machine_learning_datasets_peakbot/%s/%s"%(folder1, rawFolder), importantSamples = OrderedDict([("_CAL[0-9]+_", "CAL"), ("_NIST[0-9]+_", "NIST"), (".*", "sample")]))
+
+    if False:
+        exps = [
+            ("R100266", "R100266_METAB02_MCC025_20220218"),("R100267", "R100267_METAB02_MCC025_20220225"),("R100268", "R100268_METAB02_MCC025_20220304"),
+            ("R100269", "R100269_METAB02_MCC025_20220311"),("R100270", "R100270_METAB02_MCC025_20220325"),("R100272", "R100272_METAB02_MCC025_20220401"),
+            ("R100275", "R100275_METAB02_MCC025_20220421"),("R100276", "R100276_METAB02_MCC025_20220427"),("R100277", "R100277_METAB02_MCC025_20220505"),
+            ("R100278", "R100278_METAB02_MCC025_20220512"),("R100284", "R100284_METAB02_MCC025_20220519")
+        ]
+        
+        for expName, rawFolder in exps:
+            main.loadExperiment(expName, "./Reference/transitions.tsv", None, "./machine_learning_datasets_peakbot/unprocessed/%s"%(rawFolder), 
+                                importantSamples = OrderedDict([("_CAL[0-9]+_", "CAL"), ("_NIST[0-9]+_", "NIST"), (".*", "sample")]))
+            
+    
 except:
-    traceback.print_exc()
+    logging.exception()
 app.exec()
 
 

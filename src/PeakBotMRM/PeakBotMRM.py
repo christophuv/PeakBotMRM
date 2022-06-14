@@ -1,5 +1,4 @@
 import logging
-import warnings
 
 from .core import *
 
@@ -11,11 +10,11 @@ import re
 import math
 import random
 import natsort
-import traceback
 from pathlib import Path
 import subprocess
 
 import tensorflow as tf
+tf.get_logger().setLevel('WARNING')
 import tensorflow_addons as tfa
 import tensorflow_probability as tfp
 import numpy as np
@@ -68,7 +67,7 @@ class Config(object):
     def getAsStringFancy():
         return "\n  | ..".join([
             "  | .. %s"%(Config.NAME),
-            " Version " + Config.VERSION,
+            " Version: " + Config.VERSION,
             " Python: %s"%(sys.version),
             " Tensorflow: %s"%(tf.__version__),
             " Tensorflow Addons: %s"%(tfa.__version__),
@@ -88,7 +87,7 @@ class Config(object):
     def getAsString():
         return ";".join([
             "%s"%(Config.NAME),
-            "Version " + Config.VERSION,
+            "Version: " + Config.VERSION,
             "Python: %s"%(sys.version),
             "Tensorflow: %s"%(tf.__version__),
             "Size of EIC: %d (scans)"%(Config.RTSLICES),
@@ -116,7 +115,7 @@ def getCPUInfo():
 def getCUDAInfo():
     try:
         from numba import cuda as ca
-        print("  | .. GPU-device: ", str(ca.get_current_device().name), sep="")
+        logging.info("  | .. GPU-device: %s"%(str(ca.get_current_device().name)))
         pus = tf.config.experimental.list_physical_devices()
         return "; ".join(["%s (%s)"%(pu.name, pu.device_type) for pu in pus])
     except Exception:
@@ -132,39 +131,39 @@ def getMemoryInfo():
     
 
 
-print("Initializing PeakBotMRM")
+logging.info("Initializing PeakBotMRM")
 try:
     import platform
-    print("  | .. OS:", platform.platform())
+    logging.info("  | .. OS: %s"%(str(platform.platform())))
 except Exception:
-    print("  | .. fetching OS information failed")
+    logging.warning("  | .. fetching OS information failed")
 
-print("  | .. Python: %s"%(sys.version))
-print("  | .. TensorFlow version: %s"%(tf.__version__))
+logging.info("  | .. Python: %s"%(sys.version))
+logging.info("  | .. TensorFlow version: %s"%(tf.__version__))
 
 try:
     import cpuinfo
     s = cpuinfo.get_cpu_info()["brand_raw"]
-    print("  | .. CPU: %s"%(s))
+    logging.info("  | .. CPU: %s"%(s))
 except Exception:
-    print("  | .. fetching CPU info failed")
+    logging.warning("  | .. fetching CPU info failed")
 
 try:
     from psutil import virtual_memory
     mem = virtual_memory()
-    print("  | .. Main memory: %.1f GB"%(mem.total/1000/1000/1000))
+    logging.info("  | .. Main memory: %.1f GB"%(mem.total/1000/1000/1000))
 except Exception:
-    print("  | .. fetching main memory info failed")
+    logging.warning("  | .. fetching main memory info failed")
 
 try:
     from numba import cuda as ca
-    print("  | .. GPU-device: ", str(ca.get_current_device().name), sep="")
+    logging.info("  | .. GPU-device: ", str(ca.get_current_device().name), sep="")
     pus = tf.config.experimental.list_physical_devices()
     for pu in pus:
-        print("  | .. TensorFlow device: Name '%s', type '%s'"%(pu.name, pu.device_type))
+        logging.info("  | .. TensorFlow device: Name '%s', type '%s'"%(pu.name, pu.device_type))
 except Exception:
-    print("  | .. fetching GPU info failed")
-print("")
+    logging.warning("  | .. fetching GPU info failed")
+logging.info("")
     
 
 
@@ -534,9 +533,9 @@ class PeakBotMRM():
         outputs = []
 
         if verbose:
-            print("  | PeakBotMRM v %s model"%(self.version))
-            print("  | .. Desc: Detection of a single LC-HRMS peak in an EIC (peak apeax is approaximately in the center of the EIC)")
-            print("  | ")
+            logging.info("  | PeakBotMRM v %s model"%(self.version))
+            logging.info("  | .. Desc: Detection of a single LC-HRMS peak in an EIC (peak apeax is approaximately in the center of the EIC)")
+            logging.info("  | ")
 
         ## Input: Only LC-HRMS area
         eic = tf.keras.Input(shape=(Config.RTSLICES), name="channel.int")
@@ -545,9 +544,9 @@ class PeakBotMRM():
         eicValMax = tf.expand_dims(tf.math.reduce_max(eic, axis=1), axis=-1)
         
         if verbose:
-            print("  | .. Inputs")
-            print("  | .. .. channel.int is", eic)
-            print("  |")
+            logging.info("  | .. Inputs")
+            logging.info("  | .. .. channel.int is", eic)
+            logging.info("  |")
         
         
         if True:
@@ -564,8 +563,8 @@ class PeakBotMRM():
             eic = tf.expand_dims(eic, axis=-1)
             
             if verbose:            
-                print("  | .. Preprocessing")
-                print("  | .. .. normalization and scaling (for each standardized EIC: 1) subtraction of minimum value; 2) division by maximum value")
+                logging.info("  | .. Preprocessing")
+                logging.info("  | .. .. normalization and scaling (for each standardized EIC: 1) subtraction of minimum value; 2) division by maximum value")
         
         if True:
             ## Feature engineering: derive derivatives of the EICs and use them as 'derived' input features
@@ -576,16 +575,16 @@ class PeakBotMRM():
                 eicDerivative = diff1d(eicSmoothed)
 
                 if verbose:            
-                    print("  | .. .. smoothing EIC with guassian distribution (sigma %f)"%sigma)
-                    print("  | .. .. calculated derivative for smoothed signal (padding with 0 in front)")
+                    logging.info("  | .. .. smoothing EIC with guassian distribution (sigma %f)"%sigma)
+                    logging.info("  | .. .. calculated derivative for smoothed signal (padding with 0 in front)")
                 
                 news = tf.concat([news, eicDerivative], -1)
             
             eic = news
             
             if verbose:            
-                print("  | .. .. derived input is", eic)
-                print("  |")
+                logging.info("  | .. .. derived input is", eic)
+                logging.info("  |")
         
         x = eic
         for i in range(len(uNetLayerSizes)):
@@ -614,18 +613,18 @@ class PeakBotMRM():
         outputs.append(pred)
         
         if verbose:
-            print("  | .. Unet layers are")
-            print("  | .. .. [%s]"%(", ".join(str(u) for u in uNetLayerSizes)))
-            print("  |")
-            print("  | .. Intermediate layer")
-            print("  | .. .. flattened layer is", fx)
-            print("  | .. ")
-            print("  | .. Outputs")
-            print("  | .. .. pred.peak   is", peaks)
-            print("  | .. .. pred.rtInds is", rtInds)
-            print("  | .. .. pred        is", pred)
-            print("  | .. ")
-            print("  | ")
+            logging.info("  | .. Unet layers are")
+            logging.info("  | .. .. [%s]"%(", ".join(str(u) for u in uNetLayerSizes)))
+            logging.info("  |")
+            logging.info("  | .. Intermediate layer")
+            logging.info("  | .. .. flattened layer is", fx)
+            logging.info("  | .. ")
+            logging.info("  | .. Outputs")
+            logging.info("  | .. .. pred.peak   is", peaks)
+            logging.info("  | .. .. pred.rtInds is", rtInds)
+            logging.info("  | .. .. pred        is", pred)
+            logging.info("  | .. ")
+            logging.info("  | ")
 
         self.model = tf.keras.models.Model(inputs, outputs)
         
@@ -656,10 +655,10 @@ class PeakBotMRM():
         epochs = math.floor(epochs / steps_per_epoch)
 
         if verbose:
-            print("  | Fitting model on training data")
-            print("  | .. Logdir is '%s'"%logDir)
-            print("  | .. Number of epochs %d"%(epochs))
-            print("  |")
+            logging.info("  | Fitting model on training data")
+            logging.info("  | .. Logdir is '%s'"%logDir)
+            logging.info("  | .. Number of epochs %d"%(epochs))
+            logging.info("  |")
 
         if logDir is None:
             logDir = os.path.join("logs", "fit", "PeakBotMRM_v" + self.version + "_" + uuid.uuid4().hex)
@@ -677,7 +676,7 @@ class PeakBotMRM():
                 _callBacks.append(callbacks)
 
         # Fit model
-        print(getHeader("Tensorflow fit function start"))
+        logging.info(getHeader("Tensorflow fit function start"))
         history = self.model.fit(
             datTrain,
             validation_data = datVal,
@@ -690,16 +689,24 @@ class PeakBotMRM():
 
             verbose = verbose
         )
-        print(getHeader("Tensorflow fit function end"))
-        print("")
+        logging.info(getHeader("Tensorflow fit function end"))
+        logging.info("")
 
         return history
 
     def loadFromFile(self, modelFile):
         self.model.load_weights(modelFile)
+        ## TODO switch to full model here
+        #self.model = tf.keras.models.load_model(modelFile.replace(".h5", "_model.h5"), custom_objects = {"gaussian_kernel": gaussian_kernel, "gaussian_filter": gaussian_filter, 
+        #                                                                                                 "diff1d": diff1d, "EICIOULoss": EICIOULoss, 
+        #                                                                                                 "Accuracy4Peaks": Accuracy4Peaks, "Accuracy4NonPeaks": Accuracy4NonPeaks,
+        #                                                                                                 "EICIOUPeaks": EICIOUPeaks},
+        #                                        compile = False)
 
     def saveModelToFile(self, modelFile):
-        self.model.save_weights(modelFile)
+        self.model.save_weights(modelFile.replace(".h5", "_modelWeights.h5"))
+        self.model.save(modelFile.replace(".h5", "_model.h5"))
+        
 
 
 
@@ -720,11 +727,11 @@ def trainPeakBotMRMModel(trainDataset, logBaseDir, modelName = None, valDataset 
     logger = tf.keras.callbacks.CSVLogger(os.path.join(logDir, "clog.tsv"), separator="\t")
 
     if verbose:
-        print("Training new PeakBotMRM model")
-        print("  | Model name is '%s'"%(modelName))
-        print("  | .. config is")
-        print(Config.getAsStringFancy().replace(";", "\n"))
-        print("  |")
+        logging.info("Training new PeakBotMRM model")
+        logging.info("  | Model name is '%s'"%(modelName))
+        logging.info("  | .. config is")
+        logging.info(Config.getAsStringFancy().replace(";", "\n"))
+        logging.info("  |")
 
     ## define learning rate schedule
     def lrSchedule(epoch, lr):
@@ -741,8 +748,8 @@ def trainPeakBotMRMModel(trainDataset, logBaseDir, modelName = None, valDataset 
     if epochs < getMaxNumberOfEpochsForDataset(trainDataset):
         raise RuntimeError("Too few training examples (%d) provided for %d epochs"%(getMaxNumberOfEpochsForDataset(trainDataset), epochs))
     if verbose:
-        print("  | .. There are %d training batches available (%s)"%(epochs, trainDataset.getSizeInformation()))
-        print("  |")
+        logging.info("  | .. There are %d training batches available (%s)"%(epochs, trainDataset.getSizeInformation()))
+        logging.info("  |")
     
     ## create generators for validation data
     datGenVal   = None
@@ -757,22 +764,22 @@ def trainPeakBotMRMModel(trainDataset, logBaseDir, modelName = None, valDataset 
                                      verbose = verbose)
     if addValidationDatasets is not None:
         if verbose:
-            print("  | Additional validation datasets")
+            logging.info("  | Additional validation datasets")
         for valDataset in addValidationDatasets:
             tic("addDS")
-            print("  | ..", valDataset.name)
+            logging.info("  | ..", valDataset.name)
             datGen  = modelAdapterTrainGenerator(valDataset)
             x, y = convertValDatasetToPlain(valDataset)
                             
             if x is not None and y is not None:
                 valDS.addValidationSet((x,y, valDataset.name))
                 if verbose:
-                    print("  | .. .. %d instances; %s"%(x["channel.int"].shape[0], valDataset.getSizeInformation()))
+                    logging.info("  | .. .. %d instances; %s"%(x["channel.int"].shape[0], valDataset.getSizeInformation()))
 
             else:
                 raise RuntimeError("Unknonw additional validation dataset")
         if verbose:
-            print("  |")
+            logging.info("  |")
 
     ## instanciate a new model and set its parameters
     pb = PeakBotMRM(modelName)
@@ -804,8 +811,8 @@ def trainPeakBotMRMModel(trainDataset, logBaseDir, modelName = None, valDataset 
                 else:
                     metricesAddValDS = pd.concat((metricesAddValDS, newRow), axis=0, ignore_index=True)
     if verbose:
-        print("  |")
-        print("  | .. model built and trained successfully (took %.1f seconds)"%toc("pbTrainNewModel"))
+        logging.info("  |")
+        logging.info("  | .. model built and trained successfully (took %.1f seconds)"%toc("pbTrainNewModel"))
 
     return pb, metricesAddValDS, modelName
 
@@ -823,14 +830,14 @@ def integrateArea(eic, rts, start, end):
     endInd   = arg_find_nearest(rts, end)
 
     if end <= start:
-        warnings.warn("Warning in peak area calculation: start and end rt of peak are incorrect (start %.2f, end %.2f). An area of 0 will be returned."%(start, end), RuntimeWarning)
+        logging.warning("Warning in peak area calculation: start and end rt of peak are incorrect (start %.2f, end %.2f). An area of 0 will be returned."%(start, end))
         return 0
 
     area = 0
     if method.lower() in ["linearbetweenborders", "linear"]:
         ## TODO something is wrong here
         if (rts[endInd]-rts[startInd]) == 0:
-            warnings.warn("Warning in peak area calculation: division by 0 (startInd %.2f, endInd %.2f). An area of 0 will be returned."%(startInd, endInd), RuntimeWarning)
+            logging.warning("Warning in peak area calculation: division by 0 (startInd %.2f, endInd %.2f). An area of 0 will be returned."%(startInd, endInd))
             return 0
 
         minV = min(eic[startInd], eic[endInd])
@@ -923,8 +930,8 @@ def calibrationRegression(x, y, type = None):
             return model, r2, yhat, coeffs, "y = %f * x**2 + %f * x + %f"%(coeffs[0], coeffs[1], coeffs[2])
     
     except Exception as ex:
-        print("Exception in linear regression calibrationRegression(x, y, type) with x '%s', y '%s', type '%s'"%(str(x), str(y), str(type)))
-        traceback.print_exc()
+        logging.error("Exception in linear regression calibrationRegression(x, y, type) with x '%s', y '%s', type '%s'"%(str(x), str(y), str(type)))
+        logging.exception()
         raise ex
 
     raise RuntimeError("Unknown calibration method '%s' specified"%(type))
@@ -954,10 +961,10 @@ def runPeakBotMRM(instances, modelPath = None, model = None, verbose = True):
     tic("detecting with PeakBotMRM")
 
     if verbose:
-        print("Detecting peaks with PeakBotMRM")
-        print("  | .. loading PeakBotMRM model '%s'"%(modelPath))
+        logging.info("Detecting peaks with PeakBotMRM")
+        logging.info("  | .. loading PeakBotMRM model '%s'"%(modelPath))
         if Config.UPDATEPEAKBORDERSTOMIN:
-            print("  | .. ATTENTION: peak bounds will be updated to minimum values in the predicted area")
+            logging.info("  | .. ATTENTION: peak bounds will be updated to minimum values in the predicted area")
 
     pb = model
     if model is None and modelPath is not None:
@@ -988,7 +995,7 @@ def runPeakBotMRM(instances, modelPath = None, model = None, verbose = True):
                 eic[(rtEndInds[i]+1):] = mVal * 1.1
                 minIndR = np.argmin(eic)
                 
-                #print("Updating eic bounds from ", rtStartInds[i], maxInd, rtEndInds[i], " to ", minIndL, minIndR)
+                #logging.info("Updating eic bounds from ", rtStartInds[i], maxInd, rtEndInds[i], " to ", minIndL, minIndR)
                 rtStartInds[i] = minIndL
                 rtEndInds[i] = minIndR
 
@@ -1001,8 +1008,8 @@ def evaluatePeakBotMRM(instancesWithGT, modelPath = None, model = None, verbose 
     tic("detecting with PeakBotMRM")
 
     if verbose:
-        print("Evaluating peaks with PeakBotMRM")
-        print("  | .. loading PeakBotMRM model '%s'"%(modelPath))
+        logging.info("Evaluating peaks with PeakBotMRM")
+        logging.info("  | .. loading PeakBotMRM model '%s'"%(modelPath))
 
     pb = model
     if model is None and modelPath is not None:
@@ -1077,7 +1084,7 @@ def loadTargets(targetFile, excludeSubstances = None, includeSubstances = None, 
 
     ## load targets
     if verbose: 
-        print(logPrefix, "Loading targets from file '%s'"%(targetFile))
+        logging.info("%sLoading targets from file '%s'"%(logPrefix, targetFile))
     headers, substances = readTSVFile(targetFile, header = True, delimiter = "\t", convertToMinIfPossible = True, getRowsAsDicts = True)
     temp = {}
     for substance in substances:
@@ -1112,19 +1119,19 @@ def loadTargets(targetFile, excludeSubstances = None, includeSubstances = None, 
                     foundIS = True
                     
             if not foundIS:
-                print("\33[91mError: Internal standard '%s' for substance '%s' not in list\33[0m"%(substance.internalStandard, substance.name))
+                logging.warning("\33[91mError: Internal standard '%s' for substance '%s' not in list\33[0m"%(substance.internalStandard, substance.name))
                 errors += 1
     if errors > 0:
-        print("\33[91mError: One or several internal standards not present\33[0m")
+        logging.warning("\33[91mError: One or several internal standards not present\33[0m")
         raise RuntimeError("Error: One or several internal standards not present")
         
     substances = temp 
     
     if verbose:
-        print(logPrefix, "  | .. loaded %d substances"%(len(substances)))
-        print(logPrefix, "  | .. of these %d have RT shifts"%(sum((1 if substance.rtShift !="" else 0 for substance in substances.values()))))
-        print(logPrefix, "  | .. of these %d have abnormal peak forms"%(sum((1 if substance.peakForm != "" else 0 for substance in substances.values()))))
-        print(logPrefix)
+        logging.info("%s  | .. loaded %d substances"%(logPrefix, len(substances)))
+        logging.info("%s  | .. of these %d have RT shifts"%(logPrefix, sum((1 if substance.rtShift !="" else 0 for substance in substances.values()))))
+        logging.info("%s  | .. of these %d have abnormal peak forms"%(logPrefix, sum((1 if substance.peakForm != "" else 0 for substance in substances.values()))))
+        logging.info(logPrefix)
 
     return substances
 
@@ -1133,7 +1140,7 @@ def loadTargets(targetFile, excludeSubstances = None, includeSubstances = None, 
 def loadIntegrations(substances, curatedPeaks, verbose = True, logPrefix = ""):
     ## load integrations
     if verbose:
-        print(logPrefix, "Loading integrations from file '%s'"%(curatedPeaks))
+        logging.info("%sLoading integrations from file '%s'"%(logPrefix, curatedPeaks))
     headers, integrationData = parseTSVMultiLineHeader(curatedPeaks, headerRowCount=2, delimiter = ",", commentChar = "#", headerCombineChar = "$")
     headers = dict((k.replace("  (ISTD)", "").replace(" (ISTD)", "").replace("  Results", "").replace(" Results", "").strip(), v) for k,v in headers.items())
     foo = set(header[:header.find("$")].strip() for header in headers if not header.startswith("Sample$"))
@@ -1143,18 +1150,18 @@ def loadIntegrations(substances, curatedPeaks, verbose = True, logPrefix = ""):
         if substanceName not in foo:
             notUsingSubstances.append(substanceName)
     if verbose and len(notUsingSubstances) > 0:
-        print(logPrefix, "\033[91m  | .. Not using %d substances from the transition list as these are not in the integration matrix. These substances are: \033[0m'%s'"%(len(notUsingSubstances), "', '".join(natsort.natsorted(notUsingSubstances))))
+        logging.info("%s\033[91m  | .. Not using %d substances from the transition list as these are not in the integration matrix. These substances are: \033[0m'%s'"%(logPrefix, len(notUsingSubstances), "', '".join(natsort.natsorted(notUsingSubstances))))
     
     notUsingSubstances = []
     for substanceName in foo:
         if substanceName not in substances.keys():
             notUsingSubstances.append(substanceName)
     if verbose and len(notUsingSubstances) > 0:
-        print(logPrefix, "\033[91m  | .. Not using %d substances from the integration matrix as these are not in the transition list. These substances are: \033[0m'%s'"%(len(notUsingSubstances), "', '".join(natsort.natsorted(notUsingSubstances))))
+        logging.info("%s\033[91m  | .. Not using %d substances from the integration matrix as these are not in the transition list. These substances are: \033[0m'%s'"%(logPrefix, len(notUsingSubstances), "', '".join(natsort.natsorted(notUsingSubstances))))
     
     foo = dict((k, v) for k, v in substances.items() if k in foo)
     if verbose:
-        print(logPrefix, "  | .. restricting substances from %d to %d (overlap of substances and integration results)"%(len(substances), len(foo)))
+        logging.info("%s  | .. restricting substances from %d to %d (overlap of substances and integration results)"%(logPrefix, len(substances), len(foo)))
     substances = foo
 
     ## process integrations
@@ -1180,14 +1187,15 @@ def loadIntegrations(substances, curatedPeaks, verbose = True, logPrefix = ""):
                                                                       [])
                     foundPeaks += 1
             except Exception as ex:
-                print("Exception, area is", area)
+                logging.error("Exception, area is", area)
+                logging.exception()
                 raise ex
             integratedSamples.add(sample)
             totalIntegrations += 1
     if verbose:
-        print(logPrefix, "  | .. parsed %d integrations from %d substances and %d samples."%(totalIntegrations, len(substances), len(integratedSamples)))
-        print(logPrefix, "  | .. there are %d areas and %d no peaks"%(foundPeaks, foundNoPeaks))
-        print(logPrefix)
+        logging.info("%s  | .. parsed %d integrations from %d substances and %d samples."%(logPrefix, totalIntegrations, len(substances), len(integratedSamples)))
+        logging.info("%s  | .. there are %d areas and %d no peaks"%(logPrefix, foundPeaks, foundNoPeaks))
+        logging.info(logPrefix)
     # integrations [['Pyridinedicarboxylic acid Results', 'R100140_METAB02_MCC025_CAL1_20200306', '14.731', '14.731', '0'], ...]
 
     return substances, integrations
@@ -1197,7 +1205,7 @@ def loadIntegrations(substances, curatedPeaks, verbose = True, logPrefix = ""):
 def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction = None, loadFromPickleIfPossible = True,
                       allowedMZOffset = 0.05, MRMHeader = None,
                       pathToMSConvert = "msconvert.exe", maxValCallback = None, curValCallback = None, 
-                      verbose = True, logPrefix = ""):
+                      verbose = True, logPrefix = "", errorCallback = None):
     ## load chromatograms
     tic("procChroms")
     
@@ -1207,7 +1215,7 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
         MRMHeader = Config.MRMHEADER
     
     if verbose:
-        print(logPrefix, "Loading chromatograms")
+        logging.info("%sLoading chromatograms"%(logPrefix))
         
     resetIntegrations = False
     if integrations is None:
@@ -1283,9 +1291,9 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                 cmd = [pathToMSConvert, "-o", samplesPath, "--mzML", "--z", pathsample]
                 subprocess.call(cmd)
                 if not os.path.isfile(pathsample.replace(".d", ".mzML")):
-                    print("Error: Converting the file '%s' failed. Probably msconvert is not registered in your path, please register it. (command is '%s'"%(sample, cmd))
-                    sys.exit(-1)
-                print(logPrefix, "  | .. sample '%s' is a folder and ends with '.d'. Thus it was converted to '%s' (command: '%s')"%(sample, sample.replace(".d", ".mzML"), cmd))
+                    logging.error("Error: Converting the file '%s' failed. Probably msconvert is not registered in your path, please register it. (command is '%s'"%(sample, cmd))
+                    if errorCallback is not None:
+                        errorCallback("<b>Error converting file '%s'</b><br><br>Please inspect why this file cannot be converted (maybe it is empty) and either convert it yourself or remove it from the analysis. See log for further details. <br><br>For now the file will be skipped."%(pathsample))
 
     samples = [os.path.join(samplesPath, f) for f in os.listdir(samplesPath) if os.path.isfile(os.path.join(samplesPath, f)) and f.lower().endswith(".mzml")]
     usedSamples = set()
@@ -1293,11 +1301,13 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
         with open(os.path.join(samplesPath, "integrations.pickle"), "rb") as fin:
             integrations, usedSamples = pickle.load(fin)
             if verbose:
-                print(logPrefix, "  | .. Imported integrations from pickle file '%s'"%(os.path.join(samplesPath, "integrations.pickle")))
+                logging.info("%s  | .. Imported integrations from pickle file '%s'"%(logPrefix, os.path.join(samplesPath, "integrations.pickle")))
     else:
         if verbose:
-            print(logPrefix, "  | .. This might take a couple of minutes as all samples/integrations/channels/etc. need to be compared and the current implementation are 4 sub-for-loops")
+            logging.info("%s  | .. This might take a couple of minutes as all samples/integrations/channels/etc. need to be compared and the current implementation are 4 sub-for-loops"%(logPrefix))
         
+        if maxValCallback is not None:
+            maxValCallback(len(samples))
         if curValCallback is not None:
             curValCallback(0)
         samplei = 0
@@ -1363,10 +1373,10 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                             unusedChannels.append(entryID)
                             unusedChannels.append(bentryID)
                             if verbose and "%d - %d"%(i, bi) not in alreadyPrinted: 
-                                print(logPrefix, "    \033[91mProblematic channel combination found in sample '%s'. Both will be skipped\033[0m"%(sampleName))
-                                print(logPrefix, "        * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
-                                print(logPrefix, "        * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID))
-                                print(logPrefix, )      
+                                logging.info("%s    \033[91mProblematic channel combination found in sample '%s'. Both will be skipped\033[0m"%(logPrefix, sampleName))
+                                logging.info("%s        * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
+                                logging.info("%s        * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID))
+                                logging.info(logPrefix)      
                             alreadyPrinted.append("%d - %d"%(i, bi))
                             alreadyPrinted.append("%d - %d"%(bi, i))                      
                 
@@ -1392,7 +1402,7 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
         with open(os.path.join(samplesPath, "integrations.pickle"), "wb") as fout:
             pickle.dump((integrations, usedSamples), fout)
             if verbose:
-                print(logPrefix, "  | .. Stored integrations to '%s/integrations.pickle'"%os.path.join(samplesPath, "integrations.pickle"))
+                logging.info("%s  | .. Stored integrations to '%s/integrations.pickle'"%(logPrefix, os.path.join(samplesPath, "integrations.pickle")))
     
     if resetIntegrations:
         for s in integrations.keys():
@@ -1422,7 +1432,7 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
             remSubstancesChannelProblems.add(substance)
     if len(remSubstancesChannelProblems) > 0:
         if verbose:
-            print(logPrefix, "\033[91m  | .. %d substances were not found as the channel selection was ambiguous and will thus not be used further. These substances are: \033[0m'%s'. "%(len(remSubstancesChannelProblems), "', '".join(natsort.natsorted(remSubstancesChannelProblems))))
+            logging.info(logPrefix, "\033[91m  | .. %d substances were not found as the channel selection was ambiguous and will thus not be used further. These substances are: \033[0m'%s'. "%(len(remSubstancesChannelProblems), "', '".join(natsort.natsorted(remSubstancesChannelProblems))))
         for r in remSubstancesChannelProblems:
             del integrations[r]
     for sub in list(integrations.keys()):
@@ -1442,8 +1452,8 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                 usedSamples.add(sample)
                 
     if verbose and sampleUseFunction is not None:
-        print(logPrefix, "\033[93m  | .. %d (%.1f%%) of %d samples were removed. These are: \033[0m'%s'"%(len(remSamples), len(remSamples)/len(allSamples)*100, len(allSamples), "', '".join(("'%s'"%s for s in natsort.natsorted(remSamples)))))
-        print(logPrefix, "\033[93m  | .. The %d remaining samples are: \033[0m'%s'"%(len(usedSamples), "', '".join(usedSamples)))
+        logging.info("%s\033[93m  | .. %d (%.1f%%) of %d samples were removed. These are: \033[0m'%s'"%(logPrefix, len(remSamples), len(remSamples)/len(allSamples)*100, len(allSamples), "', '".join(("'%s'"%s for s in natsort.natsorted(remSamples)))))
+        logging.info("%s\033[93m  | .. The %d remaining samples are: \033[0m'%s'"%(logPrefix, len(usedSamples), "', '".join(usedSamples)))
     
     ## remove all integrations with more than one scanEvent
     referencePeaks = 0
@@ -1464,10 +1474,10 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
     integrations = dict((k, v) for k, v in integrations.items() if k in useSubstances)
     
     if verbose:
-        print(logPrefix, "  | .. There are %d sample.substances with unambiguous chromatograms (and %d sample.substances with ambiguous chromatograms) from %d samples"%(referencePeaks, noReferencePeaks, len(usedSamples)))
+        logging.info("%s  | .. There are %d sample.substances with unambiguous chromatograms (and %d sample.substances with ambiguous chromatograms) from %d samples"%(logPrefix, referencePeaks, noReferencePeaks, len(usedSamples)))
     
     if verbose:
-        print(logPrefix, "  | .. took %.1f seconds"%(toc("procChroms")))
-        print(logPrefix)
+        logging.info("%s  | .. took %.1f seconds"%(logPrefix, toc("procChroms")))
+        logging.info(logPrefix)
 
     return substances, integrations, foundSamples

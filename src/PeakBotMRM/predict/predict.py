@@ -1,23 +1,18 @@
-## General imports
-from email.errors import HeaderParseError
-from sklearn.metrics import calinski_harabasz_score
+import logging
 import tqdm
 import os
 import datetime
 import platform
 import numpy as np
-from sklearn.linear_model import LinearRegression
 import random
 random.seed(2021)
 import os
 import natsort
 import json
-from pathlib import Path
 
 import PeakBotMRM
 import PeakBotMRM.train
 from PeakBotMRM.core import tic, toc, extractStandardizedEIC
-print("\n")
 
 
 
@@ -53,19 +48,19 @@ def predictExperiment(expName, predDSs, modelFile,
         
 
     
-    print("Predicting experiments")
-    print("  | .. Parameters")
-    print("  | .. .. expName: '%s'"%(expName))
-    print("  | .. .. modelFile: '%s'"%(modelFile))
-    print("  | .. .. expDir: '%s'"%(expDir))
-    print("  | .. .. logDir: '%s'"%(logDir))
-    print("  | .. .. MRMHeader: '%s'"%(MRMHeader))
-    print("  | .. .. allowedMZOffset: '%s'"%(allowedMZOffset))
-    print("\n")
+    logging.info("Predicting experiments")
+    logging.info("  | .. Parameters")
+    logging.info("  | .. .. expName: '%s'"%(expName))
+    logging.info("  | .. .. modelFile: '%s'"%(modelFile))
+    logging.info("  | .. .. expDir: '%s'"%(expDir))
+    logging.info("  | .. .. logDir: '%s'"%(logDir))
+    logging.info("  | .. .. MRMHeader: '%s'"%(MRMHeader))
+    logging.info("  | .. .. allowedMZOffset: '%s'"%(allowedMZOffset))
+    logging.info("\n")
     
-    print("PeakBotMRM configuration")
-    print(PeakBotMRM.Config.getAsStringFancy())
-    print("\n")
+    logging.info("PeakBotMRM configuration")
+    logging.info(PeakBotMRM.Config.getAsStringFancy())
+    logging.info("\n")
 
 
     ## administrative
@@ -81,7 +76,7 @@ def predictExperiment(expName, predDSs, modelFile,
         
     for predDS in natsort.natsorted(predDSs, key = lambda x: x["DSName"]):
         
-        print("Predicting chromatographic peaks in dataset '%s'"%(predDS["DSName"]))
+        logging.info("Predicting chromatographic peaks in dataset '%s'"%(predDS["DSName"]))
         
         substances, integrations = getPredictionSet(predDS, MRMHeader, allowedMZOffset)
         
@@ -99,12 +94,12 @@ def predictExperiment(expName, predDSs, modelFile,
                 "PeakBot model: '%s'"%(modelFile)
             ], oneRowHeader4Results = oneRowHeader4Results)
             
-            print("\n\n")
+            logging.info("\n\n")
     
-    print("All calculations took %.1f seconds"%(toc("Overall process")))
+    logging.info("All calculations took %.1f seconds"%(toc("Overall process")))
 
-def predictDataset(modelFile, substances, integrations, callBackFunction = None):
-    print("  | .. using model from '%s'"%(modelFile))
+def predictDataset(modelFile, substances, integrations, callBackFunction = None, showConsoleProgress = True):
+    logging.info("  | .. using model from '%s'"%(modelFile))
     pbModelPred = PeakBotMRM.loadModel(modelFile, mode="predict" , verbose = False)
     allSubstances = set()
     allSamples = set()
@@ -117,7 +112,7 @@ def predictDataset(modelFile, substances, integrations, callBackFunction = None)
         subsN.add(substanceName)
         for sample in integrations[substanceName]:
             sampN.add(sample)
-    print("  | .. Processing %d samples with %d compounds"%(len(sampN), len(subsN)))
+    logging.info("  | .. Processing %d samples with %d compounds"%(len(sampN), len(subsN)))
             
     used = {}
     for sample in sampN:
@@ -133,17 +128,17 @@ def predictDataset(modelFile, substances, integrations, callBackFunction = None)
     raiseExp = False
     for k, v in used.items():
         if len(v) > 1:
-            print("\33[91m  | .. Error: Calibration level '%s' found with multiple files. These are: \33[0m '%s'"%(k, "', '".join(v)))
+            logging.error("\33[91m  | .. Error: Calibration level '%s' found with multiple files. These are: \33[0m '%s'"%(k, "', '".join(v)))
             raiseExp = True
     if raiseExp:
-        print("\33[91m  | .. Error: One or several calibration levels are not unique. Aborting...\33[0m")
+        logging.error("\33[91m  | .. Error: One or several calibration levels are not unique. Aborting...\33[0m")
         raise RuntimeError("Aborting to non-unique calibration levels")
     elif len(used) < len(calSamplesAndLevels):
-        print("\33[93m  | .. Found %d of the %d provided calibration levels. Please double-check if these have been specified correctly\33[0m"%(len(used), len(calSamplesAndLevels)))
+        logging.info("\33[93m  | .. Found %d of the %d provided calibration levels. Please double-check if these have been specified correctly\33[0m"%(len(used), len(calSamplesAndLevels)))
     else:
-        print("  | .. Found all %d calibration levels"%(len(calSamplesAndLevels)))
+        logging.info("  | .. Found all %d calibration levels"%(len(calSamplesAndLevels)))
             
-    for substanceI, substanceName in tqdm.tqdm(enumerate(natsort.natsorted(integrations.keys())), total = len(integrations.keys()), desc="  | .. predicting"):
+    for substanceI, substanceName in tqdm.tqdm(enumerate(natsort.natsorted(integrations.keys())), total = len(integrations.keys()), desc="  | .. predicting", disable = not showConsoleProgress):
         if callBackFunction is not None:
             callBackFunction(substanceI)
         if substanceName in integrations.keys() and len(integrations[substanceName]) > 0:
@@ -211,12 +206,12 @@ def getCalibrationSamplesAndLevels(substances):
                         calSamplesAndLevels[sampPart] = level
                     else:
                         if calSamplesAndLevels[sampPart] != level:
-                            print("\33[91m  | .. Error: Calibration sample '%s' found with multiple levels '%s'\33[0m"%(sampPart, str(calSamplesAndLevels)))
-                            print(substances[substanceName].calSamples)
+                            logging.info("\33[91m  | .. Error: Calibration sample '%s' found with multiple levels '%s'\33[0m"%(sampPart, str(calSamplesAndLevels)))
+                            logging.info(substances[substanceName].calSamples)
                             errors += 1
     if errors > 0:
         ## TODO improve errror message for user
-        print("\33[91m  | .. Error: Calibration levels are not unique among samples. Please double-check.\33[0m")
+        logging.error("\33[91m  | .. Error: Calibration levels are not unique among samples. Please double-check.\33[0m")
         raise RuntimeError("Error: Calibration levels are not unique among samples")
     return calSamplesAndLevels
 
@@ -233,7 +228,7 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
     calSamplesAndLevels = getCalibrationSamplesAndLevels(substances)
             
     ## generate results table
-    print("  | .. Generating results table (%s)"%(toFile))
+    logging.info("  | .. Generating results table (%s)"%(toFile))
     if substanceOrder is None:
         substanceOrder = natsort.natsorted(substances.keys())
     if samplesOrder is None:
@@ -384,7 +379,7 @@ def calibrateIntegrations(substances, integrations):
                         
                 for samplei, sample in enumerate(integrations[substanceName].keys()):
                     inteSub = integrations[substanceName][sample]
-                    if substances[substanceName].internalStandard is not None and substances[substanceName].internalStandard in integrations.keys():
+                    if substances[substanceName].internalStandard is not None and substances[substanceName].internalStandard in integrations.keys() and sample in integrations[substances[substanceName].internalStandard].keys():
                         inteIST = integrations[substances[substanceName].internalStandard][sample]
                         if inteSub is not None and inteSub.chromatogram is not None and inteIST is not None and inteIST.chromatogram is not None:
                             if inteSub.other["pred.foundPeak"] and not np.isnan(inteSub.other["pred.areaPB"]) and inteIST.other["pred.foundPeak"] and not np.isnan(inteIST.other["pred.areaPB"]):
