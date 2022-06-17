@@ -15,6 +15,7 @@ import tqdm
 import random
 random.seed(2021)
 
+import functools
 import portalocker
 
 
@@ -149,7 +150,7 @@ def compileInstanceDataset(substances, integrations, experimentName, dataset = N
                     ## randomly add augmentation peak
                     if repi > 0 and aug_augment and aug_addAugPeaks: 
                         ## random number of augmentation peaks to be added
-                        augPeaksToAdd = np.random.randint(1, aug_maxAugPeaksN)
+                        augPeaksToAdd = np.random.randint(0, aug_maxAugPeaksN)
                         
                         ## initialize empty EIC
                         peakSignalType = np.zeros(PeakBotMRM.Config.RTSLICES, dtype=int)
@@ -205,8 +206,8 @@ def compileInstanceDataset(substances, integrations, experimentName, dataset = N
                                     dat["type"].append("aug")
                             
                             plot = (p9.ggplot(pd.DataFrame(dat), p9.aes(x='rts', y='eic', colour="type"))
-                                + p9.geom_line()
-                                + p9.ggtitle("Instance with %s"%("peak" if inte.foundPeak else "background"))
+                                    + p9.geom_line()
+                                    + p9.ggtitle("Instance with %s"%("peak" if inte.foundPeak else "background"))
                             )
                             if inte.foundPeak:
                                 plot = plot + p9.geom_vline(xintercept = [inte.rtStart, inte.rtEnd])
@@ -290,6 +291,7 @@ def generateAndExportAugmentedInstancesForTraining(substances, integrations, exp
         print(logPrefix)
     return dataset
 
+@functools.lru_cache(maxsize = None)
 def exportOriginalInstancesForValidation(substances, integrations, experimentName, dataset = None, verbose = True, logPrefix = ""):
     if verbose:
         print(logPrefix, "Exporting original instances for validation")

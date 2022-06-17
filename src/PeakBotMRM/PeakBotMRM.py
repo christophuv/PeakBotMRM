@@ -58,6 +58,7 @@ class Config(object):
     
     UPDATEPEAKBORDERSTOMIN = True
     INTEGRATIONMETHOD = "minbetweenborders"
+    EXTENDBORDERSUNTILINCREMENT = True
     INCLUDEMETAINFORMATION = False
     CALIBRATIONMETHOD = "y=k*x+d; 1/expConc."
     
@@ -80,6 +81,7 @@ class Config(object):
             " Prefix for instances: '%s'"%Config.INSTANCEPREFIX,
             " Update peak borders to min: '%s'"%Config.UPDATEPEAKBORDERSTOMIN,
             " Integration method: '%s'"%Config.INTEGRATIONMETHOD,
+            " Extend peak borders until no reduction: '%s'"%Config.EXTENDBORDERSUNTILINCREMENT, 
             " Calibration method: '%s'"%Config.CALIBRATIONMETHOD,
         ])
 
@@ -99,6 +101,7 @@ class Config(object):
             "InstancePrefix: '%s'"%(Config.INSTANCEPREFIX),
             "Update peak borders to min: '%s'"%Config.UPDATEPEAKBORDERSTOMIN,
             "Integration method: '%s'"%Config.INTEGRATIONMETHOD,
+            "Extend peak borders until no reduction: '%s'"%Config.EXTENDBORDERSUNTILINCREMENT, 
             "Calibration method: '%s'"%Config.CALIBRATIONMETHOD,
         ])
 
@@ -828,7 +831,7 @@ def integrateArea(eic, rts, start, end):
         
     startInd = arg_find_nearest(rts, start)
     endInd   = arg_find_nearest(rts, end)
-
+    
     if end <= start:
         logging.warning("Warning in peak area calculation: start and end rt of peak are incorrect (start %.2f, end %.2f). An area of 0 will be returned."%(start, end))
         return 0
@@ -1373,10 +1376,10 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                             unusedChannels.append(entryID)
                             unusedChannels.append(bentryID)
                             if verbose and "%d - %d"%(i, bi) not in alreadyPrinted: 
-                                logging.info("%s    \033[91mProblematic channel combination found in sample '%s'. Both will be skipped\033[0m"%(logPrefix, sampleName))
-                                logging.info("%s        * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
-                                logging.info("%s        * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID))
-                                logging.info(logPrefix)      
+                                logging.warning("%s    \033[91mProblematic channel combination found in sample '%s'. Both will be skipped\033[0m"%(logPrefix, sampleName))
+                                logging.warning("%s        * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
+                                logging.warning("%s        * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID))
+                                logging.warning(logPrefix)      
                             alreadyPrinted.append("%d - %d"%(i, bi))
                             alreadyPrinted.append("%d - %d"%(bi, i))                      
                 

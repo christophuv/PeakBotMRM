@@ -147,7 +147,7 @@ def predictDataset(modelFile, substances, integrations, callBackFunction = None,
             temp = {"channel.int"  : np.zeros((len(integrations[substanceName]), PeakBotMRM.Config.RTSLICES), dtype=float),
                             "channel.rts"  : np.zeros((len(integrations[substanceName]), PeakBotMRM.Config.RTSLICES), dtype=float)}
                     
-                    ## generate dataset for all samples of the current substance
+            ## generate dataset for all samples of the current substance
             for samplei, sample in enumerate(integrations[substanceName].keys()):
                 allSamples.add(sample)
                 inte = integrations[substanceName][sample]
@@ -158,16 +158,16 @@ def predictDataset(modelFile, substances, integrations, callBackFunction = None,
                     eic = inte.chromatogram["eic"]
                     refRT = substances[substanceName].refRT
                             
-                            ## standardize EIC
+                    ## standardize EIC
                     rtsS, eicS = extractStandardizedEIC(eic, rts, refRT)
                             
                     temp["channel.int"][samplei, :] = eicS
                     temp["channel.rts"][samplei, :] = rtsS
                                     
-                    ## predict and calculate metrics
+            ## predict and calculate metrics
             pred_peakTypes, pred_rtStartInds, pred_rtEndInds = PeakBotMRM.runPeakBotMRM(temp, model = pbModelPred, verbose = False)
                     
-                    ## inspect and summarize the results of the prediction and the metrics, optionally plot
+            ## inspect and summarize the results of the prediction and the metrics, optionally plot
             for samplei, sample in enumerate(integrations[substanceName].keys()):
                 inte = integrations[substanceName][sample] 
                         
@@ -176,13 +176,20 @@ def predictDataset(modelFile, substances, integrations, callBackFunction = None,
                     eic = inte.chromatogram["eic"]
                     refRT = substances[substanceName].refRT
                             
-                            ## standardize EIC
+                    ## standardize EIC
                     rtsS, eicS = extractStandardizedEIC(eic, rts, refRT)
                         
-                            ## test if eic has detected signals
+                     ## test if eic has detected signals
                     pred_isPeak     = pred_peakTypes[samplei] == 0
                     pred_rtStartInd = round(pred_rtStartInds[samplei])
                     pred_rtEndInd   = round(pred_rtEndInds[samplei])
+                    
+                    if True and pred_isPeak and PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT:
+                        while pred_rtStartInd - 1 >= 0 and eicS[pred_rtStartInd - 1] <= eicS[pred_rtStartInd]:
+                            pred_rtStartInd = pred_rtStartInd - 1
+                        while pred_rtEndInd + 1 < eicS.shape[0] and eicS[pred_rtEndInd + 1] <= eicS[pred_rtEndInd]:
+                            pred_rtEndInd = pred_rtEndInd + 1
+                    
                     pred_rtStart    = rtsS[min(PeakBotMRM.Config.RTSLICES-1, max(0, pred_rtStartInd))]
                     pred_rtEnd      = rtsS[min(PeakBotMRM.Config.RTSLICES-1, max(0, pred_rtEndInd))]
 
@@ -269,7 +276,7 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
             for h in headersPerSubstance:
                 fout.write(separator)
                 if substanceName in substancesComments.keys() and h in substancesComments[substanceName].keys():
-                    fout.write("%s"%(json.dumps(substancesComments[substanceName][h])))
+                    fout.write(("%s"%(json.dumps(substancesComments[substanceName][h]))).replace(";", "--SEMICOLON--").replace(separator, "--SEPARATOR--"))
         fout.write("\n")
         for sample in samplesOrder:
             sampleInfo = {}
@@ -375,7 +382,7 @@ def calibrateIntegrations(substances, integrations):
                         
             if len(calExp) > 1 and substances[substanceName].calculateCalibration:                    
                 model, r2, yhat, params, strRepr = PeakBotMRM.calibrationRegression(calObs, calExp, type = substances[substanceName].calibrationMethod)
-                substancesComments[substanceName]["RelativeConcentration"] = {"R2": r2, "points": len(calObs), "formula": strRepr, "method": substances[substanceName].calibrationMethod, "ConcentrationAtLevel1": str(substances[substanceName].calLevel1Concentration)}
+                substancesComments[substanceName]["Final Conc."] = {"R2": r2, "points": len(calObs), "formula": strRepr, "method": substances[substanceName].calibrationMethod, "ConcentrationAtLevel1": str(substances[substanceName].calLevel1Concentration)}
                         
                 for samplei, sample in enumerate(integrations[substanceName].keys()):
                     inteSub = integrations[substanceName][sample]

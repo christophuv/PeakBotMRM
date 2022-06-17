@@ -597,6 +597,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     "PeakBotMRM.Config.UPDATEPEAKBORDERSTOMIN": PeakBotMRM.Config.UPDATEPEAKBORDERSTOMIN,
                     "PeakBotMRM.Config.INTEGRATIONMETHOD": PeakBotMRM.Config.INTEGRATIONMETHOD,
                     "PeakBotMRM.Config.CALIBRATIONMETHOD": PeakBotMRM.Config.CALIBRATIONMETHOD,
+                    "PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT": PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT, 
                     "PeakBotMRM.Config.MRMHEADER": PeakBotMRM.Config.MRMHEADER,
                     
                     "GUI/__sampleNameReplacements": self.__sampleNameReplacements,
@@ -623,6 +624,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             PeakBotMRM.Config.UPDATEPEAKBORDERSTOMIN = settings["PeakBotMRM.Config.UPDATEPEAKBORDERSTOMIN"]
             PeakBotMRM.Config.INTEGRATIONMETHOD = settings["PeakBotMRM.Config.INTEGRATIONMETHOD"]
             PeakBotMRM.Config.CALIBRATIONMETHOD = settings["PeakBotMRM.Config.CALIBRATIONMETHOD"]
+            PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT = settings["PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT"]
             PeakBotMRM.Config.MRMHEADER = settings["PeakBotMRM.Config.MRMHEADER"]
             
             self.__sampleNameReplacements = settings["GUI/__sampleNameReplacements"]
@@ -658,6 +660,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 {'name': 'Update peak borders to min. value', 'type': 'bool', 'value': PeakBotMRM.Config.UPDATEPEAKBORDERSTOMIN},
                 {'name': 'Integration method', 'type': 'list', 'value': PeakBotMRM.Config.INTEGRATIONMETHOD, 'values': ['linear', 'linearbetweenborders', 'all', 'minbetweenborders']},
                 {'name': 'Calibration method', 'type': 'list', 'value': PeakBotMRM.Config.CALIBRATIONMETHOD, 'values': ['1', '1/expConcentration']},
+                {'name': 'Calibration extend borders', 'type': 'bool', 'value': PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT},
                 {'name': 'Calibration plot step size', 'type': 'int', 'value': self.__calibrationFunctionstep, 'step': 1, 'limits': [10, 1000]},
                 {'name': 'MRM header', 'type': 'str', 'value': PeakBotMRM.Config.MRMHEADER},
             ]},
@@ -692,6 +695,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             PeakBotMRM.Config.UPDATEPEAKBORDERSTOMIN = p.param("PeakBotMRM Configuration", "Update peak borders to min. value").value()
             PeakBotMRM.Config.INTEGRATIONMETHOD = p.param("PeakBotMRM Configuration", "Integration method").value()
             PeakBotMRM.Config.CALIBRATIONMETHOD = p.param("PeakBotMRM Configuration", "Calibration method").value()
+            PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT = p.param("PeakBotMRM Configuration", "Calibration extend borders").value()
             PeakBotMRM.Config.MRMHEADER = p.param("PeakBotMRM Configuration", "MRM header").value()
             
             if p.param("Sample names", "Replacements") is None or p.param("Sample names", "Replacements") == "":
@@ -1168,14 +1172,23 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             else:
                 return
         
-        for it in ls:
+        procDiag = PyQt6.QtWidgets.QProgressDialog(self, labelText="Exporting experiment(s)")
+        procDiag.setWindowIcon(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "robot.png")))
+        procDiag.setWindowTitle("PeakBotMRM")
+        procDiag.setModal(True)
+        procDiag.setMaximum(len(ls))
+        procDiag.setValue(0)
+        procDiag.show()
+        
+        for i, it in enumerate(ls):
+            procDiag.setValue(i)
             while it.parent() is not None:
                 it = it.parent()
             
             selExp = it.experiment if "experiment" in it.__dict__.keys() else None
             
             if outputFolder is not None:
-                outputFile = os.path.join(outputFolder, "%s%s"%(selExp, preExt))
+                outputFile = os.path.join(outputFolder, "%s_PB%s"%(selExp, preExt))
             
             if selExp is not None and selExp != "" and selExp in self._integrations.keys():
                 substancesComments, samplesComments = PeakBotMRM.predict.calibrateIntegrations(self._substances[selExp], self._integrations[selExp])
@@ -1190,7 +1203,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                                       additionalCommentsForFile=["PeakBot model: '%s'"%("UNKNOWN")], 
                                                       oneRowHeader4Results = False)
                 if len(ls) == 1:
+                    procDiag.hide()
                     PyQt6.QtWidgets.QMessageBox.information(self, "Exporting results", "Experiment '%s' has been exported to file<br>'%s'"%(selExp, outputFile))
+        procDiag.hide()
         if len(ls) > 1:
             PyQt6.QtWidgets.QMessageBox.information(self, "Exporting results", "Experiment results have been exported")
                     
@@ -1351,14 +1366,35 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     self._substances[selExp][selSub].calSamples[x] = abs(self._substances[selExp][selSub].calSamples[x]) * (1 if self.useForCalibration.isChecked() else -1)
 
             inte = self._integrations[selExp][selSub][selSam]
+            peakSwitched = inte.foundPeak != self.hasPeak.isChecked()
             inte.foundPeak = self.hasPeak.isChecked()
             if inte.foundPeak:
+                eic = inte.chromatogram["eic"]
+                rts = inte.chromatogram["rts"]
+                
                 if self.peakStart.value() < 0.05:
                     self.peakStart.setValue(self._substances[selExp][selSub].refRT + self.__leftPeakDefault)
                 if self.peakEnd.value() < 0.05:
                     self.peakEnd.setValue(self._substances[selExp][selSub].refRT + self.__rightPeakDefault)
+                
                 inte.rtStart = self.peakStart.value()
                 inte.rtEnd = self.peakEnd.value()
+                
+                if PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT and peakSwitched:
+                    startInd = PeakBotMRM.core.arg_find_nearest(rts, inte.rtStart)
+                    endInd   = PeakBotMRM.core.arg_find_nearest(rts, inte.rtEnd)
+                    while startInd + 1 < eic.shape[0] and eic[startInd + 1] >= eic[startInd]:
+                        startInd = startInd + 1
+                    while startInd - 1 >= 0 and eic[startInd - 1] <= eic[startInd]:
+                        startInd = startInd - 1
+                    while endInd + 1 < eic.shape[0] and eic[endInd + 1] <= eic[endInd]:
+                        endInd = endInd + 1
+                    
+                    inte.rtStart = rts[startInd]
+                    inte.rtEnd = rts[endInd]
+                    self.peakStart.setValue(inte.rtStart)
+                    self.peakEnd.setValue(inte.rtEnd)
+                
                 inte.area = PeakBotMRM.integrateArea(inte.chromatogram["eic"], inte.chromatogram["rts"], inte.rtStart, inte.rtEnd)
                 it.setText(1, str(inte.area))
                 
@@ -1691,8 +1727,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         ax.setTicks([[(abs(l), str(abs(l))) for i, l in calInfo]])
         
         if len(calInfo) > 1 and addLM:
-            model, r2, yhat, params, strRepr = PeakBotMRM.calibrationRegression([a for a, c in calInfo if c > 0], 
-                                                                                [c for a, c in calInfo if c > 0],
+            usedAreas = [a for a, c in calInfo if c > 0]
+            usedConcs = [c for a, c in calInfo if c > 0]
+            model, r2, yhat, params, strRepr = PeakBotMRM.calibrationRegression(usedAreas, usedConcs,
                                                                                 type = self.calibrationMethod.currentText())
             if self.calibrationMethod.currentText() in ["y=k*x+d", "y=k*x+d; 1/expConc."]:
                 intercept, coef = params
@@ -1703,7 +1740,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     if len(useCals) > 2:
                         for i in range(1, len(useCals) - 1):
                             a = np.concatenate((a, np.linspace(useCals[i], useCals[i+1], self.__calibrationFunctionstep)))
-                    self._plots[plotInd].plot(a * coef + intercept, a, pen=self.__normalColor)
+                    self._plots[plotInd].plot(model(np.array((a)).reshape(-1,1)), a, pen=self.__normalColor)
+                    calcCons = model(np.array((usedAreas)).reshape(-1,1))
+                    self._plots[plotInd].plot(calcCons, usedAreas, pen=None, symbolSize=8, symbolBrush="Orange", symbolPen='w')
                 
             elif self.calibrationMethod.currentText() in ["y=k*x**2+l*x+d", "y=k*x**2+l*x+d; 1/expConc."]:
                 coef2, coef1, intercept = params
@@ -1714,7 +1753,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     if len(useCals) > 2:
                         for i in range(1, len(useCals) - 1):
                             a = np.concatenate((a, np.linspace(useCals[i], useCals[i+1], self.__calibrationFunctionstep)))
-                    self._plots[plotInd].plot(a**2 * coef2 + a * coef1 + intercept, a, pen=self.__normalColor)
+                    self._plots[plotInd].plot(model(np.array((a)).reshape(-1,1)), a, pen=self.__normalColor)
+                    calcCons = model(np.array((usedAreas)).reshape(-1,1))
+                    self._plots[plotInd].plot(calcCons, usedAreas, pen=None, symbolSize=8, symbolBrush="Orange", symbolPen='w')
             self._plots[plotInd].setTitle(title + "; R2 %.3f; %d points"%(r2, len(calInfo)))
             self._plots[plotInd].setLabel('left', "Value")
             self._plots[plotInd].setLabel('bottom', "Exp. concentration")
@@ -1746,24 +1787,24 @@ main.showMaximized()
 
 try:
     
-    #main.loadExperiment("R100140", "./Reference/transitions.tsv", None, "./Reference/R100140_METAB02_MCC025_20200306", importantSamples = OrderedDict([("_CAL[0-9]+_", "CAL"), ("_NIST[0-9]+_", "NIST"), (".*", "sample")]))
+    main.loadExperiment("R100140", "./Reference/transitions.tsv", None, "./Reference/R100140_METAB02_MCC025_20200306", importantSamples = OrderedDict([("_CAL[0-9]+_", "CAL"), ("_NIST[0-9]+_", "NIST"), (".*", "sample")]))
     #main.loadExperiment("Ref_R100140", "./Reference/transitions.tsv", "./Reference/R100140_Integrations.csv", "./Reference/R100140_METAB02_MCC025_20200306")
     #main.loadExperiment("R100138", "./Reference/transitions.tsv", None, "./Reference/R100138_METAB02_MCC025_20200304")
     #main.loadExperiment("Ref_R100138", "./Reference/transitions.tsv", "./Reference/R100138_Integrations.csv", "./Reference/R100138_METAB02_MCC025_20200304")
     
     if False:
         for expName, folder1, rawFolder in [("R100146", "validation", "R100146_METAB02_MCC025_20200403"), ("R100192", "validation", "R100192_METAB02_MCC025_20201125"), 
-                                            ("R100210", "validation", "R100210_METAB02_MCC025_20210305"),
-                                            ("R100147", "training", "R100147_METAB02_MCC025_20200409"), ("R100194", "training", "R100194_METAB02_MCC025_20201203"),
-                                            ("R100211", "training", "R100211_METAB02_MCC025_20210316"), ("R100232", "training", "R100232_B_METAB02_MCC025_20210804")]:
+                                            ("R100210", "validation", "R100210_METAB02_MCC025_20210305"), ("R100147", "training", "R100147_METAB02_MCC025_20200409"), 
+                                            ("R100194", "training", "R100194_METAB02_MCC025_20201203"), ("R100211", "training", "R100211_METAB02_MCC025_20210316"), 
+                                            ("R100232", "training", "R100232_B_METAB02_MCC025_20210804")]:
             main.loadExperiment(expName, "./machine_learning_datasets_peakbot/%s/adaptedTransitions/%s.tsv"%(folder1, expName), None, "./machine_learning_datasets_peakbot/%s/%s"%(folder1, rawFolder), importantSamples = OrderedDict([("_CAL[0-9]+_", "CAL"), ("_NIST[0-9]+_", "NIST"), (".*", "sample")]))
 
     if False:
         exps = [
-            ("R100266", "R100266_METAB02_MCC025_20220218"),("R100267", "R100267_METAB02_MCC025_20220225"),("R100268", "R100268_METAB02_MCC025_20220304"),
-            ("R100269", "R100269_METAB02_MCC025_20220311"),("R100270", "R100270_METAB02_MCC025_20220325"),("R100272", "R100272_METAB02_MCC025_20220401"),
-            ("R100275", "R100275_METAB02_MCC025_20220421"),("R100276", "R100276_METAB02_MCC025_20220427"),("R100277", "R100277_METAB02_MCC025_20220505"),
-            ("R100278", "R100278_METAB02_MCC025_20220512"),("R100284", "R100284_METAB02_MCC025_20220519")
+            ("R100266", "R100266_METAB02_MCC025_20220218"), ("R100267", "R100267_METAB02_MCC025_20220225"), ("R100268", "R100268_METAB02_MCC025_20220304"),
+            ("R100269", "R100269_METAB02_MCC025_20220311"), ("R100270", "R100270_METAB02_MCC025_20220325"), ("R100272", "R100272_METAB02_MCC025_20220401"),
+            ("R100275", "R100275_METAB02_MCC025_20220421"), ("R100276", "R100276_METAB02_MCC025_20220427"), ("R100277", "R100277_METAB02_MCC025_20220505"),
+            ("R100278", "R100278_METAB02_MCC025_20220512"), ("R100284", "R100284_METAB02_MCC025_20220519"), ("R100285", "R100285_METAB02_MCC025_20220610")
         ]
         
         for expName, rawFolder in exps:
