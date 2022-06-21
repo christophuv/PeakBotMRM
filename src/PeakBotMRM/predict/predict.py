@@ -83,6 +83,7 @@ def predictExperiment(expName, predDSs, modelFile,
         if len(integrations) > 0:
 
             predictDataset(modelFile, substances, integrations)
+            acceptPredictions(integrations)
             
             substancesComments, samplesComments = calibrateIntegrations(substances, integrations)
 
@@ -125,18 +126,20 @@ def predictDataset(modelFile, substances, integrations, callBackFunction = None,
                 if calLevel not in used.keys():
                     used[calLevel] = []
                 used[calLevel].append(sample)
-    raiseExp = False
-    for k, v in used.items():
-        if len(v) > 1:
-            logging.error("\33[91m  | .. Error: Calibration level '%s' found with multiple files. These are: \33[0m '%s'"%(k, "', '".join(v)))
-            raiseExp = True
-    if raiseExp:
-        logging.error("\33[91m  | .. Error: One or several calibration levels are not unique. Aborting...\33[0m")
-        raise RuntimeError("Aborting to non-unique calibration levels")
-    elif len(used) < len(calSamplesAndLevels):
-        logging.info("\33[93m  | .. Found %d of the %d provided calibration levels. Please double-check if these have been specified correctly\33[0m"%(len(used), len(calSamplesAndLevels)))
-    else:
-        logging.info("  | .. Found all %d calibration levels"%(len(calSamplesAndLevels)))
+    
+    # TODO implement check here
+    # raiseExp = False
+    #for k, v in used.items():
+    #    if len(v) > 1:
+    #        logging.error("\33[91m  | .. Error: Calibration level '%s' found with multiple files. These are: \33[0m '%s'"%(k, "', '".join(v)))
+    #        raiseExp = True
+    #if raiseExp:
+    #    logging.error("\33[91m  | .. Error: One or several calibration levels are not unique. Aborting...\33[0m")
+    #    raise RuntimeError("Aborting to non-unique calibration levels")
+    #elif len(used) < len(calSamplesAndLevels):
+    #    logging.info("\33[93m  | .. Found %d of the %d provided calibration levels. Please double-check if these have been specified correctly\33[0m"%(len(used), len(calSamplesAndLevels)))
+    #else:
+    #    logging.info("  | .. Found all %d calibration levels"%(len(calSamplesAndLevels)))
             
     for substanceI, substanceName in tqdm.tqdm(enumerate(natsort.natsorted(integrations.keys())), total = len(integrations.keys()), desc="  | .. predicting", disable = not showConsoleProgress):
         if callBackFunction is not None:
@@ -194,6 +197,8 @@ def predictDataset(modelFile, substances, integrations, callBackFunction = None,
                     pred_rtEnd      = rtsS[min(PeakBotMRM.Config.RTSLICES-1, max(0, pred_rtEndInd))]
 
                     inte.other["processed"]      = ""
+                    inte.other["pred.type"]      = "PeakBotMRM"
+                    inte.other["pred.comment"]   = "model '%s'"%(os.path.basename(modelFile))
                     inte.other["pred.rtstart"]   = pred_rtStart
                     inte.other["pred.rtend"]     = pred_rtEnd
                     inte.other["pred.foundPeak"] = pred_isPeak
@@ -201,6 +206,18 @@ def predictDataset(modelFile, substances, integrations, callBackFunction = None,
                         inte.other["pred.areaPB"] = PeakBotMRM.integrateArea(eic, rts, pred_rtStart, pred_rtEnd)
                     else:
                         inte.other["pred.areaPB"] = -1
+                        
+def acceptPredictions(integrations):
+    for subName in integrations.keys():
+        for sampName in integrations[subName].keys():
+            inte = integrations[subName][sampName]
+            inte.type = inte.other["pred.type"]
+            inte.comment = inte.other["pred.comment"]
+            inte.foundPeak = inte.other["pred.foundPeak"]
+            inte.rtStart = inte.other["pred.rtstart"]
+            inte.rtEnd = inte.other["pred.rtEnd"]
+            inte.area = inte.other["pred.areaPB"]
+            
 
 def getCalibrationSamplesAndLevels(substances):
     calSamplesAndLevels = {}
@@ -248,7 +265,7 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
     
     with open(toFile, "w") as fout:
         headersSample = ["", "", "Name", "Data File", "Type", "Level", "Acq. Date-Time", "Method", "Inj. volume", "Dilution", "Comment"]
-        headersPerSubstance = ["Comment", "RT", "Int. Start", "Int. End", "Area", "ISTDRatio", "Final Conc.", "Accuracy"]
+        headersPerSubstance = ["Comment", "Type", "RT", "Int. Start", "Int. End", "Area", "ISTDRatio", "Final Conc.", "Accuracy"]
                 
         if oneRowHeader4Results:
             fout.write(separator)  ## SampleName and CalibrationLevel
@@ -262,7 +279,7 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
             ## Header row 1
             fout.write("Sample" + (separator*(len(headersSample)-1)))
             for substanceName in substanceOrder:
-                fout.write(separator + substanceName.replace(separator, "--SEPARATOR--") + (separator*(len(headersPerSubstance)-1)))
+                fout.write(separator + (substanceName.replace("\"", "'").replace(separator, "--SEPARATOR--")) + (separator*(len(headersPerSubstance)-1)))
             fout.write("\n")
 
             ## Header row 2
@@ -276,8 +293,9 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
             for h in headersPerSubstance:
                 fout.write(separator)
                 if substanceName in substancesComments.keys() and h in substancesComments[substanceName].keys():
-                    fout.write(("%s"%(json.dumps(substancesComments[substanceName][h]))).replace(";", "--SEMICOLON--").replace(separator, "--SEPARATOR--"))
+                    fout.write(("%s"%(json.dumps(substancesComments[substanceName][h]))).replace("\"", "'").replace(separator, "--SEPARATOR--"))
         fout.write("\n")
+        pbComments = set()
         for sample in samplesOrder:
             sampleInfo = {}
             for k in headersSample:
@@ -289,29 +307,30 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
                 for samplePart, level in calSamplesAndLevels.items():
                     if samplePart in sample:
                         sampleInfo["Level"] = str(level)
-            fout.write(separator.join([sampleInfo[k].replace(separator, "--SEPARATOR--") if k in sampleInfo.keys() else "" for k in headersSample]))
+            fout.write(separator.join([sampleInfo[k].replace("\"", "'").replace(separator, "--SEPARATOR--") if k in sampleInfo.keys() else "" for k in headersSample]))
             
             for substanceName in substanceOrder:
+                peakInfo = {}
                 if substanceName in integrations.keys() and sample in integrations[substanceName].keys() and integrations[substanceName][sample].chromatogram is not None:
-                    substanceInfo = {}
-                    if samplesComments is not None and substanceName in samplesComments.keys() and sample in samplesComments[substanceName].keys():
-                        substanceInfo["Comment"] = "; ".join((str(s) for s in samplesComments[substanceName][sample]))
                     temp = integrations[substanceName][sample]
-                    if temp.other["processed"] == '':
-                        ## Prediction
-                        if temp.other["pred.foundPeak"]:
-                            substanceInfo["Int. Start"]            = "%.3f"%(temp.other["pred.rtstart"]) if not np.isnan(temp.other["pred.rtstart"]) else -1
-                            substanceInfo["Int. End"]              = "%.3f"%(temp.other["pred.rtend"])   if not np.isnan(temp.other["pred.rtend"])   else -1
-                            substanceInfo["Area"]                  = "%.3f"%(temp.other["pred.areaPB"])  if not np.isnan(temp.other["pred.areaPB"])  else -1
-                            substanceInfo["Final Conc."] = "%.5f"%(temp.other["pred.level"])   if "pred.level" in temp.other.keys()        else ""
-                        if "pred.ISTDRatio" in temp.other.keys():
-                            substanceInfo["ISTDRatio"] = "%f"%(temp.other["pred.ISTDRatio"])
-                    else:
-                        substanceInfo["Comment"] = temp.other["processed"]
+                    if samplesComments is not None and substanceName in samplesComments.keys() and sample in samplesComments[substanceName].keys():
+                        peakInfo["Comment"] = "%s"%("; ".join((str(s) for s in samplesComments[substanceName][sample])))
+                    
+                    peakInfo["Type"] = "%s"%(temp.type)
+                    pbComments.add(temp.comment)
+                    ## Prediction
+                    if temp.foundPeak:
+                        peakInfo["Int. Start"]            = "%.3f"%(temp.rtStart)
+                        peakInfo["Int. End"]              = "%.3f"%(temp.rtEnd)
+                        peakInfo["Area"]                  = "%.3f"%(temp.area)
+                        if temp.istdRatio is not None:
+                            peakInfo["ISTDRatio"]         = "%f"  %(temp.istdRatio)
+                        if temp.concentration is not None:
+                            peakInfo["Final Conc."]       = "%.5f"%(temp.concentration)
                 else:
-                    substanceInfo["Comment"] = temp.other["processed"]
+                    peakInfo["Comment"] = "not processed"
                 fout.write(separator)
-                fout.write(separator.join([substanceInfo[k].replace(separator, "--SEPARATOR--") if k in substanceInfo.keys() else "" for k in headersPerSubstance]))
+                fout.write(separator.join([peakInfo[k].replace("\"", "'").replace(separator, "--SEPARATOR--") if k in peakInfo.keys() else "" for k in headersPerSubstance]))
 
             fout.write("\n")
                 
@@ -328,7 +347,13 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
         fout.write("## .. Computer: '%s'"%(platform.node())); fout.write("\n")
         if additionalCommentsForFile is not None:
             fout.write("## Additional comments"); fout.write("\n")
-            fout.write("## .. "); fout.write("\n## .. ".join(additionalCommentsForFile))
+            if additionalCommentsForFile is not None:
+                for x in additionalCommentsForFile:
+                    fout.write("## .. %s"%(x))
+                    fout.write("\n")
+            for x in pbComments:
+                fout.write("## .. %s"%(x))
+                fout.write("\n")
 
 def calibrateIntegrations(substances, integrations):
     calSamplesAndLevels = getCalibrationSamplesAndLevels(substances)
@@ -350,6 +375,7 @@ def calibrateIntegrations(substances, integrations):
         if substances[substanceName].calculateCalibration:
             calExp = []
             calObs = []
+            fromType = None
                     
             for samplei, sample in enumerate(integrations[substanceName].keys()):
                 for samplePart, level in substances[substanceName].calSamples.items():
@@ -360,16 +386,18 @@ def calibrateIntegrations(substances, integrations):
                         if substances[substanceName].internalStandard is not None and substances[substanceName].internalStandard in integrations.keys():
                             inteIST = integrations[substances[substanceName].internalStandard][sample]
                             if inteSub is not None and inteSub.chromatogram is not None and inteIST is not None and inteIST.chromatogram is not None:
-                                if inteSub.other["pred.foundPeak"] and not np.isnan(inteSub.other["pred.areaPB"]) and inteIST.other["pred.foundPeak"] and not np.isnan(inteIST.other["pred.areaPB"]):
-                                    ratio = inteSub.other["pred.areaPB"] / inteIST.other["pred.areaPB"]
-                                    inteSub.other["pred.ISTDRatio"] = ratio
+                                if inteSub.foundPeak and not np.isnan(inteSub.area) and inteIST.foundPeak and not np.isnan(inteIST.area):
+                                    ratio = inteSub.area / inteIST.area
+                                    inteSub.istdRatio = ratio
                                             
                                     exp = level * substances[substanceName].calLevel1Concentration
                                     obs = ratio
+                                    fromType = "ISTD ratio"
                         else:
-                            if inteSub is not None and inteSub.chromatogram is not None and inteSub.other["pred.foundPeak"] and not np.isnan(inteSub.other["pred.areaPB"]):
+                            if inteSub is not None and inteSub.chromatogram is not None and inteSub.foundPeak and not np.isnan(inteSub.area):
                                 exp = level * substances[substanceName].calLevel1Concentration
-                                obs = inteSub.other["pred.areaPB"]
+                                obs = inteSub.area
+                                fromType = "Peak areas"
                                 
                         if exp is not None and obs is not None and not np.isnan(exp) and not np.isnan(obs) and exp > 0 and obs > 0 and level > 0:
                             if substanceName not in samplesComments.keys():
@@ -382,22 +410,24 @@ def calibrateIntegrations(substances, integrations):
                         
             if len(calExp) > 1 and substances[substanceName].calculateCalibration:                    
                 model, r2, yhat, params, strRepr = PeakBotMRM.calibrationRegression(calObs, calExp, type = substances[substanceName].calibrationMethod)
-                substancesComments[substanceName]["Final Conc."] = {"R2": r2, "points": len(calObs), "formula": strRepr, "method": substances[substanceName].calibrationMethod, "ConcentrationAtLevel1": str(substances[substanceName].calLevel1Concentration)}
+                substancesComments[substanceName]["Final Conc."] = {"R2": r2, "points": len(calObs), "fromType": fromType, "formula": strRepr, "method": substances[substanceName].calibrationMethod, "ConcentrationAtLevel1": str(substances[substanceName].calLevel1Concentration)}
                         
                 for samplei, sample in enumerate(integrations[substanceName].keys()):
                     inteSub = integrations[substanceName][sample]
-                    if substances[substanceName].internalStandard is not None and substances[substanceName].internalStandard in integrations.keys() and sample in integrations[substances[substanceName].internalStandard].keys():
-                        inteIST = integrations[substances[substanceName].internalStandard][sample]
-                        if inteSub is not None and inteSub.chromatogram is not None and inteIST is not None and inteIST.chromatogram is not None:
-                            if inteSub.other["pred.foundPeak"] and not np.isnan(inteSub.other["pred.areaPB"]) and inteIST.other["pred.foundPeak"] and not np.isnan(inteIST.other["pred.areaPB"]):
-                                ratio = inteSub.other["pred.areaPB"] / inteIST.other["pred.areaPB"]
-                                inteSub.other["pred.ISTDRatio"] = ratio
-                                        
-                                calPre = model(np.array((ratio)).reshape(-1,1))
-                                inteSub.other["pred.level"] = calPre
+                    if substances[substanceName].internalStandard is not None and substances[substanceName].internalStandard in integrations.keys():
+                        if sample in integrations[substances[substanceName].internalStandard].keys():
+                            inteIST = integrations[substances[substanceName].internalStandard][sample]
+                            if inteSub is not None and inteSub.chromatogram is not None and inteIST is not None and inteIST.chromatogram is not None:
+                                if inteSub.foundPeak and not np.isnan(inteSub.area) and inteIST.foundPeak and not np.isnan(inteIST.area):
+                                    ratio = inteSub.area / inteIST.area
+                                    ratio = np.nan_to_num(ratio)
+                                    inteSub.istdRatio = ratio
+                                    
+                                    calcConc = model(np.array((ratio)).reshape(-1,1))
+                                    inteSub.concentration = calcConc
                     else:
-                        if inteSub is not None and inteSub.chromatogram is not None and inteSub.other["pred.foundPeak"] and not np.isnan(inteSub.other["pred.areaPB"]):
-                            calPre = model(np.array((inteSub.other["pred.areaPB"])).reshape(-1,1))
-                            inteSub.other["pred.level"] = calPre
+                        if inteSub is not None and inteSub.chromatogram is not None and inteSub.foundPeak and not np.isnan(inteSub.area):
+                            calcConc = model(np.array((inteSub.area)).reshape(-1,1))
+                            inteSub.concentration = calcConc
     
     return substancesComments, samplesComments
