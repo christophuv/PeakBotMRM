@@ -316,6 +316,12 @@ class OpenExperimentDialog(PyQt6.QtWidgets.QDialog):
         grid.addWidget(self.resPath, rowi, 2, 1, 1)
         
         rowi = rowi + 1
+        grid.addWidget(PyQt6.QtWidgets.QLabel("Delimiter character"), rowi, 0)
+        self.delim = PyQt6.QtWidgets.QComboBox()
+        self.delim.addItems(["TAB", ",", ";", "$"])
+        grid.addWidget(self.delim, rowi, 1, 1, 1)
+        
+        rowi = rowi + 1
         grid.addWidget(QHSeperationLine(), rowi, 0, 1, 3)
        
         rowi = rowi + 1
@@ -361,7 +367,7 @@ class OpenExperimentDialog(PyQt6.QtWidgets.QDialog):
             self.resPath.setText(fName[0])
         
     def getUserData(self):
-        return (self.expName.text(), self.traPath.text(), self.rawPath.text(), self.resPath.text(), self.importantSamples.toPlainText())
+        return (self.expName.text(), self.traPath.text(), self.rawPath.text(), self.resPath.text(), self.delim.currentText().replace("TAB", "\t"), self.importantSamples.toPlainText())
     
 
 
@@ -383,7 +389,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.__highlightColor = (178,34,34)
         self.__msConvertPath = "msconvert" #"%LOCALAPPDATA%\\Apps\\ProteoWizard 3.0.22119.ba94f16 32-bit\\msconvert.exe"
         self.__calibrationFunctionstep = 100
-        self.__exportSeparator = ","
+        self.__exportSeparator = "\t"
+        self.__defaultJumpWidth = 0.005
         
         if not os.path.exists(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM")):
             os.mkdir(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM"))
@@ -465,8 +472,12 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         dock = Dock("Ins. Props", size=(1,1), hideTitle=True)
         self.docks.append(dock)
         dock.addWidget(helper)
-        self.dockArea.addDock(dock, "top")
+        self.dockArea.addDock(dock, "top")        
         
+        self.sortOrder = PyQt6.QtWidgets.QComboBox()
+        self.sortOrder.addItems(["Sort: Sample group/name", "Sort: Peak area asc.", "Sort: Peak area desc."])
+        self.sortOrder.setCurrentIndex(0)
+        self.sortOrder.currentIndexChanged.connect(self.resortExperiments)
         self.tree = PyQt6.QtWidgets.QTreeWidget()
         self.tree.currentItemChanged.connect(self.treeClicked)
         self.tree.setColumnCount(3)
@@ -477,6 +488,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.tree.header().resizeSection(2, 50)
         dock = Dock("Experiments")
         self.docks.append(dock)
+        dock.addWidget(self.sortOrder)
         dock.addWidget(self.tree)
         dock.setStretch(y = 23)
         self.dockArea.addDock(dock, "left")
@@ -574,6 +586,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         
         self.paCMAP = None
         
+        self.tree._keyPressEvent = self.tree.keyPressEvent
+        self.tree.keyPressEvent = self.keyPressEvent
+            
         if os.path.exists(os.path.join(self._pyFilePath, "defaultSettings.pickle")):
             self.tree.blockSignals(True)
             self.loadSettings(settingsFile = os.path.join(self._pyFilePath, "defaultSettings.pickle"))
@@ -584,7 +599,47 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         except FileNotFoundError as ex:
             logging.error("\033[91mError: msconvert (%s) not found.\033[0m Download and install from https://proteowizard.sourceforge.io/")
             PyQt6.QtWidgets.QMessageBox.critical(None, "PeakBotMRM", "Error<br><br>MSConvert (at '%s') cannot be found. Please verify that it is present/installed and/or set the path to the executible accordingly<br><br>Download MSconvert from <a href='https://proteowizard.sourceforge.io/'>https://proteowizard.sourceforge.io/</a>.<br>Choose the version that is 'able to convert ventdor files'.<br>Install the software.<br>Then try restarting PeakBotMRM. If 'msconvert' alone does not work, try '%%LOCALAPPDATA%%\\Apps\\ProteoWizard 3.0.22119.ba94f16 32-bit\\msconvert.exe'"%(self.__msConvertPath))
-
+    
+    def keyPressEvent(self, event):
+        if event.key() in [PyQt6.QtCore.Qt.Key.Key_Down, PyQt6.QtCore.Qt.Key.Key_Up]:
+            self.tree._keyPressEvent(event)
+        
+        elif chr(event.key()) in ["q", "Q"]:
+            self.hasPeak.setChecked(not self.hasPeak.isChecked())
+        elif chr(event.key()) in ["w", "W"]:
+            self.peakStart.setValue(self.peakStart.value() - self.__defaultJumpWidth)
+        elif chr(event.key()) in ["e", "E"]:
+            self.peakStart.setValue(self.peakStart.value() + self.__defaultJumpWidth)
+        elif chr(event.key()) in ["r", "R"]:
+            self.peakEnd.setValue(self.peakEnd.value() - self.__defaultJumpWidth)
+        elif chr(event.key()) in ["t", "T"]:
+            self.peakEnd.setValue(self.peakEnd.value() + self.__defaultJumpWidth)
+        
+        elif chr(event.key()) in ["a", "A"]:
+            self.istdhasPeak.setChecked(not self.istdhasPeak.isChecked())
+        elif chr(event.key()) in ["s", "S"]:
+            self.istdpeakStart.setValue(self.istdpeakStart.value() - self.__defaultJumpWidth)
+        elif chr(event.key()) in ["d", "D"]:
+            self.istdpeakStart.setValue(self.istdpeakStart.value() + self.__defaultJumpWidth)
+        elif chr(event.key()) in ["f", "F"]:
+            self.istdpeakEnd.setValue(self.istdpeakEnd.value() - self.__defaultJumpWidth)
+        elif chr(event.key()) in ["g", "G"]:
+            self.istdpeakEnd.setValue(self.istdpeakEnd.value() + self.__defaultJumpWidth)
+            
+        
+        return 
+        self.hasPeak = PyQt6.QtWidgets.QCheckBox("Is peak")
+        self.peakStart = PyQt6.QtWidgets.QDoubleSpinBox()
+        self.peakStart.setDecimals(3); self.peakStart.setMaximum(100); self.peakStart.setMinimum(0); self.peakStart.setSingleStep(0.005)
+        self.peakEnd = PyQt6.QtWidgets.QDoubleSpinBox()
+        self.peakEnd.setDecimals(3); self.peakEnd.setMaximum(100); self.peakEnd.setMinimum(0); self.peakEnd.setSingleStep(0.005)
+        self.istdhasPeak = PyQt6.QtWidgets.QCheckBox("Is peak")
+        self.istdpeakStart = PyQt6.QtWidgets.QDoubleSpinBox()
+        self.istdpeakStart.setDecimals(3); self.istdpeakStart.setMaximum(100); self.istdpeakStart.setMinimum(0); self.istdpeakStart.setSingleStep(0.005)
+        self.istdpeakEnd = PyQt6.QtWidgets.QDoubleSpinBox()
+        self.istdpeakEnd.setDecimals(3); self.istdpeakEnd.setMaximum(100); self.istdpeakEnd.setMinimum(0); self.istdpeakEnd.setSingleStep(0.005)
+        self.useForCalibration = PyQt6.QtWidgets.QCheckBox()
+        self.calibrationMethod = PyQt6.QtWidgets.QComboBox()
         
 
     def saveSettings(self, settingsFile = None):
@@ -608,6 +663,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     "GUI/__highlightColor": self.__highlightColor,
                     "GUI/__calibrationFunctionstep": self.__calibrationFunctionstep, 
                     "GUI/__exportSeparator": self.__exportSeparator.replace("\t", "TAB"), 
+                    "GUI/__sortOrder": self.sortOrder.currentIndex(),
+                    "GUI/__defaultJumpWidth": self.self.__defaultJumpWidth, 
                     
                     "GUI/DockAreaState": self.dockArea.saveState(),
                 }
@@ -635,6 +692,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             self.__highlightColor = settings["GUI/__highlightColor"]
             self.__calibrationFunctionstep = settings["GUI/__calibrationFunctionstep"]
             self.__exportSeparator = settings["GUI/__exportSeparator"].replace("TAB", "\t")
+            self.sortOrder.setCurrentIndex(settings["GUI/__sortOrder"])
+            self.__defaultJumpWidth = settings["GUI/__defaultJumpWidth"]
             
             #self.dockArea.restoreState(settings["GUI/DockAreaState"])
     
@@ -678,7 +737,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             ]},
             {'name': 'Other', 'type': 'group', 'children':[
                 {'name': 'MSConvert executible', 'type': 'str', 'value': self.__msConvertPath, 'tip': 'Download MSconvert from <a href="https://proteowizard.sourceforge.io/">https://proteowizard.sourceforge.io/</a>. Choose the version that is "able to convert ventdor files". Install the software. Then try restarting PeakBotMRM. If "msconvert" alone does not work, try "%LOCALAPPDATA%\\Apps\\ProteoWizard 3.0.22119.ba94f16 32-bit\\msconvert.exe"'},
-                {'name': 'Export delimiter', 'type': 'list', 'value': self.__exportSeparator, 'values': ["TAB", ",", ";", "$"]}
+                {'name': 'Export delimiter', 'type': 'list', 'value': self.__exportSeparator, 'values': ["TAB", ",", ";", "$"]},
+                {'name': 'Sort order', 'type': 'list', 'value': self.sortOrder.currentIndex(), 'values': ["Sort: Sample groups/names", "Sort: Peak area"]},
+                {'name': 'Default jump width', 'type': 'float', 'value': self.__defaultJumpWidth, 'limits': [0.001, 0.2], 'suffix': 'min'}
             ]},
             #{'name': 'Save/restore gui layout', 'type': 'group', 'children': [
             #    {'name': 'Save to file', 'type': 'action'},
@@ -721,7 +782,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             self.__normalColor = p.param("Plot colors", "Normal color").value().getRgb()
             self.__highlightColor = p.param("Plot colors", "Highlight color").value().getRgb()
             self.__calibrationFunctionstep = p.param("PeakBotMRM Configuration", "Calibration plot step size").value()
-            self.__exportSeparator = p.param("Other", "Export delimiter").value()
+            self.__exportSeparator = p.param("Other", "Export delimiter").value().replace("TAB", "\t")
+            self.sortOrder.setCurrentIndex(p.param("Other", "Sort order").value())
+            self.__defaultJumpWidth = p.param("Other", "Default jump width").value()
                         
         t = ParameterTree()
         t.setParameters(p, showTop=False)
@@ -835,8 +898,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 if selExp is not None and selExp != "" and selExp in self._integrations.keys():
                     expToProcess.append(selExp)
                     
-        button = PyQt6.QtWidgets.QMessageBox.question(self, "Process experiment", "<b>Warning</b><br><br>This will process the selected experiment(s) <br>'%s'<br> with PeakBotMRM (model '%s') and overwrite all manual integrations and corrections (if any are present). This action cannot be undone. <br>Are you sure that you want to continue?"%("', '".join(expToProcess), peakBotMRMModelFile))
-        if button == PyQt6.QtWidgets.QMessageBox.StandardButton.Yes:
+        button = PyQt6.QtWidgets.QMessageBox.question(self, "Process experiment", "<b>Warning</b><br><br>This will process the selected experiment(s) <br>'%s'<br> with PeakBotMRM (model '%s').<br> Do you want to keep any manual integrations?"%("', '".join(expToProcess), peakBotMRMModelFile), buttons = PyQt6.QtWidgets.QMessageBox.StandardButton.Yes | PyQt6.QtWidgets.QMessageBox.StandardButton.No | PyQt6.QtWidgets.QMessageBox.StandardButton.Abort, defaultButton = PyQt6.QtWidgets.QMessageBox.StandardButton.Yes)
+        if button in [PyQt6.QtWidgets.QMessageBox.StandardButton.Yes, PyQt6.QtWidgets.QMessageBox.StandardButton.No]:
             
             for selExp in expToProcess:
                 
@@ -855,11 +918,15 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 
                 for s in self._integrations[selExp].keys():
                     for h in self._integrations[selExp][s]:
-                        self._integrations[selExp][s][h].foundPeak = self._integrations[selExp][s][h].other["pred.foundPeak"]
-                        if self._integrations[selExp][s][h].foundPeak:
-                            self._integrations[selExp][s][h].rtStart = self._integrations[selExp][s][h].other["pred.rtstart"]
-                            self._integrations[selExp][s][h].rtEnd = self._integrations[selExp][s][h].other["pred.rtend"]
-                            self._integrations[selExp][s][h].area = self._integrations[selExp][s][h].other["pred.areaPB"]
+                        if (button == PyQt6.QtWidgets.QMessageBox.StandardButton.Yes and self._integrations[selExp][s][h].type != "Manual integration") or button == PyQt6.QtWidgets.QMessageBox.StandardButton.No:
+                            self._integrations[selExp][s][h].type = self._integrations[selExp][s][h].other["pred.type"]
+                            self._integrations[selExp][s][h].comment = self._integrations[selExp][s][h].other["pred.comment"]
+                            
+                            self._integrations[selExp][s][h].foundPeak = self._integrations[selExp][s][h].other["pred.foundPeak"]
+                            if self._integrations[selExp][s][h].foundPeak:
+                                self._integrations[selExp][s][h].rtStart = self._integrations[selExp][s][h].other["pred.rtstart"]
+                                self._integrations[selExp][s][h].rtEnd = self._integrations[selExp][s][h].other["pred.rtend"]
+                                self._integrations[selExp][s][h].area = self._integrations[selExp][s][h].other["pred.areaPB"]
             
                 for c in range(self.tree.topLevelItemCount()):
                     it = self.tree.topLevelItem(c)
@@ -1102,7 +1169,50 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     PyQt6.QtWidgets.QMessageBox.information(self, "PeakBotMRM", "A summary of the results is shown in the webbrowser")
 
                 
+    def resortExperiments(self):
         
+        sortMode = self.sortOrder.currentIndex()
+        
+        for c in range(self.tree.topLevelItemCount()):
+            it = self.tree.topLevelItem(c)
+            selExp = it.experiment
+            
+            it = it.child(0)
+            
+            for subI in range(it.childCount()):
+                subit = it.child(subI)
+                selSub = subit.substance
+                
+                ints = []
+                sampleNames = []
+                for sampI in range(subit.childCount()):
+                    samp = subit.child(sampI)
+                    selSamp = samp.sample
+                    ints.append(self._integrations[selExp][selSub][selSamp])
+                    sampleNames.append(selSamp)
+                
+                while subit.childCount() > 0:
+                    samp = subit.child(0)
+                    subit.removeChild(samp)
+                
+                order = None
+                if sortMode == 1:
+                    order = [i[0] for i in sorted(enumerate(ints), key = lambda x: x[1].area if x[1].foundPeak else 0)]
+                elif sortMode == 2:
+                    order = [i[0] for i in sorted(enumerate(ints), key = lambda x: x[1].area if x[1].foundPeak else 0, reverse = True)]
+                else:
+                    ## TODO apply important samples list for sorting similar to loadExperiments
+                    #order = sortSamples(integrations[substance].keys(), importantSamples if importantSamples is not None else {}) 
+                    #[i[0] for i in sorted(enumerate(sampleNames), key = lambda x: x[1])]
+                    importantSamples = OrderedDict([("_CAL[0-9]+_", "CAL"), ("_NIST[0-9]+_", "NIST"), (".*", "sample")])
+                    temp = sortSamples(sampleNames, importantSamples if importantSamples is not None else {}) 
+                    order = []
+                    for sampleName in temp:
+                        order.append(sampleNames.index(sampleName))
+                
+                for i in order:
+                    subit.addChild(ints[i].other["GUIElement"])
+                    
     
     def resetActivateExperiment(self):
         l = list(self.tree.selectedItems())
@@ -1200,11 +1310,12 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                                       substancesComments = substancesComments, 
                                                       samplesComments = samplesComments, 
                                                       sampleMetaData = self._sampleInfo[selExp], 
-                                                      additionalCommentsForFile=["PeakBot model: '%s'"%("UNKNOWN")], 
+                                                      additionalCommentsForFile=[],
                                                       oneRowHeader4Results = False)
                 if len(ls) == 1:
                     procDiag.hide()
                     PyQt6.QtWidgets.QMessageBox.information(self, "Exporting results", "Experiment '%s' has been exported to file<br>'%s'"%(selExp, outputFile))
+        
         procDiag.hide()
         if len(ls) > 1:
             PyQt6.QtWidgets.QMessageBox.information(self, "Exporting results", "Experiment results have been exported")
@@ -1240,10 +1351,10 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         dialog.setModal(True)
         okay = dialog.exec()
         if okay:
-            expName, transitionsFile, rawDataPath, resultsFile, importantSamples = dialog.getUserData()
-            main.loadExperiment(expName, transitionsFile, resultsFile, rawDataPath, importantSamples = eval(importantSamples))
+            expName, transitionsFile, rawDataPath, resultsFile, delimChar, importantSamples = dialog.getUserData()
+            main.loadExperiment(expName, transitionsFile, rawDataPath, resultsFile, delimChar, importantSamples = eval(importantSamples))
                 
-    def loadExperiment(self, expName, transitionFile, integrationsFile, rawDataPath, importantSamples = None):
+    def loadExperiment(self, expName, transitionFile, rawDataPath, integrationsFile, delimChar, importantSamples = None):
         self.tree.blockSignals(True)
         
         procDiag = PyQt6.QtWidgets.QProgressDialog(self, labelText="Loading experiment '%s'"%(expName))
@@ -1260,7 +1371,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         if integrationsFile is not None and integrationsFile != "":
             substances, integrations = PeakBotMRM.loadIntegrations(substances, 
                                                                    integrationsFile, 
-                                                                    logPrefix = "  | ..")
+                                                                   delimiter = delimChar, 
+                                                                   logPrefix = "  | ..")
             integrationsLoaded = True
         
         substances, integrations, sampleInfo = PeakBotMRM.loadChromatograms(substances, integrations, 
@@ -1269,9 +1381,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                                                             maxValCallback = procDiag.setMaximum, curValCallback = procDiag.setValue, 
                                                                             logPrefix = "  | ..",
                                                                             errorCallback = functools.partial(PyQt6.QtWidgets.QMessageBox.critical, self, "PeakBotMRM - conversion to mzML"))
-        self._substances[expName] = substances
+        self._substances[expName]   = substances
         self._integrations[expName] = integrations
-        self._sampleInfo[expName] = sampleInfo
+        self._sampleInfo[expName]   = sampleInfo
         
         if importantSamples is not None:
             for k, v in self._sampleInfo[expName].items():
@@ -1315,9 +1427,6 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 for sample in sortSamples(integrations[substance].keys(), importantSamples if importantSamples is not None else {}):
                     inte = integrations[substance][sample]
                     sampleItem = PyQt6.QtWidgets.QTreeWidgetItem(substanceItem)
-                    for calSampPartName in self._substances[expName][substance].useCalSamples:
-                        if calSampPartName in sample:
-                            sampleItem.setBackground(0, PyQt6.QtGui.QColor.fromRgb(int(self.__highlightColor[0]), int(self.__highlightColor[1]), int(self.__highlightColor[2]), int(255 * 0.2)))
                     sampleItem.experiment = expName; sampleItem.substance = substance; sampleItem.sample = sample; sampleItem.userType = "Single peak"
                     showName = sample
                     for temp, rep in self.__sampleNameReplacements.items():
@@ -1325,7 +1434,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     sampleItem.setText(0, showName)
                     sampleItem.setText(1, str(inte.area) if inte.foundPeak else "")
                     sampleItem.setText(2, "%.2f - %.2f"%(inte.rtStart, inte.rtEnd) if inte.foundPeak else "")
-        
+                    inte.other["GUIElement"] = sampleItem
+                    
                     allSamples.append(sample)
             
         procDiag.close()
@@ -1397,20 +1507,53 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 
                 inte.area = PeakBotMRM.integrateArea(inte.chromatogram["eic"], inte.chromatogram["rts"], inte.rtStart, inte.rtEnd)
                 it.setText(1, str(inte.area))
+            else:
+                it.setText(1, "")
+            inte.type = "Manual integration"
+            inte.comment = ""
+            inte.other["GUIElement"].setBackground(0, PyQt6.QtGui.QColor.fromRgb(int(self.__highlightColor[0]), int(self.__highlightColor[1]), int(self.__highlightColor[2]), int(255 * 0.2)))
                 
             if selIST is not None:
                 inte = self._integrations[selExp][selIST][selSam]
+                peakSwitched = inte.foundPeak != self.hasPeak.isChecked()
                 inte.foundPeak = self.istdhasPeak.isChecked()
                 if inte.foundPeak:
+                    eic = inte.chromatogram["eic"]
+                    rts = inte.chromatogram["rts"]
+                    
                     if self.istdpeakStart.value() < 0.05:
                         self.istdpeakStart.setValue(self._substances[selExp][selIST].refRT - 0.25)
                     if self.istdpeakEnd.value() < 0.05:
                         self.istdpeakEnd.setValue(self._substances[selExp][selIST].refRT + 0.25)
+                        
                     inte.rtStart = self.istdpeakStart.value()
                     inte.rtEnd = self.istdpeakEnd.value()
-                    inte.area = PeakBotMRM.integrateArea(inte.chromatogram["eic"], inte.chromatogram["rts"], inte.rtStart, inte.rtEnd)
-                    ## TODO set area in tree for the ISTD
                 
+                    if PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT and peakSwitched:
+                        startInd = PeakBotMRM.core.arg_find_nearest(rts, inte.rtStart)
+                        endInd   = PeakBotMRM.core.arg_find_nearest(rts, inte.rtEnd)
+                        while startInd + 1 < eic.shape[0] and eic[startInd + 1] >= eic[startInd]:
+                            startInd = startInd + 1
+                        while startInd - 1 >= 0 and eic[startInd - 1] <= eic[startInd]:
+                            startInd = startInd - 1
+                        while endInd + 1 < eic.shape[0] and eic[endInd + 1] <= eic[endInd]:
+                            endInd = endInd + 1
+                        
+                        inte.rtStart = rts[startInd]
+                        inte.rtEnd = rts[endInd]
+                        self.istdpeakStart.setValue(inte.rtStart)
+                        self.istdpeakEnd.setValue(inte.rtEnd)
+                        
+                    inte.area = PeakBotMRM.integrateArea(inte.chromatogram["eic"], inte.chromatogram["rts"], inte.rtStart, inte.rtEnd)
+                    inte.other["GUIElement"].setText(1, str(inte.area))
+                else:
+                    inte.other["GUIElement"].setText(1, "")
+                    ## TODO set area in tree for the ISTD
+                    
+                inte.type = "Manual integration"
+                inte.comment = ""            
+                inte.other["GUIElement"].setBackground(0, PyQt6.QtGui.QColor.fromRgb(int(self.__highlightColor[0]), int(self.__highlightColor[1]), int(self.__highlightColor[2]), int(255 * 0.2)))
+               
         if len(l) == 1 and "userType" in l[0].__dict__.keys():
             self.treeClicked(l[0], 0)
         self.tree.blockSignals(False); self.hasPeak.blockSignals(False); self.peakStart.blockSignals(False); self.peakEnd.blockSignals(False); self.istdhasPeak.blockSignals(False); self.istdpeakStart.blockSignals(False); self.istdpeakEnd.blockSignals(False);  self.useForCalibration.blockSignals(False); self.calibrationMethod.blockSignals(False);
@@ -1451,6 +1594,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             if it.userType == "Single peak":
         
                 inte = self._integrations[selExp][selSub][selSam]
+                self.infoLabel.setText("%s<br>Sub integration <b>%s%s</b>"%(self.infoLabel.text(), inte.type, " (%s)"%(inte.comment) if inte.comment is not None and inte.comment != "" else ""))
                 for sampPart, level in self._substances[selExp][selSub].calSamples.items():
                     if sampPart in selSam:
                         self.useForCalibration.setChecked(level > 0)
@@ -1462,8 +1606,10 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 else: 
                     self.hasPeak.setChecked(False)
                 self.plotIntegration(self._integrations[selExp][selSub][selSam], "Sub", refRT = self._substances[selExp][selSub].refRT, plotInd = 0)
+                
                 if selIST is not None :
                     inte = self._integrations[selExp][selIST][selSam]
+                    self.infoLabel.setText("%s<br>ISTD integration <b>%s%s</b>"%(self.infoLabel.text(), inte.type, " (%s)"%(inte.comment) if inte.comment is not None and inte.comment != "" else ""))
                     if inte.foundPeak:
                         self.istdhasPeak.setChecked(True)
                         self.istdpeakStart.setValue(inte.rtStart)
@@ -1716,6 +1862,16 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self._plots[plotInds[1]].setLabel('left', "Intensity")
         self._plots[plotInds[1]].setLabel('bottom', "Retention time (min)")
         
+        ## TODO finish
+        #self._plots[plotInds[0]].plotItem.scene().sigMouseMoved.connect(functools.partial(self.mouseMoved, plotItem = self._plots[plotInds[0]].plotItem))
+        
+    def mouseMoved(self, evt, plotItem):
+        pos = evt
+        if plotItem.sceneBoundingRect().contains(pos):
+            mousePoint = plotItem.vb.mapSceneToView(pos)
+            print(mousePoint.x(), mousePoint.y())
+            ## TODO finish that here
+        
     def plotCalibration(self, calInfo, title, addLM = True, highlightLevel = None, plotInd = 6):
         self._plots[plotInd].plot([abs(l) for i, l in calInfo], [i for i, l in calInfo], pen=None, symbolSize=8, symbolBrush=(self.__normalColor[0], self.__normalColor[1], self.__normalColor[2], int(255*0.33)), symbolPen='w')
         self._plots[plotInd].plot([abs(l) for i, l in calInfo if l > 0], [i for i, l in calInfo if l > 0], pen=None, symbolSize=8, symbolBrush=self.__normalColor, symbolPen='w')
@@ -1753,9 +1909,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     if len(useCals) > 2:
                         for i in range(1, len(useCals) - 1):
                             a = np.concatenate((a, np.linspace(useCals[i], useCals[i+1], self.__calibrationFunctionstep)))
-                    self._plots[plotInd].plot(model(np.array((a)).reshape(-1,1)), a, pen=self.__normalColor)
+                    self._plots[plotInd].plot(model(np.array((a)).reshape(-1,1))[:,0], a, pen=self.__normalColor)
                     calcCons = model(np.array((usedAreas)).reshape(-1,1))
-                    self._plots[plotInd].plot(calcCons, usedAreas, pen=None, symbolSize=8, symbolBrush="Orange", symbolPen='w')
+                    self._plots[plotInd].plot(calcCons[:,0], usedAreas, pen=None, symbolSize=8, symbolBrush="Orange", symbolPen='w')
             self._plots[plotInd].setTitle(title + "; R2 %.3f; %d points"%(r2, len(calInfo)))
             self._plots[plotInd].setLabel('left', "Value")
             self._plots[plotInd].setLabel('bottom', "Exp. concentration")
@@ -1786,19 +1942,18 @@ main = Window()
 main.showMaximized()
 
 try:
-    
-    main.loadExperiment("R100140", "./Reference/transitions.tsv", None, "./Reference/R100140_METAB02_MCC025_20200306", importantSamples = OrderedDict([("_CAL[0-9]+_", "CAL"), ("_NIST[0-9]+_", "NIST"), (".*", "sample")]))
-    #main.loadExperiment("Ref_R100140", "./Reference/transitions.tsv", "./Reference/R100140_Integrations.csv", "./Reference/R100140_METAB02_MCC025_20200306")
-    #main.loadExperiment("R100138", "./Reference/transitions.tsv", None, "./Reference/R100138_METAB02_MCC025_20200304")
-    #main.loadExperiment("Ref_R100138", "./Reference/transitions.tsv", "./Reference/R100138_Integrations.csv", "./Reference/R100138_METAB02_MCC025_20200304")
+    #main.loadExperiment("R100140", "./Reference/transitions.tsv", "./Reference/R100140_METAB02_MCC025_20200306", None, "\t", importantSamples = OrderedDict([("_CAL[0-9]+_", "CAL"), ("_NIST[0-9]+_", "NIST"), (".*", "sample")]))
+    #main.loadExperiment("Ref_R100140", "./Reference/transitions.tsv", "./Reference/R100140_METAB02_MCC025_20200306", "./Reference/R100140_Integrations.csv", ",", importantSamples = OrderedDict([("_CAL[0-9]+_", "CAL"), ("_NIST[0-9]+_", "NIST"), (".*", "sample")]))
+    #main.loadExperiment("R100138", "./Reference/transitions.tsv", "./Reference/R100138_METAB02_MCC025_20200304", None, ",")
+    #main.loadExperiment("Ref_R100138", "./Reference/transitions.tsv", "./Reference/R100138_METAB02_MCC025_20200304", "./Reference/R100138_Integrations.csv", ",")
     
     if False:
         for expName, folder1, rawFolder in [("R100146", "validation", "R100146_METAB02_MCC025_20200403"), ("R100192", "validation", "R100192_METAB02_MCC025_20201125"), 
                                             ("R100210", "validation", "R100210_METAB02_MCC025_20210305"), ("R100147", "training", "R100147_METAB02_MCC025_20200409"), 
                                             ("R100194", "training", "R100194_METAB02_MCC025_20201203"), ("R100211", "training", "R100211_METAB02_MCC025_20210316"), 
                                             ("R100232", "training", "R100232_B_METAB02_MCC025_20210804")]:
-            main.loadExperiment(expName, "./machine_learning_datasets_peakbot/%s/adaptedTransitions/%s.tsv"%(folder1, expName), None, "./machine_learning_datasets_peakbot/%s/%s"%(folder1, rawFolder), importantSamples = OrderedDict([("_CAL[0-9]+_", "CAL"), ("_NIST[0-9]+_", "NIST"), (".*", "sample")]))
-
+            main.loadExperiment(expName, "./machine_learning_datasets_peakbot/%s/adaptedTransitions/%s.tsv"%(folder1, expName), "./machine_learning_datasets_peakbot/%s/%s"%(folder1, rawFolder), None, ",", importantSamples = OrderedDict([("_CAL[0-9]+_", "CAL"), ("_NIST[0-9]+_", "NIST"), (".*", "sample")]))
+    
     if False:
         exps = [
             ("R100266", "R100266_METAB02_MCC025_20220218"), ("R100267", "R100267_METAB02_MCC025_20220225"), ("R100268", "R100268_METAB02_MCC025_20220304"),
@@ -1808,7 +1963,7 @@ try:
         ]
         
         for expName, rawFolder in exps:
-            main.loadExperiment(expName, "./Reference/transitions.tsv", None, "./machine_learning_datasets_peakbot/unprocessed/%s"%(rawFolder), 
+            main.loadExperiment(expName, "./Reference/transitions.tsv", "./machine_learning_datasets_peakbot/unprocessed/%s"%(rawFolder), None, ",", 
                                 importantSamples = OrderedDict([("_CAL[0-9]+_", "CAL"), ("_NIST[0-9]+_", "NIST"), (".*", "sample")]))
             
     

@@ -37,7 +37,7 @@ class Config(object):
     """Base configuration class"""
 
     NAME    = "PeakBotMRM"
-    VERSION = "0.9.20"
+    VERSION = "0.9.22"
 
     RTSLICES       = 255   ## should be of 2^n-1
     NUMCLASSES     =   2   ## [Peak, noPeak]
@@ -1066,11 +1066,15 @@ class Substance:
         return "%s (Q1 '%s', Q3 '%s', CE '%s', CEMethod '%s', ref.RT %.2f, calLvl1: '%s', calSamples '%s', calculateCalibration '%s')"%(self.name, self.Q1, self.Q3, self.CE, self.CEMethod, self.refRT, self.calLevel1Concentration, self.calSamples, self.calculateCalibration)
 
 class Integration:
-    def __init__(self, foundPeak, rtStart, rtEnd, area, chromatogram, other = None):
+    def __init__(self, foundPeak, rtStart, rtEnd, area, chromatogram, type = "Unknown", comment = "", other = None):
+        self.type = type
+        self.comment = comment
         self.foundPeak = foundPeak
         self.rtStart = rtStart
         self.rtEnd = rtEnd
         self.area = area
+        self.istdRatio = None
+        self.concentration = None
         self.chromatogram = chromatogram
         if other is None:
             other = {}
@@ -1140,11 +1144,11 @@ def loadTargets(targetFile, excludeSubstances = None, includeSubstances = None, 
 
 
 
-def loadIntegrations(substances, curatedPeaks, verbose = True, logPrefix = ""):
+def loadIntegrations(substances, curatedPeaks, delimiter = ",", commentChar = "#", verbose = True, logPrefix = ""):
     ## load integrations
     if verbose:
         logging.info("%sLoading integrations from file '%s'"%(logPrefix, curatedPeaks))
-    headers, integrationData = parseTSVMultiLineHeader(curatedPeaks, headerRowCount=2, delimiter = ",", commentChar = "#", headerCombineChar = "$")
+    headers, integrationData = parseTSVMultiLineHeader(curatedPeaks, headerRowCount=2, delimiter = delimiter, commentChar = commentChar, headerCombineChar = "$")
     headers = dict((k.replace("  (ISTD)", "").replace(" (ISTD)", "").replace("  Results", "").replace(" Results", "").strip(), v) for k,v in headers.items())
     foo = set(header[:header.find("$")].strip() for header in headers if not header.startswith("Sample$"))
     
@@ -1178,16 +1182,19 @@ def loadIntegrations(substances, curatedPeaks, verbose = True, logPrefix = ""):
         for integration in integrationData:
             sample = integration[headers["Sample$Data File"]].replace(".d", "")
             area = integration[headers["%s$Area"%(substanceName)]]
+            
             try:
                 if area == "" or float(area) == 0:
-                    integrations[substanceName][sample] = Integration(False, -1, -1, -1, [])
+                    integrations[substanceName][sample] = Integration(False, -1, -1, -1, [], type = "Reference", comment = "from file '%s'"%(curatedPeaks))
                     foundNoPeaks += 1
                 else:
                     integrations[substanceName][sample] = Integration(True, 
                                                                       float(integration[headers["%s$Int. Start"%(substanceName)]]), 
                                                                       float(integration[headers["%s$Int. End"  %(substanceName)]]), 
                                                                       float(integration[headers["%s$Area"      %(substanceName)]]),
-                                                                      [])
+                                                                      [], 
+                                                                      type = integration[headers["%s$Type"     %(substanceName)]] if "%s$Type" %(substanceName) in headers.keys() else "Reference", 
+                                                                      comment = "from file '%s'"%(curatedPeaks))
                     foundPeaks += 1
             except Exception as ex:
                 logging.error("Exception, area is", area)
@@ -1302,7 +1309,14 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
     usedSamples = set()
     if os.path.isfile(os.path.join(samplesPath, "integrations.pickle")) and loadFromPickleIfPossible:
         with open(os.path.join(samplesPath, "integrations.pickle"), "rb") as fin:
-            integrations, usedSamples = pickle.load(fin)
+            temp, usedSamples = pickle.load(fin)
+            if integrations is None or len(integrations) == 0:
+                integrations = temp
+            else:
+                for sub in integrations.keys():
+                    for samp in integrations[sub].keys():
+                        if sub in integrations.keys() and samp in integrations[sub].keys() and sub in temp.keys() and samp in temp[sub].keys():
+                            integrations[sub][samp].chromatogram = temp[sub][samp].chromatogram
             if verbose:
                 logging.info("%s  | .. Imported integrations from pickle file '%s'"%(logPrefix, os.path.join(samplesPath, "integrations.pickle")))
     else:
@@ -1394,13 +1408,12 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                                 if createNewIntegrations and substance.name not in integrations.keys():
                                     integrations[substance.name] = {}
                                 if createNewIntegrations and sampleName not in integrations[substance.name].keys():
-                                    integrations[substance.name][sampleName] = Integration(foundPeak = None, rtStart = None, rtEnd = None, area = None, chromatogram = [])
+                                    integrations[substance.name][sampleName] = Integration(foundPeak = None, rtStart = None, rtEnd = None, area = None, type = "None", comment = "None", chromatogram = [])
                                 
                                 if substance.name in integrations.keys() and sampleName in integrations[substance.name].keys():
                                     foundTargets.append([substance, entry, integrations[substance.name][sampleName]])
                                     usedChannel.append(substance)
                                     integrations[substance.name][sampleName].chromatogram.append(chrom)
-        
 
         with open(os.path.join(samplesPath, "integrations.pickle"), "wb") as fout:
             pickle.dump((integrations, usedSamples), fout)
@@ -1435,7 +1448,7 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
             remSubstancesChannelProblems.add(substance)
     if len(remSubstancesChannelProblems) > 0:
         if verbose:
-            logging.info(logPrefix, "\033[91m  | .. %d substances were not found as the channel selection was ambiguous and will thus not be used further. These substances are: \033[0m'%s'. "%(len(remSubstancesChannelProblems), "', '".join(natsort.natsorted(remSubstancesChannelProblems))))
+            logging.info("%s\033[91m  | .. %d substances were not found as the channel selection was ambiguous and will thus not be used further. These substances are: \033[0m'%s'. "%(logPrefix, len(remSubstancesChannelProblems), "', '".join(natsort.natsorted(remSubstancesChannelProblems))))
         for r in remSubstancesChannelProblems:
             del integrations[r]
     for sub in list(integrations.keys()):
