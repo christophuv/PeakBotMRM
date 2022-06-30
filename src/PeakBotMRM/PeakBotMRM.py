@@ -901,7 +901,7 @@ def calibrationRegression(x, y, type = None):
             y_ = np.array(y)
             
             model = LinearRegression(positive = True)
-            model.fit(x_, y_, np.ones(len(y))/np.array(x))
+            model.fit(x_, y_, np.ones(len(y))/np.array(y))
             yhat = model.predict(x_)
             
             r2 = calcR2(x, y, yhat)
@@ -924,7 +924,7 @@ def calibrationRegression(x, y, type = None):
             x_ = np.array(x)
             y_ = np.array(y)
             
-            coeffs = np.polyfit(x, y, 2, w = np.ones(len(y))/np.array(x))
+            coeffs = np.polyfit(x, y, 2, w = np.ones(len(y))/np.array(y))
             model = np.poly1d(coeffs)
             yhat = model(x)
             
@@ -934,7 +934,7 @@ def calibrationRegression(x, y, type = None):
     
     except Exception as ex:
         logging.error("Exception in linear regression calibrationRegression(x, y, type) with x '%s', y '%s', type '%s'"%(str(x), str(y), str(type)))
-        logging.exception()
+        logging.exception("Exception in calibrationRegression")
         raise ex
 
     raise RuntimeError("Unknown calibration method '%s' specified"%(type))
