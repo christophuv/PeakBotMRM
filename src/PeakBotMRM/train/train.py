@@ -32,8 +32,8 @@ def compileInstanceDataset(substances, integrations, experimentName, dataset = N
         ## extract peaks and backgrounds for synthetic dataset generation and for data augmentation (e.g., add peaks on top of existing eics)
         if verbose: 
             print(logPrefix, "  | .. Extracting peaks and backgrounds for augmentation")
-        for substance in tqdm.tqdm(integrations.keys(), desc = logPrefix + "   | .. reference extraction"):
-            for sample in integrations[substance].keys():
+        for substance in tqdm.tqdm(integrations, desc = logPrefix + "   | .. reference extraction"):
+            for sample in integrations[substance]:
                 key = "%s $ %s"%(substance, sample)
                 inte = integrations[substance][sample]
 
@@ -90,8 +90,8 @@ def compileInstanceDataset(substances, integrations, experimentName, dataset = N
     if balanceReps:
         peaks = 0
         noPeaks = 0
-        for substance in integrations.keys():
-            for sample in integrations[substance].keys():
+        for substance in integrations:
+            for sample in integrations[substance]:
                 inte = integrations[substance][sample]
                 if inte.chromatogram is not None:
                     if inte.foundPeak:
@@ -103,9 +103,9 @@ def compileInstanceDataset(substances, integrations, experimentName, dataset = N
     if verbose:
         print(logPrefix, "  | .. Each peak instance will be used %d times and each background instance %d times"%(useEachPeakInstanceNTimes, useEachBackgroundInstanceNTimes))
     insNum = 0
-    for substanceName in tqdm.tqdm(integrations.keys(), desc=logPrefix + "   | .. compiling substance"):
+    for substanceName in tqdm.tqdm(integrations, desc=logPrefix + "   | .. compiling substance"):
         refRT = substances[substanceName].refRT
-        for sample in integrations[substanceName].keys():
+        for sample in integrations[substanceName]:
             inte = integrations[substanceName][sample]
             if inte.chromatogram is not None:
                 rts = inte.chromatogram["rts"]
@@ -312,8 +312,8 @@ def constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, 
     useCriteria = {}
     notUsedCount = 0
     for substance in tqdm.tqdm(substances.values(), desc=logPrefix + "   | .. inspecting"):
-        if substance.name in integrations.keys():
-            for sample in integrations[substance.name].keys():
+        if substance.name in integrations:
+            for sample in integrations[substance.name]:
                 if integrations[substance.name][sample].foundPeak:
                     inte = integrations[substance.name][sample]
                     if inte.chromatogram is not None:
@@ -350,7 +350,7 @@ def constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, 
                             peaks.append((substance.name, sample))
                         else:
                             notUsedCount += 1
-                        if use[1] not in useCriteria.keys():
+                        if use[1] not in useCriteria:
                             useCriteria[use[1]] = 0
                         useCriteria[use[1]] += 1
                         
@@ -372,19 +372,19 @@ def constrainAndBalanceDataset(balanceDataset, checkPeakAttributes, substances, 
         noPeaks = noPeaks[:a]
     inte2 = {}
     for substance, sample in peaks:
-        if substance not in inte2.keys():
+        if substance not in inte2:
             inte2[substance] = {}
         inte2[substance][sample] = integrations[substance][sample]        
     for substance, sample in noPeaks:
-        if substance not in inte2.keys():
+        if substance not in inte2:
             inte2[substance] = {}
         inte2[substance][sample] = integrations[substance][sample]
     integrations = inte2
     peaks = []
     noPeaks = []
     for substance in substances.values():
-        if substance.name in integrations.keys():
-            for sample in integrations[substance.name].keys():
+        if substance.name in integrations:
+            for sample in integrations[substance.name]:
                 if integrations[substance.name][sample].foundPeak:
                     peaks.append((substance.name, sample))
                 else:
@@ -401,10 +401,10 @@ def investigatePeakMetrics(expDir, substances, integrations, expName = "", plot 
         print(logPrefix, "Peak statistics for '%s'"%(expName))
     tic()
     stats = {"hasPeak":0, "hasNoPeak":0, "peakProperties":[]}
-    for substanceName in tqdm.tqdm(integrations.keys(), desc="   | .. calculating"):
-        for sample in integrations[substanceName].keys():
+    for substanceName in tqdm.tqdm(integrations, desc="   | .. calculating"):
+        for sample in integrations[substanceName]:
             inte = integrations[substanceName][sample]
-            if substanceName in substances.keys() and inte.chromatogram is not None:
+            if substanceName in substances and inte.chromatogram is not None:
                 rts = inte.chromatogram["rts"]
                 eic = inte.chromatogram["eic"]
                 refRT = substances[substanceName].refRT        
@@ -774,21 +774,21 @@ def trainPeakBotMRMModel(expName, trainDSs, valDSs, modelFile, expDir = None, lo
         print("Adding training dataset '%s'"%(trainDS["DSName"]))
         
         substances               = PeakBotMRM.loadTargets(trainDS["transitions"], 
-                                                          excludeSubstances = trainDS["excludeSubstances"] if "excludeSubstances" in trainDS.keys() else None, 
-                                                          includeSubstances = trainDS["includeSubstances"] if "includeSubstances" in trainDS.keys() else None, 
+                                                          excludeSubstances = trainDS["excludeSubstances"] if "excludeSubstances" in trainDS else None, 
+                                                          includeSubstances = trainDS["includeSubstances"] if "includeSubstances" in trainDS else None, 
                                                           logPrefix = "  | ..")
         substances, integrations = PeakBotMRM.loadIntegrations(substances, 
                                                                trainDS["GTPeaks"], 
                                                                logPrefix = "  | ..")
         substances, integrations, sampleInfo = PeakBotMRM.loadChromatograms(substances, integrations, trainDS["samplesPath"],
-                                                                            sampleUseFunction = trainDS["sampleUseFunction"] if "sampleUseFunction" in trainDS.keys() else None, 
+                                                                            sampleUseFunction = trainDS["sampleUseFunction"] if "sampleUseFunction" in trainDS else None, 
                                                                             allowedMZOffset = allowedMZOffset, 
                                                                             MRMHeader = MRMHeader, 
                                                                             logPrefix = "  | ..")
         if showPeakMetrics:
             investigatePeakMetrics(expDir, substances, integrations, expName = "%s"%(trainDS["DSName"]), logPrefix = "  | ..")
         
-        integrations = constrainAndBalanceDataset(balanceDataset, trainDS["checkPeakAttributes"] if "checkPeakAttributes" in trainDS.keys() else None, substances, integrations, logPrefix = "  | ..")
+        integrations = constrainAndBalanceDataset(balanceDataset, trainDS["checkPeakAttributes"] if "checkPeakAttributes" in trainDS else None, substances, integrations, logPrefix = "  | ..")
         
         dataset = exportOriginalInstancesForValidation(substances, integrations, "Train_Ori_%s"%(trainDS["DSName"]), logPrefix = "  | ..")
         dataset.shuffle()

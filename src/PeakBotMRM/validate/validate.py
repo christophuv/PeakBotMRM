@@ -26,8 +26,8 @@ print("\n")
 
 def getValidationSet(valDS, MRMHeader, allowedMZOffset):
     substances               = PeakBotMRM.loadTargets(valDS["transitions"], 
-                                                      excludeSubstances = valDS["excludeSubstances"] if "excludeSubstances" in valDS.keys() else None, 
-                                                      includeSubstances = valDS["includeSubstances"] if "includeSubstances" in valDS.keys() else None, 
+                                                      excludeSubstances = valDS["excludeSubstances"] if "excludeSubstances" in valDS else None, 
+                                                      includeSubstances = valDS["includeSubstances"] if "includeSubstances" in valDS else None, 
                                                       logPrefix = "  | ..")
     
     substances, integrations = PeakBotMRM.loadIntegrations(substances, 
@@ -36,13 +36,13 @@ def getValidationSet(valDS, MRMHeader, allowedMZOffset):
     
     substances, integrations, sampleInfo = PeakBotMRM.loadChromatograms(substances, integrations, 
                                                                         valDS["samplesPath"],
-                                                                        sampleUseFunction = valDS["sampleUseFunction"] if "sampleUseFunction" in valDS.keys() else None, 
+                                                                        sampleUseFunction = valDS["sampleUseFunction"] if "sampleUseFunction" in valDS else None, 
                                                                         allowedMZOffset = allowedMZOffset,
                                                                         MRMHeader = MRMHeader,
                                                                         logPrefix = "  | ..")
     
     integrations = PeakBotMRM.train.constrainAndBalanceDataset(False, 
-                                                               valDS["checkPeakAttributes"] if "checkPeakAttributes" in valDS.keys() else None, 
+                                                               valDS["checkPeakAttributes"] if "checkPeakAttributes" in valDS else None, 
                                                                substances, 
                                                                integrations, 
                                                                logPrefix = "  | ..")
@@ -115,7 +115,7 @@ def validateExperiment(expName, valDSs, modelFile,
             
             subsN = set()
             sampN = set()
-            for substanceName in integrations.keys():
+            for substanceName in integrations:
                 subsN.add(substanceName)
                 for sample in integrations[substanceName]:
                     sampN.add(sample)
@@ -124,7 +124,7 @@ def validateExperiment(expName, valDSs, modelFile,
             perInstanceResultsSubstances = list(subsN)
             perInstanceResultsSamples = list(sampN) 
             
-            for substanceName in tqdm.tqdm(integrations.keys(), desc="  | .. validating"):
+            for substanceName in tqdm.tqdm(integrations, desc="  | .. validating"):
                 allSubstances.add(substanceName)
                 if plotSubstance == "all" or substanceName in plotSubstance:
                     fig, ((ax1, ax2, ax3, ax4), (ax5, ax6, ax7, ax8), (ax9, ax10, ax11, ax12)) = plt.subplots(3,4, sharey = "row", sharex = True, gridspec_kw = {'height_ratios':[2,1,1]})
@@ -139,7 +139,7 @@ def validateExperiment(expName, valDSs, modelFile,
                 agreement = np.zeros((4))
                 
                 ## generate dataset for all samples of the current substance
-                for samplei, sample in enumerate(integrations[substanceName].keys()):
+                for samplei, sample in enumerate(integrations[substanceName]):
                     inte = integrations[substanceName][sample]
                     allSamples.add(sample)
                     
@@ -175,7 +175,7 @@ def validateExperiment(expName, valDSs, modelFile,
                 metrics                                          = PeakBotMRM.evaluatePeakBotMRM(temp, model = pbModelEval, verbose = False)
                 
                 ## inspect and summarize the results of the prediction and the metrics, optionally plot
-                for samplei, sample in enumerate(integrations[substanceName].keys()):
+                for samplei, sample in enumerate(integrations[substanceName]):
                     inte = integrations[substanceName][sample] 
                     
                     if inte is not None:
@@ -266,55 +266,55 @@ def validateExperiment(expName, valDSs, modelFile,
                                     max(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod)], 
                                     [offsetEIC*samplei, 
                                     offsetEIC*samplei], 
-                                    "slategrey", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                                    "slategrey", linewidth=0.25, zorder=(len(integrations[substanceName])-samplei+1)*2)
                             axR.plot([min(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod), 
                                     max(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod)], 
                                     [0,
                                     0], 
-                                    "slategrey", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                                    "slategrey", linewidth=0.25, zorder=(len(integrations[substanceName])-samplei+1)*2)
                             axS.plot([min(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod), 
                                     max(t for t in rtsS if t > 0)+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod)], 
                                     [0,
                                     0], 
-                                    "slategrey", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                                    "slategrey", linewidth=0.25, zorder=(len(integrations[substanceName])-samplei+1)*2)
                             
                             ## plot raw, scaled data according to classification prediction and integration result
                             b = min(eic)
                             m = max([i-b for i in eic])
                             ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts], 
                                     [(e-b)/m+offsetEIC*samplei for e in eic], 
-                                    "lightgrey", linewidth=.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                                    "lightgrey", linewidth=.25, zorder=(len(integrations[substanceName])-samplei+1)*2)
                             ax.fill_between([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts], 
                                             [(e-b)/m+offsetEIC*samplei for e in eic], 
                                             offsetEIC*samplei, 
-                                            facecolor='w', lw=0, zorder=(len(integrations[substanceName].keys())-samplei+1)*2-1)
+                                            facecolor='w', lw=0, zorder=(len(integrations[substanceName])-samplei+1)*2-1)
                             ## add detected peak
                             if pred_isPeak:
                                 ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if pred_rtStart <= t <= pred_rtEnd], 
                                         [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if pred_rtStart <= rts[i] <= pred_rtEnd], 
-                                        "olivedrab", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                                        "olivedrab", linewidth=0.25, zorder=(len(integrations[substanceName])-samplei+1)*2)
                                 ax.fill_between([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if pred_rtStart <= t <= pred_rtEnd], 
                                                 [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if pred_rtStart <= rts[i] <= pred_rtEnd], 
                                                 offsetEIC*samplei, 
-                                                facecolor='yellowgreen', lw=0, zorder=(len(integrations[substanceName].keys())-samplei+1)*2-1)
+                                                facecolor='yellowgreen', lw=0, zorder=(len(integrations[substanceName])-samplei+1)*2-1)
                             ## add integration results
                             if gt_isPeak:            
                                 ax.plot([t+offsetRT1*math.floor(samplei/offsetRTMod)+offsetRT2*(samplei%offsetRTMod) for t in rts if gt_rtStart <= t <= gt_rtEnd], 
                                         [(e-b)/m+offsetEIC*samplei for i, e in enumerate(eic) if gt_rtStart <= rts[i] <= gt_rtEnd], 
-                                        "k", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                                        "k", linewidth=0.25, zorder=(len(integrations[substanceName])-samplei+1)*2)
                                                         
                             ## plot raw data
-                            axR.plot(rts, eic, "lightgrey", linewidth=.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                            axR.plot(rts, eic, "lightgrey", linewidth=.25, zorder=(len(integrations[substanceName])-samplei+1)*2)
                             ## add detected peak
                             if pred_isPeak:
                                 axR.plot([t for t in rts if pred_rtStart <= t <= pred_rtEnd], 
                                         [e for i, e in enumerate(eic) if pred_rtStart <= rts[i] <= pred_rtEnd], 
-                                        "olivedrab", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                                        "olivedrab", linewidth=0.25, zorder=(len(integrations[substanceName])-samplei+1)*2)
                             ## add integration results
                             if gt_isPeak:            
                                 axR.plot([t for t in rts if gt_rtStart <= t <= gt_rtEnd], 
                                         [e for i, e in enumerate(eic) if gt_rtStart <= rts[i] <= gt_rtEnd], 
-                                        "k", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                                        "k", linewidth=0.25, zorder=(len(integrations[substanceName])-samplei+1)*2)
 
                             ## plot scaled data
                             ## add detected peak
@@ -325,18 +325,18 @@ def validateExperiment(expName, valDSs, modelFile,
                                 maxInt = max([e-minInt for e in eicS])
                             axS.plot(rts, 
                                     [(e-minInt)/maxInt for e in eic], 
-                                    "lightgrey", linewidth=.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                                    "lightgrey", linewidth=.25, zorder=(len(integrations[substanceName])-samplei+1)*2)
                             if pred_isPeak:
                                 axS.plot([t for t in rts if pred_rtStart <= t <= pred_rtEnd], 
                                         [(e-minInt)/maxInt for i, e in enumerate(eic) if pred_rtStart <= rts[i] <= pred_rtEnd], 
-                                        "olivedrab", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                                        "olivedrab", linewidth=0.25, zorder=(len(integrations[substanceName])-samplei+1)*2)
                             if gt_isPeak:
                                 axS.plot([t for t in rts if gt_rtStart <= t <= gt_rtEnd], 
                                         [(e-minInt)/maxInt for i, e in enumerate(eic) if gt_rtStart <= rts[i] <= gt_rtEnd], 
-                                        "k", linewidth=0.25, zorder=(len(integrations[substanceName].keys())-samplei+1)*2)
+                                        "k", linewidth=0.25, zorder=(len(integrations[substanceName])-samplei+1)*2)
 
             
-                if substanceName not in metricsTable.keys():
+                if substanceName not in metricsTable:
                     metricsTable[substanceName] = {}
                 metricsTable[substanceName] = {"CCA"          : metrics["pred.peak_categorical_accuracy"], 
                                             "MCC"          : metrics["pred.peak_MatthewsCorrelationCoefficient"],
@@ -344,12 +344,12 @@ def validateExperiment(expName, valDSs, modelFile,
                                             "EICIOUPeaks"  : metrics["pred_EICIOUPeaks"],
                                             "Acc4Peaks"    : metrics["pred.peak_Acc4Peaks"],
                                             "Acc4NonPeaks" : metrics["pred.peak_Acc4NonPeaks"]}
-                if substanceName in integrations.keys():
+                if substanceName in integrations:
                     intes = []
                     intesD = []
                     preds = []
                     for sample in allSamples:
-                        if sample in integrations[substanceName].keys():
+                        if sample in integrations[substanceName]:
                             intes.append(integrations[substanceName][sample].area)
                             intesD.append(integrations[substanceName][sample].other["gt.areaPB"])
                             preds.append(integrations[substanceName][sample].other["pred.areaPB"])
@@ -366,7 +366,7 @@ def validateExperiment(expName, valDSs, modelFile,
                     ## add title and scale accordingly
                     for ax in [ax1, ax2, ax3, ax4]:
                         ax.set(xlabel = 'time (min)', ylabel = 'rel. abundance')
-                        ax.set_ylim(-0.2, len(integrations[substanceName].keys()) * offsetEIC + 1 + 0.2)
+                        ax.set_ylim(-0.2, len(integrations[substanceName]) * offsetEIC + 1 + 0.2)
                     for ax in [ax5, ax6, ax7, ax8]:
                         ax.set(xlabel = 'time (min)', ylabel = 'abundance')
                     for ax in [ax9, ax10, ax11, ax12]:
@@ -409,7 +409,7 @@ def validateExperiment(expName, valDSs, modelFile,
                     for sample in allSamples:
                         fout.write(sample)
                         for substanceName in allSubstances:
-                            if substanceName in integrations.keys() and sample in integrations[substanceName].keys() and integrations[substanceName][sample].chromatogram is not None:
+                            if substanceName in integrations and sample in integrations[substanceName] and integrations[substanceName][sample].chromatogram is not None:
                                 temp = integrations[substanceName][sample]
                                 ## Integration
                                 if temp.area > 0:
@@ -436,8 +436,8 @@ def validateExperiment(expName, valDSs, modelFile,
                 with open(os.path.join(expDir, "%s_metricsTable.pickle"%(valDS["DSName"])), "rb") as fin:
                     metricsTable = pickle.load(fin)
 
-                rows = [i for i in metricsTable[list(metricsTable.keys())[0]].keys()]
-                cols = [j for j in metricsTable.keys()]
+                rows = [i for i in metricsTable[list(metricsTable)[0]]]
+                cols = [j for j in metricsTable]
                 heatmapData = np.zeros((len(rows), len(cols)))
                 for i, metric in enumerate(rows):
                     for j, c in enumerate(cols):

@@ -60,7 +60,10 @@ class Config(object):
     INTEGRATIONMETHOD = "minbetweenborders"
     EXTENDBORDERSUNTILINCREMENT = True
     INCLUDEMETAINFORMATION = False
-    CALIBRATIONMETHOD = "y=k*x+d; 1/expConc."
+    CALIBRATIONMETHOD = "linear, 1/expConc."
+    INTEGRATENOISE = True
+    INTEGRATENOISE_StartQuantile = 0.25
+    INTEGRATENOISE_EndQuantile = 0.75
     
     MRMHEADER = "- SRM SIC Q1=(\d+\.?\d*[eE]?-?\d+) Q3=(\d+\.?\d*[eE]?-?\d+) start=(\d+\.?\d*[eE]?-?\d+) end=(\d+\.?\d*[eE]?-?\d+)"
 
@@ -235,7 +238,7 @@ class MemoryDataset(Dataset):
     def getElements(self):
         if self.data == None:
             return 0
-        k = list(self.data.keys())[0]
+        k = list(self.data)[0]
         temp = self.data[k]
         if isinstance(temp, np.ndarray):
             return temp.shape[0]
@@ -249,7 +252,7 @@ class MemoryDataset(Dataset):
             return "no data"
         
         size = 0
-        for k in self.data.keys():
+        for k in self.data:
             if isinstance(self.data[k], np.ndarray):
                 size += self.data[k].itemsize * self.data[k].size  ## bytes
             else:
@@ -261,13 +264,13 @@ class MemoryDataset(Dataset):
         if self.data == None:
             self.data = data
         else:
-            for k in data.keys():
-                if k not in self.data.keys():
+            for k in data:
+                if k not in self.data:
                     raise RuntimeError("New key '%s' in new data but not in old data"%(k))
-            for k in self.data.keys():
-                if k not in data.keys():
+            for k in self.data:
+                if k not in data:
                     raise RuntimeError("Key '%s' not present in new data"%(k))
-            for k in data.keys():
+            for k in data:
                 if type(data[k]) != type(self.data[k]):
                     raise RuntimeError("Key '%s' in new (%s) and old (%s) data have different types"%(k, type(data[k]), type(self.data[k])))
                 if isinstance(data[k], np.ndarray):
@@ -289,7 +292,7 @@ class MemoryDataset(Dataset):
         
         temp = {}
         assertLen = -1
-        for k in list(self.data.keys()):
+        for k in list(self.data):
             if isinstance(self.data[k], np.ndarray):
                 if len(self.data[k].shape)==1:
                     temp[k] = self.data[k][start:(start+elems)]
@@ -319,7 +322,7 @@ class MemoryDataset(Dataset):
             return 
                     
         elements = -1
-        for k in self.data.keys():
+        for k in self.data:
             klen = 0
             if isinstance(self.data[k], np.ndarray):
                 klen = self.data[k].shape[0]
@@ -335,7 +338,7 @@ class MemoryDataset(Dataset):
         
         tic()  
         newOrd = None
-        for k in self.data.keys():
+        for k in self.data:
             if   isinstance(self.data[k], np.ndarray):
                 if newOrd is None:
                     newOrd = list(range(self.data[k].shape[0]))
@@ -363,7 +366,7 @@ class MemoryDataset(Dataset):
                 raise RuntimeError("Unknwon error 1")
             
     def useOrNotUse(self, useBoolList):
-        for k in self.data.keys():
+        for k in self.data:
             if   isinstance(self.data[k], np.ndarray):
                 if len(self.data[k].shape) == 1:
                     self.data[k] = self.data[k][useBoolList]
@@ -382,7 +385,7 @@ class MemoryDataset(Dataset):
                 raise RuntimeError("Unknown error 3")
             
     def removeOtherThan(self, start, end):
-        for k in self.data.keys():
+        for k in self.data:
             if   isinstance(self.data[k], np.ndarray):
                 if len(self.data[k].shape) == 1:
                     self.data[k] = self.data[k][start:end]
@@ -404,7 +407,7 @@ class MemoryDataset(Dataset):
         splitPos = math.floor(self.getElements() * ratio)
         datA = {}
         datB = {}
-        for k in self.data.keys():
+        for k in self.data:
             if   isinstance(self.data[k], np.ndarray):
                 if len(self.data[k].shape) == 1:
                     datA[k] = self.data[k][:splitPos]
@@ -456,8 +459,8 @@ def modelAdapterGenerator(dataset, xKeys, yKeys, batchSize = None, verbose=False
     cur = 0
     while cur < dataset.data["channel.rt"].shape[0] and cur + batchSize <= dataset.data["channel.rt"].shape[0]:
         temp, elems = dataset.getData(cur, batchSize)
-        x = dict((xKeys[k],v) for k,v in temp.items() if k in xKeys.keys())
-        y = dict((yKeys[k],v) for k,v in temp.items() if k in yKeys.keys())
+        x = dict((xKeys[k],v) for k,v in temp.items() if k in xKeys)
+        y = dict((yKeys[k],v) for k,v in temp.items() if k in yKeys)
 
         yield x, y
         cur = cur + batchSize
@@ -835,22 +838,34 @@ def integrateArea(eic, rts, start, end):
     if end <= start:
         logging.warning("Warning in peak area calculation: start and end rt of peak are incorrect (start %.2f, end %.2f). An area of 0 will be returned."%(start, end))
         return 0
+    
+    ## ## R code to verify integration
+    ## ## Change 3rd parameter of seq to simulate differently fast scanning instruments
+    ## d = rep(0, 1000)
+    ## for(i in 1:1000){
+    ## x = seq(-3, 3, 0.01)  ## change here
+    ## y = dnorm(x)*20 + abs(rnorm(length(x), mean=0, sd=0.1))
+    ## minV = min(y)
+    ## d[i] = sum((y[2:length(y)] + y[1:length(y)-1] - minV * 2) / 2 * diff(x))
+    ## }
+    ## plot(x,y, main = paste0("Mean is ", mean(d), " sd is ", sd(d)))
+    ##
+    ## ## value of 0.01 mean: 19.80, sd: 0.051
+    ## ## value of 0.1  mean: 19.67, sd: 0.150
+    ## ## value of 0.2  mean: 19.62, sd: 0.198
+    ## ## Assuming that the instrument has approximately the same scan-settings for all targets
+    ## ##    there is virtually no difference in the calculated peak areas. 
 
     area = 0
     if method.lower() in ["linearbetweenborders", "linear"]:
-        ## TODO something is wrong here
-        if (rts[endInd]-rts[startInd]) == 0:
-            logging.warning("Warning in peak area calculation: division by 0 (startInd %.2f, endInd %.2f). An area of 0 will be returned."%(startInd, endInd))
-            return 0
-
-        minV = min(eic[startInd], eic[endInd])
-        maxV = max(eic[startInd], eic[endInd])
-        for i in range(startInd, endInd+1):
-            area = area + eic[i] - ((rts[i]-rts[startInd])/(rts[endInd]-rts[startInd]) * (maxV - minV) + minV)
+        raise Exception("Function not implemented")
 
     elif method.lower() in ["all"]:
-        for i in range(startInd, endInd+1):
-            area = area + eic[i]
+        
+        if endInd > startInd: 
+            y = eic[startInd : (endInd + 1)]
+            x = rts[startInd : (endInd + 1)] * 60
+            area = np.sum((y[1:] + y[: -1]) / 2 * np.diff(x))
 
     elif method.lower() in ["minbetweenborders"]:
         ## replaced with area integration rather than sum of signals
@@ -863,7 +878,7 @@ def integrateArea(eic, rts, start, end):
             area = np.sum((y[1:] + y[: -1] - minV * 2) / 2 * np.diff(x))
 
     else:
-        raise RuntimeError("Unknown integration method")
+        raise Exception("Unknown integration method")
 
     
     return area
@@ -884,7 +899,7 @@ def calibrationRegression(x, y, type = None):
         if type is None:
             type = Config.CALIBRATIONMETHOD    
         
-        if type == "y=k*x+d": 
+        if type == "linear":  
             x = np.array(x).reshape((-1, 1))
             y = np.array(y)
             
@@ -896,7 +911,7 @@ def calibrationRegression(x, y, type = None):
             
             return model.predict, r2, yhat, (model.intercept_, model.coef_), "y = %f * x + %f"%(model.coef_, model.intercept_)
         
-        if type == "y=k*x+d; 1/expConc.":
+        if type == "linear, 1/expConc.":
             x_ = np.array(x).reshape((-1, 1))
             y_ = np.array(y)
             
@@ -908,7 +923,7 @@ def calibrationRegression(x, y, type = None):
             
             return model.predict, r2, yhat, (model.intercept_, model.coef_[0]), "y = %f * x + %f"%(model.coef_, model.intercept_)
 
-        if type == "y=k*x**2+l*x+d":
+        if type == "quadratic":
             x_ = np.array(x)
             y_ = np.array(y)
             
@@ -920,7 +935,7 @@ def calibrationRegression(x, y, type = None):
             
             return model, r2, yhat, coeffs, "y = %f * x**2 + %f * x + %f"%(coeffs[0], coeffs[1], coeffs[2])
 
-        if type == "y=k*x**2+l*x+d; 1/expConc.":
+        if type == "quadratic, 1/expConc.":
             x_ = np.array(x)
             y_ = np.array(y)
             
@@ -1113,7 +1128,7 @@ def loadTargets(targetFile, excludeSubstances = None, includeSubstances = None, 
                                                 None if substance["InternalStandard"] == "" else substance["InternalStandard"].strip(),
                                                 substance["Concentration"],
                                                 inCalSamples,
-                                                inCalSamples.keys() if "UseCalSamples" not in substance.keys() or substance["UseCalSamples"] is None or substance["UseCalSamples"] == "" else eval(substance["UseCalSamples"]),
+                                                inCalSamples if "UseCalSamples" not in substance or substance["UseCalSamples"] is None or substance["UseCalSamples"] == "" else eval(substance["UseCalSamples"]),
                                                 substance["CalibrationMethod"],
                                                 eval("'%s'.lower() == 'true'"%(substance["CalculateCalibration"]))
                                                )
@@ -1153,7 +1168,7 @@ def loadIntegrations(substances, curatedPeaks, delimiter = ",", commentChar = "#
     foo = set(header[:header.find("$")].strip() for header in headers if not header.startswith("Sample$"))
     
     notUsingSubstances = []
-    for substanceName in substances.keys():
+    for substanceName in substances:
         if substanceName not in foo:
             notUsingSubstances.append(substanceName)
     if verbose and len(notUsingSubstances) > 0:
@@ -1161,7 +1176,7 @@ def loadIntegrations(substances, curatedPeaks, delimiter = ",", commentChar = "#
     
     notUsingSubstances = []
     for substanceName in foo:
-        if substanceName not in substances.keys():
+        if substanceName not in substances:
             notUsingSubstances.append(substanceName)
     if verbose and len(notUsingSubstances) > 0:
         logging.info("%s\033[91m  | .. Not using %d substances from the integration matrix as these are not in the transition list. These substances are: \033[0m'%s'"%(logPrefix, len(notUsingSubstances), "', '".join(natsort.natsorted(notUsingSubstances))))
@@ -1177,7 +1192,7 @@ def loadIntegrations(substances, curatedPeaks, delimiter = ",", commentChar = "#
     totalIntegrations = 0
     foundPeaks = 0
     foundNoPeaks = 0
-    for substanceName in substances.keys():
+    for substanceName in substances:
         integrations[substanceName] = {}
         for integration in integrationData:
             sample = integration[headers["Sample$Data File"]].replace(".d", "")
@@ -1193,7 +1208,7 @@ def loadIntegrations(substances, curatedPeaks, delimiter = ",", commentChar = "#
                                                                       float(integration[headers["%s$Int. End"  %(substanceName)]]), 
                                                                       float(integration[headers["%s$Area"      %(substanceName)]]),
                                                                       [], 
-                                                                      type = integration[headers["%s$Type"     %(substanceName)]] if "%s$Type" %(substanceName) in headers.keys() else "Reference", 
+                                                                      type = integration[headers["%s$Type"     %(substanceName)]] if "%s$Type" %(substanceName) in headers else "Reference", 
                                                                       comment = "from file '%s'"%(curatedPeaks))
                     foundPeaks += 1
             except Exception as ex:
@@ -1313,9 +1328,9 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
             if integrations is None or len(integrations) == 0:
                 integrations = temp
             else:
-                for sub in integrations.keys():
-                    for samp in integrations[sub].keys():
-                        if sub in integrations.keys() and samp in integrations[sub].keys() and sub in temp.keys() and samp in temp[sub].keys():
+                for sub in integrations:
+                    for samp in integrations[sub]:
+                        if sub in integrations and samp in integrations[sub] and sub in temp and samp in temp[sub]:
                             integrations[sub][samp].chromatogram = temp[sub][samp].chromatogram
             if verbose:
                 logging.info("%s  | .. Imported integrations from pickle file '%s'"%(logPrefix, os.path.join(samplesPath, "integrations.pickle")))
@@ -1405,12 +1420,12 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                             if abs(substance.Q1 - Q1) < allowedMZOffset and abs(substance.Q3 - Q3) <= allowedMZOffset and \
                                 substance.CE == collisionEnergy and substance.CEMethod == collisionMethod and \
                                 rtstart <= substance.refRT <= rtend:
-                                if createNewIntegrations and substance.name not in integrations.keys():
+                                if createNewIntegrations and substance.name not in integrations:
                                     integrations[substance.name] = {}
-                                if createNewIntegrations and sampleName not in integrations[substance.name].keys():
+                                if createNewIntegrations and sampleName not in integrations[substance.name]:
                                     integrations[substance.name][sampleName] = Integration(foundPeak = None, rtStart = None, rtEnd = None, area = None, type = "None", comment = "None", chromatogram = [])
                                 
-                                if substance.name in integrations.keys() and sampleName in integrations[substance.name].keys():
+                                if substance.name in integrations and sampleName in integrations[substance.name]:
                                     foundTargets.append([substance, entry, integrations[substance.name][sampleName]])
                                     usedChannel.append(substance)
                                     integrations[substance.name][sampleName].chromatogram.append(chrom)
@@ -1421,8 +1436,8 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                 logging.info("%s  | .. Stored integrations to '%s/integrations.pickle'"%(logPrefix, os.path.join(samplesPath, "integrations.pickle")))
     
     if resetIntegrations:
-        for s in integrations.keys():
-            for f in integrations[s].keys():
+        for s in integrations:
+            for f in integrations[s]:
                 integrations[s][f].foundPeak = None
                 integrations[s][f].rtStart = None
                 integrations[s][f].rtEnd = None
@@ -1430,9 +1445,9 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
     
     ## Remove chromatograms with ambiguously selected chromatograms
     remSubstancesChannelProblems = set()
-    for substance in integrations.keys():
+    for substance in integrations:
         foundOnce = False
-        for sample in integrations[substance].keys():
+        for sample in integrations[substance]:
             if len(integrations[substance][sample].chromatogram) == 1:
                 foundOnce = True
                 integrations[substance][sample].chromatogram = integrations[substance][sample].chromatogram[0]
@@ -1451,15 +1466,15 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
             logging.info("%s\033[91m  | .. %d substances were not found as the channel selection was ambiguous and will thus not be used further. These substances are: \033[0m'%s'. "%(logPrefix, len(remSubstancesChannelProblems), "', '".join(natsort.natsorted(remSubstancesChannelProblems))))
         for r in remSubstancesChannelProblems:
             del integrations[r]
-    for sub in list(integrations.keys()):
-        if sub not in substances.keys():
+    for sub in list(integrations):
+        if sub not in substances:
             integrations.pop(sub)
             
     remSamples = set()
     allSamples = set()
     usedSamples = set()
-    for substance in list(integrations.keys()):
-        for sample in list(integrations[substance].keys()):
+    for substance in list(integrations):
+        for sample in list(integrations[substance]):
             allSamples.add(sample)
             if sampleUseFunction is not None and not sampleUseFunction(sample):
                 integrations[substance].pop(sample)
@@ -1475,9 +1490,9 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
     referencePeaks = 0
     noReferencePeaks = 0
     useSubstances = []
-    for substance in integrations.keys():
+    for substance in integrations:
         useSub = False
-        for sample in integrations[substance].keys():
+        for sample in integrations[substance]:
             if integrations[substance][sample].chromatogram is not None:
                 referencePeaks += 1
                 useSub = True

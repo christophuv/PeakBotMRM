@@ -30,7 +30,7 @@ def timeit(method):
 def printRunTimesSummary():
     print("Recorded runtimes")
     print("-----------------")
-    for fName in _functionStats.keys():
+    for fName in _functionStats:
         print("%110s: %20s (%10.1f seconds), %9d invokes"%(fName, str(datetime.timedelta(seconds=_functionStats[fName][0])), _functionStats[fName][0], _functionStats[fName][1]))
 
 
@@ -42,7 +42,7 @@ __start = {}
 def tic(label = "NA"):
     __start[label] = time.time()
 def toc(label = "NA"):
-    if label not in __start.keys():
+    if label not in __start:
         return -1
     return time.time() - __start[label]
 def tocP(taskName = "", label="NA"):
@@ -76,7 +76,7 @@ def sizeof(obj):
        and adding up the results. Does NOT handle circular object references!
     """
     size = sys.getsizeof(obj)
-    if isinstance(obj, dict): return size + sum(map(sizeof, obj.keys())) + sum(map(sizeof, obj.values()))
+    if isinstance(obj, dict): return size + sum(map(sizeof, list(obj.keys()))) + sum(map(sizeof, list(obj.values())))
     if isinstance(obj, (list, tuple, set, frozenset)): return size + sum(map(sizeof, obj))
     return size
 
@@ -102,7 +102,7 @@ class TabLog(metaclass = Singleton):
         self.keyOrder = []
 
     def addData(self, instance, key, value, addNumToExistingKeys = True):
-        if instance not in self.data.keys():
+        if instance not in self.data:
             self.data[instance] = {}
             self.instanceOrder.append(instance)
         if key in self.data[instance]:
@@ -130,7 +130,7 @@ class TabLog(metaclass = Singleton):
         for k in self.keyOrder:
             le = len(str(k))
             for i in self.instanceOrder:
-                if i in self.data.keys() and k in self.data[i].keys():
+                if i in self.data and k in self.data[i]:
                     le = max(le, len(str(self.data[i][k])))
             widths[k] = le
         
@@ -156,7 +156,7 @@ class TabLog(metaclass = Singleton):
                 print("%%%ds. "%len(str(len(self.instanceOrder)))%ind, end="")
                 print("%%-%ds | "%leI%i, end="")
                 for k in self.keyOrder:
-                    if i in self.data.keys() and k in self.data[i].keys():
+                    if i in self.data and k in self.data[i]:
                         print("%%%ds | "%widths[k]%self.data[i][k], end="")
                     else:
                         print("%%%ds | "%widths[k]%"", end="")
@@ -172,7 +172,7 @@ class TabLog(metaclass = Singleton):
             fOut.write("\t".join(str(s) for s in ["Instance"]+self.keyOrder))
             fOut.write("\n")
             for ins in self.instanceOrder:
-                fOut.write("\t".join(str(s) for s in [ins]+[self.data[ins][key] if key in self.data[ins].keys() else "" for key in self.keyOrder]))
+                fOut.write("\t".join(str(s) for s in [ins]+[self.data[ins][key] if key in self.data[ins] else "" for key in self.keyOrder]))
                 fOut.write("\n")
 
 
@@ -194,6 +194,13 @@ def arg_find_nearest(array,value):
         idx = idx.item(0)
     return idx
 
+## copied from https://stackoverflow.com/a/61343915
+def weighted_percentile(data, weights, perc):
+    ix = np.argsort(data)
+    data = data[ix] 
+    weights = weights[ix] 
+    cdf = (np.cumsum(weights) - 0.5 * weights) / np.sum(weights) 
+    return np.interp(perc, cdf, data)
 
 
 

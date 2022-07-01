@@ -101,7 +101,7 @@ class AdditionalValidationSets(tf.keras.callbacks.Callback):
                         print("Cannot write scalar to tensorboard. Try installing TensorBoard (command: pip install tensorboard)")
                     
                     valuename = metric
-                    if i not in self.printWidths.keys():
+                    if i not in self.printWidths:
                         self.printWidths[i] = 0
                     self.printWidths[i] = max(self.printWidths[i], len(valuename))
                     
