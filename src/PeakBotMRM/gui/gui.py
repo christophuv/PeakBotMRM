@@ -604,11 +604,11 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         item.triggered.connect(self.userSelectExperimentalData)
         toolbar.addAction(item)
 
-        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "save-outline.svg")), "New / open", self)
+        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "save-outline.svg")), "Save (binary experiment)", self)
         item.triggered.connect(self.saveBinaryExperimentHelper)
         toolbar.addAction(item)
 
-        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "load-outline.svg")), "New / open", self)
+        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "load-outline.svg")), "Open (binary experiment)", self)
         item.triggered.connect(self.loadBinaryExperimentHelper)
         toolbar.addAction(item)
 
@@ -626,7 +626,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         item.triggered.connect(functools.partial(self.showSummary, processingInfo = None))
         toolbar.addAction(item)
 
-        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "download-outline.svg")), "Export active experiment results", self)
+        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "download-outline.svg")), "Export active experiment results (Excel files)", self)
         item.triggered.connect(functools.partial(self.exportIntegrations, all = False))
         toolbar.addAction(item)
 
@@ -1082,23 +1082,35 @@ class Window(PyQt6.QtWidgets.QMainWindow):
     <title>Overview of results</title>
     <style>
       /* CSS styles */
-      p {
+      * {
+        margin-left: 40px;
         font-family: Arial;
       }
+      
+      pre {
+          font-family: Consolas,monospace
+      }
+      
       h1, h2, h3 {
         font-family: Arial;
         color: Slategrey;
         border: solid 1px   #bdc3c7; 
         border-radius: 3px;
-        padding-left: 6px;
+        padding: 10px;
+        padding-left: 14px;
         box-shadow: 2px 6px 6px lightgrey;
+        margin-top: 100px;
+        margin-left: -20px;
       }
+      
       h1 {
         border-left: solid 6px #a93226; 
       }
+      
       h2 {
         border-left: solid 6px #f39c12; 
       }
+      
       h3 {
         border-left: solid 6px #2980b9; 
       }
@@ -1282,6 +1294,16 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     + p9.xlab("Peak width (min)"))
                 p9.ggsave(plot=p, filename=os.path.join(tmpDir, "tempFig.png"), dpi = 72, width = 12, height = 32/250*len(ints), units = "in", limitsize = False)
                 body.append("<img src='data:image/png;base64,%s'></img><br>"%(str(base64.b64encode(open(os.path.join(tmpDir, "tempFig.png"), "rb").read()))[2:-1]))
+                
+                p = (p9.ggplot(data = dat[dat["peak"] != "Other"], mapping = p9.aes(x="peakWidth", y="area", colour = "peak")) + p9.theme_minimal()
+                    + p9.geom_point(alpha = 0.1)
+                    + p9.xlim([0, 2])
+                    + p9.scales.scale_y_log10()
+                    + p9.ggtitle("Peak width vs. area, zoomed (min)")
+                    + p9.xlab("Peak width (min)")
+                    + p9.ylab("Peak area (log10)"))
+                p9.ggsave(plot=p, filename=os.path.join(tmpDir, "tempFig.png"), dpi = 72, width = 18, height = 8, units = "in", limitsize = False)
+                body.append("<img src='data:image/png;base64,%s'></img><br>"%(str(base64.b64encode(open(os.path.join(tmpDir, "tempFig.png"), "rb").read()))[2:-1]))
                                 
                 
                 ## Peak area
@@ -1325,7 +1347,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     temp = temp[temp["substance"] == sub]
                     a = temp.describe(percentiles = [0.1, 0.25, 0.5, 0.75, 0.9])
                     body.append("<h3>%s</h3>"%(sub))
-                    body.append("Note: Only chromatographic peaks (category 'Peak') are considered")
+                    body.append("<p>Note: Only chromatographic peaks (category 'Peak') are considered</p>")
                     body.append("<pre>%s</pre>"%(str(a).replace("\n", "<br>")))
                     
                     if False:
@@ -1561,6 +1583,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     procDiag.setLabelText("Saving experiments, %d / %d done"%(i, len(ls)))
                     if not self.loadedExperiments[l.experiment].saveToFile(os.path.join(fDir, l.experiment+".pbexp")):
                         PyQt6.QtWidgets.QMessageBox.error(self, "PeakBotMRM", "<b>Error: could not export experiment</b><br><br>See log for further details.")
+                    else:
+                        procDiag.setLabelText("Saved experiment %s"%(l.experiment))
                         
                 procDiag.hide()
         else:

@@ -195,6 +195,11 @@ def predictDataset(modelFile, substances, integrations, callBackFunction = None,
                             pred_rtStartInd = pred_rtStartInd - 1
                         while pred_rtEndInd + 1 < eicS.shape[0] and eicS[pred_rtEndInd + 1] <= eicS[pred_rtEndInd]:
                             pred_rtEndInd = pred_rtEndInd + 1
+                            
+                        while pred_rtEndInd - 1 >= 0 and eicS[pred_rtEndInd - 1] <= eicS[pred_rtEndInd]:
+                            pred_rtEndInd = pred_rtEndInd - 1
+                        while pred_rtStartInd + 1 < eicS.shape[0] and eicS[pred_rtStartInd + 1] <= eicS[pred_rtStartInd]:
+                            pred_rtStartInd = pred_rtStartInd + 1
                     
                     pred_rtStart    = rtsS[min(PeakBotMRM.Config.RTSLICES-1, max(0, pred_rtStartInd))]
                     pred_rtEnd      = rtsS[min(PeakBotMRM.Config.RTSLICES-1, max(0, pred_rtEndInd))]
@@ -206,7 +211,7 @@ def predictDataset(modelFile, substances, integrations, callBackFunction = None,
                         inte.other["pred.foundPeak"] = 1
                         inte.other["pred.rtstart"]   = pred_rtStart
                         inte.other["pred.rtend"]     = pred_rtEnd
-                        inte.other["pred.areaPB"]    = PeakBotMRM.integrateArea(eic, rts, pred_rtStart, pred_rtEnd)
+                        inte.other["pred.areaPB"]    = PeakBotMRM.integrateArea(eic, rts, inte.other["pred.rtstart"], inte.other["pred.rtend"])
                         
                         startRTs.append(pred_rtStart)
                         endRTs.append(pred_rtEnd)
@@ -223,8 +228,8 @@ def predictDataset(modelFile, substances, integrations, callBackFunction = None,
                 endRTs = np.array(endRTs)
                 areas = np.array(areas)
                 
-                startNoiseInt = PeakBotMRM.core.weighted_percentile(startRTs, areas, PeakBotMRM.Config.INTEGRATENOISE_StartQuantile)
-                endNoiseInt = PeakBotMRM.core.weighted_percentile(endRTs, areas, PeakBotMRM.Config.INTEGRATENOISE_EndQuantile)
+                startNoiseInt = PeakBotMRM.core.weighted_percentile(startRTs, 1/np.log10(areas), PeakBotMRM.Config.INTEGRATENOISE_StartQuantile)
+                endNoiseInt = PeakBotMRM.core.weighted_percentile(endRTs, 1/np.log10(areas), PeakBotMRM.Config.INTEGRATENOISE_EndQuantile)
                 
                 ## implement noise integration here
                 ## todo improve this aspect by calculating baselines
@@ -247,11 +252,16 @@ def predictDataset(modelFile, substances, integrations, callBackFunction = None,
                                 pred_rtStartInd = pred_rtStartInd - 1
                             while pred_rtEndInd + 1 < eicS.shape[0] and eicS[pred_rtEndInd + 1] <= eicS[pred_rtEndInd]:
                                 pred_rtEndInd = pred_rtEndInd + 1
+                            
+                            while pred_rtEndInd - 1 >= 0 and eicS[pred_rtEndInd - 1] <= eicS[pred_rtEndInd]:
+                                pred_rtEndInd = pred_rtEndInd - 1
+                            while pred_rtStartInd + 1 < eicS.shape[0] and eicS[pred_rtStartInd + 1] <= eicS[pred_rtStartInd]:
+                                pred_rtStartInd = pred_rtStartInd + 1
                         
                         inte.other["pred.foundPeak"] = 2
-                        inte.other["pred.rtstart"]   = startNoiseInt
-                        inte.other["pred.rtend"]     = endNoiseInt
-                        inte.other["pred.areaPB"]    = PeakBotMRM.integrateArea(eic, rts, startNoiseInt, endNoiseInt)
+                        inte.other["pred.rtstart"]   = rtsS[pred_rtStartInd]
+                        inte.other["pred.rtend"]     = rtsS[pred_rtEndInd]
+                        inte.other["pred.areaPB"]    = PeakBotMRM.integrateArea(eic, rts, inte.other["pred.rtstart"], inte.other["pred.rtend"])
                         
                 
                         
@@ -455,13 +465,17 @@ def calibrateIntegrations(substances, integrations):
                                 obs = inteSub.area
                                 fromType = "Peak areas"
                                 
-                        if exp is not None and obs is not None and not np.isnan(exp) and not np.isnan(obs) and exp > 0 and obs > 0 and level > 0:
+                        if exp is not None and obs is not None and not np.isnan(exp) and not np.isnan(obs) and not np.isinf(exp) and not np.isinf(obs) and exp > 0 and obs > 0 and level > 0:
                             samplesComments[substanceName][sample].append("Cal: Using for cal. (exp. conc. %s)"%str(exp))
                             calExp.append(exp)
                             calObs.append(obs)
                         
-            if len(calExp) > 1 and substances[substanceName].calculateCalibration:                    
-                model, r2, yhat, params, strRepr = PeakBotMRM.calibrationRegression(calObs, calExp, type = substances[substanceName].calibrationMethod)
+            if len(calExp) > 1 and substances[substanceName].calculateCalibration:
+                try:
+                    model, r2, yhat, params, strRepr = PeakBotMRM.calibrationRegression(calObs, calExp, type = substances[substanceName].calibrationMethod)
+                except Exception as ex:
+                    logging.exception("Error during calibration calculation of substance '%s': call is PeakBotMRM.calibrationRegression(%s, %s, type = '%s')"%(substanceName, str(calObs), str(calExp), substances[substanceName].calibrationMethod))
+                    raise ex
                 substancesComments[substanceName]["Final Conc."] = {"R2": r2, "points": len(calObs), "fromType": fromType, "formula": strRepr, "method": substances[substanceName].calibrationMethod, "ConcentrationAtLevel1": str(substances[substanceName].calLevel1Concentration)}
                         
                 for samplei, sample in enumerate(integrations[substanceName]):

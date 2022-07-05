@@ -62,8 +62,8 @@ class Config(object):
     INCLUDEMETAINFORMATION = False
     CALIBRATIONMETHOD = "linear, 1/expConc."
     INTEGRATENOISE = True
-    INTEGRATENOISE_StartQuantile = 0.25
-    INTEGRATENOISE_EndQuantile = 0.75
+    INTEGRATENOISE_StartQuantile = 0.5
+    INTEGRATENOISE_EndQuantile = 0.5
     
     MRMHEADER = "- SRM SIC Q1=(\d+\.?\d*[eE]?-?\d+) Q3=(\d+\.?\d*[eE]?-?\d+) start=(\d+\.?\d*[eE]?-?\d+) end=(\d+\.?\d*[eE]?-?\d+)"
 
@@ -86,6 +86,9 @@ class Config(object):
             " Integration method: '%s'"%Config.INTEGRATIONMETHOD,
             " Extend peak borders until no reduction: '%s'"%Config.EXTENDBORDERSUNTILINCREMENT, 
             " Calibration method: '%s'"%Config.CALIBRATIONMETHOD,
+            " Integrate noise: '%s'"%Config.INTEGRATENOISE,
+            " Integrate noise start quantile: %.2f"%Config.INTEGRATENOISE_StartQuantile,
+            " Integrate noise end quantile: %.2f"%Config.INTEGRATENOISE_EndQuantile,
         ])
 
     @staticmethod
@@ -106,6 +109,9 @@ class Config(object):
             "Integration method: '%s'"%Config.INTEGRATIONMETHOD,
             "Extend peak borders until no reduction: '%s'"%Config.EXTENDBORDERSUNTILINCREMENT, 
             "Calibration method: '%s'"%Config.CALIBRATIONMETHOD,
+            "Integrate noise: '%s'"%Config.INTEGRATENOISE,
+            "Integrate noise start quantile: %.2f"%Config.INTEGRATENOISE_StartQuantile,
+            "Integrate noise end quantile: %.2f"%Config.INTEGRATENOISE_EndQuantile,
         ])
 
 
