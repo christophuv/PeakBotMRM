@@ -1371,7 +1371,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         p9.ggsave(plot=p, filename=os.path.join(tmpDir, "tempFig.png"), dpi = 72, width = 12, height = 8, units = "in", limitsize = False)
                         body.append("<img src='data:image/png;base64,%s'></img>"%(str(base64.b64encode(open(os.path.join(tmpDir, "tempFig.png"), "rb").read()))[2:-1]))
                 
-                procDiag.hide()
+                procDiag.close()
 
                 outFil = os.path.join(tmpDir, "temp.html")
                 with open(outFil, "w") as fout:
@@ -1532,10 +1532,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                                       additionalCommentsForFile=[],
                                                       oneRowHeader4Results = False)
                 if len(ls) == 1:
-                    procDiag.hide()
                     PyQt6.QtWidgets.QMessageBox.information(self, "Exporting results", "Experiment '%s' has been exported to file<br>'%s'"%(selExp, outputFile))
         
-        procDiag.hide()
+        procDiag.close()
         if len(ls) > 1:
             PyQt6.QtWidgets.QMessageBox.information(self, "Exporting results", "Experiment results have been exported")
                     
@@ -1592,7 +1591,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     else:
                         procDiag.setLabelText("Saved experiment %s"%(l.experiment))
                         
-                procDiag.hide()
+                procDiag.close()
         else:
             PyQt6.QtWidgets.QMessageBox.warning(self, "PeakBotMRM", "Please select an experiment from the list first")        
         
@@ -1612,7 +1611,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 procDiag.setLabelText("Loading experiments, %d / %d done"%(i, len(files[0])))
                 self.loadBinaryExperiment(file)
                 
-            procDiag.hide()
+            procDiag.close()
 
     def loadBinaryExperiment(self, fromFile):
         with open(fromFile, "rb") as fin:
@@ -2185,16 +2184,19 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             inte = intes[ind]
             
             if inte.foundPeak:
-                tempRT = inte.chromatogram["rts"][np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
-                temp = inte.chromatogram["eic"][np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
-                minVal = np.min(temp)
-                maxVal = np.max(temp - minVal)
-                peakApexRT = tempRT[np.argmax(temp)]
+                try:
+                    tempRT = inte.chromatogram["rts"][np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
+                    temp = inte.chromatogram["eic"][np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
+                    minVal = np.min(temp)
+                    maxVal = np.max(temp - minVal)
+                    peakApexRT = tempRT[np.argmax(temp)]
 
-                col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor[0], self.__highlightColor[1], self.__highlightColor[2]) # PyQt6.QtGui.QColor(colors[ind])PyQt6.QtGui.QColor(colors[ind])
-                self._plots[plotInds[1]].plot(tempRT - peakApexRT, 
-                                              (temp - minVal) / maxVal,
-                                              pen = (col.red(), col.green(), col.blue(), 255*0.3))
+                    col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor[0], self.__highlightColor[1], self.__highlightColor[2]) # PyQt6.QtGui.QColor(colors[ind])PyQt6.QtGui.QColor(colors[ind])
+                    self._plots[plotInds[1]].plot(tempRT - peakApexRT, 
+                                                (temp - minVal) / maxVal,
+                                                pen = (col.red(), col.green(), col.blue(), 255*0.3))
+                except Exception as ex:
+                    logging.exception("Error in plotting integration")
 
         self._plots[plotInds[1]].setTitle(title + "; zoomed, aligned peaks")
         self._plots[plotInds[1]].setLabel('left', "Intensity")

@@ -25,7 +25,7 @@ def compileInstanceDataset(substances, integrations, experimentName, dataset = N
                            shiftRTs=False, maxShift=0.1, useEachInstanceNTimes=1, balanceReps = False, 
                            aug_augment = True, aug_OnlyUseAugmentationFromSamples = None, aug_addAugPeaks = True, aug_maxAugPeaksN = 3, aug_plotAugInstances = False, 
                            verbose = True, logPrefix = ""):
-    
+    aug_plotAugInstances = False
     augPeaks = []
     augBackgrounds = []
     if aug_augment:
@@ -180,10 +180,10 @@ def compileInstanceDataset(substances, integrations, experimentName, dataset = N
                             peakUseEnd = min(peakEIC.shape[0], PeakBotMRM.Config.RTSLICES - addAtInd + math.floor(peakEIC.shape[0]/2))
 
                             ## try and add peak at particular position                            
-                            scaling = np.random.random() * 2 + 1 if random.randint(0,1) == 1 else 1 / (np.random.random() * 2 + 1)
+                            scaling = np.random.random() * 2 + 1 if random.randint(0,2) == 2 else 1 / (np.random.random() * 10 + 1)
                             eicSTemp = np.copy(eicS)
                             peakSignalTypeTemp = np.copy(peakSignalType)
-                            eicSTemp[addstartEIC:addendEIC] = eicSTemp[addstartEIC:addendEIC] + peakEIC[peakUseStart:peakUseEnd] / np.max(peakEIC[peakUseStart:peakUseEnd]) * np.max(eicSTemp) * scaling
+                            eicSTemp[addstartEIC:addendEIC] = eicSTemp[addstartEIC:addendEIC] + peakEIC[peakUseStart:peakUseEnd] / np.max(peakEIC[peakUseStart:peakUseEnd]) * (np.max(eicSTemp) - np.min(eicSTemp)) * scaling
                             peakSignalTypeTemp[addstartEIC:addendEIC] = peakSignalTypeTemp[addstartEIC:addendEIC] + 2**peaksPop
 
                             ## if there are overlapping peaks diretly in the eics center, discard the addition
@@ -291,7 +291,6 @@ def generateAndExportAugmentedInstancesForTraining(substances, integrations, exp
         print(logPrefix)
     return dataset
 
-@functools.lru_cache(maxsize = None)
 def exportOriginalInstancesForValidation(substances, integrations, experimentName, dataset = None, verbose = True, logPrefix = ""):
     if verbose:
         print(logPrefix, "Exporting original instances for validation")
