@@ -2404,7 +2404,7 @@ try:
                                 importantSamples = None)
         
     
-    if True:
+    if False:
         main.loadExperiment("R100285", "./Reference/transitions.tsv", "./machine_learning_datasets_peakbot/unprocessed/R100285_METAB02_MCC025_20220610", None, ",", 
                             importantSamples = OrderedDict([("_CAL[0-9]+_"  , ("CAL"   , "Tech", "Firebrick", False)), 
                                                             ("_NIST[0-9]+_" , ("NIST"  , "Tech", "Orange"   , False)), 
@@ -2414,6 +2414,7 @@ try:
                                                             (".*"           , ("sample", "Bio" , "Olivedrab", True))]))
         main.tree.setCurrentItem(main.tree.topLevelItem(0))
         main.processExperimentS(peakBotMRMModelFile = "C:/Users/cbueschl/AppData/Local/PeakBotMRM/models\METAB02__0a967796629c438387f2ba81482cd37e.h5", all = True, keepManualIntegrations = False)
+    
 except Exception as ex:
     print(ex)
     logging.exception("Exception in main window.")
