@@ -43,7 +43,17 @@ Note: If an exportBatchSize of 2048 requires some 4GB of GPU-memory. If you have
     git clone http://cemmgit.int.cemm.at/cbueschl/PeakBotMRM.git
 ```
 
-8. Run PeakBotMRM:
+8. Download a pre-trained model:
+
+```
+    cd PeakBotMRM
+    mkdir models
+    cd models
+    curl http://cemmgit.int.cemm.at/cbueschl/peakbotmrm_models/-/raw/master/METAB02__0a967796629c438387f2ba81482cd37e/METAB02__0a967796629c438387f2ba81482cd37e.h5?inline=false
+    cd ../..
+```
+
+9. Run PeakBotMRM:
 
 ```
     python ./PeakBotMRM/src/gui.py
