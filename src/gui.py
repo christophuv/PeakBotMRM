@@ -14,33 +14,39 @@ fileHandler.setFormatter(logFormatter)
 rootLogger.addHandler(fileHandler)
 
 import os
+import sys
+pythonScriptDirectory = None
+if hasattr(sys, 'frozen'):
+    # retrieve path from sys.executable
+    pythonScriptDirectory = os.path.abspath(os.path.dirname(sys.executable))
+else:
+    # assign a value from __file__
+    pythonScriptDirectory = os.path.abspath(os.path.dirname(__file__))
+import os
 import PySimpleGUI as sg
 try:
-    splashImage = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gui-resources", "robot_loading.png")
+    splashImage = os.path.join(pythonScriptDirectory, "gui-resources", "robot_loading.png")
     window = sg.Window("", [[sg.Image(splashImage)]], transparent_color=sg.theme_background_color(), no_titlebar=True, keep_on_top=True, finalize=True)
     window.bring_to_front()
 except:
     logging.warning("Cannot show splash screen")
-
-import sys
+    
 from typing import OrderedDict
 import functools
-
-import os
+print(1)
 import shutil
 import sys
-sys.path.append(os.path.join("..", "PeakBotMRM", "src"))
 import natsort
 import re
 import pickle
 import subprocess
 from pathlib import Path
 import copy
-
+print(2)
 import PyQt6.QtWidgets
 import PyQt6.QtCore
 import PyQt6.QtGui
-
+print(3)
 import pyqtgraph
 pyqtgraph.setConfigOption('background', 'w')
 pyqtgraph.setConfigOption('foreground', 'k')
@@ -48,14 +54,15 @@ pyqtgraph.setConfigOptions(antialias=True)
 from pyqtgraph.dockarea.Dock import Dock
 from pyqtgraph.dockarea.DockArea import DockArea
 from pyqtgraph.parametertree import Parameter, ParameterTree
-
+print(4)
 import numpy as np
-import pacmap
-
+#import pacmap
+print(5)
 import pandas as pd
 import plotnine as p9
 import tempfile
 import base64
+print(6)
 
 ## Specific tensorflow configuration. Can re omitted or adapted to users hardware
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -64,7 +71,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 import PeakBotMRM
 import PeakBotMRM.predict
-
+print(7)
 try:
     window.close()
 except:
@@ -447,7 +454,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
     def __init__(self, parent=None):
         super(Window, self).__init__(parent)
         
-        self._pyFilePath = os.path.dirname(os.path.abspath(__file__))
+        self._pyFilePath = os.path.join(pythonScriptDirectory)
         
         self.__sampleNameReplacements = {"Ref_": "", "METAB02_": "", "MCC025_": "", "R100140_": "", "R100138_": ""}
         self.__leftPeakDefault = -0.1
@@ -2002,7 +2009,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                             self.plotCalibration(subRatio, "Sub/ISTD", addLM = True, highlightLevel = highlightLevelRatio, plotInd = 8)
                 
                 
-                if selExp != self.lastExp or self.paCMAP is None:
+                if False: #selExp != self.lastExp or self.paCMAP is None:
                     self.paCMAPAllEICsS = []
                     self.paCMAPAllRTsS = []
                     self.paCMAPsubstances = []
@@ -2409,6 +2416,7 @@ try:
         main.tree.setCurrentItem(main.tree.topLevelItem(0))
         main.processExperimentS(peakBotMRMModelFile = "C:/Users/cbueschl/AppData/Local/PeakBotMRM/models\METAB02__0a967796629c438387f2ba81482cd37e.h5", all = True, keepManualIntegrations = False)
 except Exception as ex:
+    print(ex)
     logging.exception("Exception in main window.")
     
     
