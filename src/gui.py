@@ -33,7 +33,6 @@ except:
     
 from typing import OrderedDict
 import functools
-print(1)
 import shutil
 import sys
 import natsort
@@ -42,11 +41,11 @@ import pickle
 import subprocess
 from pathlib import Path
 import copy
-print(2)
+
 import PyQt6.QtWidgets
 import PyQt6.QtCore
 import PyQt6.QtGui
-print(3)
+
 import pyqtgraph
 pyqtgraph.setConfigOption('background', 'w')
 pyqtgraph.setConfigOption('foreground', 'k')
@@ -54,15 +53,15 @@ pyqtgraph.setConfigOptions(antialias=True)
 from pyqtgraph.dockarea.Dock import Dock
 from pyqtgraph.dockarea.DockArea import DockArea
 from pyqtgraph.parametertree import Parameter, ParameterTree
-print(4)
+
 import numpy as np
 #import pacmap
-print(5)
+
 import pandas as pd
 import plotnine as p9
 import tempfile
 import base64
-print(6)
+
 
 ## Specific tensorflow configuration. Can re omitted or adapted to users hardware
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -71,7 +70,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 import PeakBotMRM
 import PeakBotMRM.predict
-print(7)
+
 try:
     window.close()
 except:
