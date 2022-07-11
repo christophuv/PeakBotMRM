@@ -15,7 +15,6 @@ import tqdm
 import random
 random.seed(2021)
 
-import functools
 import portalocker
 
 

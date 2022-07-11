@@ -428,6 +428,12 @@ def calibrateIntegrations(substances, integrations):
         if substanceName not in samplesComments:
             samplesComments[substanceName] = {}
             
+            
+        for samplei, sample in enumerate(integrations[substanceName]):
+            inteSub = integrations[substanceName][sample]
+            inteSub.concentration = None
+            inteSub.istdRatio = None
+            
         if substances[substanceName].internalStandard is not None:
             if "Comment" not in substancesComments[substanceName]:
                 substancesComments[substanceName]["Comment"] = ""
@@ -438,6 +444,7 @@ def calibrateIntegrations(substances, integrations):
         if substances[substanceName].calculateCalibration:
             calExp = []
             calObs = []
+            calCal = []
             fromType = None
                     
             for samplei, sample in enumerate(integrations[substanceName]):
@@ -471,34 +478,58 @@ def calibrateIntegrations(substances, integrations):
                             calObs.append(obs)
                         
             if len(calExp) > 1 and substances[substanceName].calculateCalibration:
+                calcCal = False
                 try:
                     model, r2, yhat, params, strRepr = PeakBotMRM.calibrationRegression(calObs, calExp, type = substances[substanceName].calibrationMethod)
+                    calCal = model(np.array((calObs)).reshape(-1,1))
+                    
+                    calToOrigin = None
+                    for i in range(len(calObs)):
+                        if calToOrigin is None and calCal[i] > 0:
+                            calToOrigin = i
+
+                    substancesComments[substanceName]["Final Conc."] = {"R2": r2, "points": len(calObs), "fromType": fromType, "formula": strRepr, "method": substances[substanceName].calibrationMethod, "ConcentrationAtLevel1": str(substances[substanceName].calLevel1Concentration)}                    
+                    calcCal = True
+                    
                 except Exception as ex:
                     logging.exception("Error during calibration calculation of substance '%s': call is PeakBotMRM.calibrationRegression(%s, %s, type = '%s')"%(substanceName, str(calObs), str(calExp), substances[substanceName].calibrationMethod))
                     raise ex
-                substancesComments[substanceName]["Final Conc."] = {"R2": r2, "points": len(calObs), "fromType": fromType, "formula": strRepr, "method": substances[substanceName].calibrationMethod, "ConcentrationAtLevel1": str(substances[substanceName].calLevel1Concentration)}
-                        
-                for samplei, sample in enumerate(integrations[substanceName]):
-                    inteSub = integrations[substanceName][sample]
-                    if substances[substanceName].internalStandard is not None and substances[substanceName].internalStandard in integrations:
-                        if sample in integrations[substances[substanceName].internalStandard]:
-                            inteIST = integrations[substances[substanceName].internalStandard][sample]
-                            if inteSub is not None and inteSub.chromatogram is not None and inteIST is not None and inteIST.chromatogram is not None:
-                                if inteSub.foundPeak and not np.isnan(inteSub.area) and inteIST.foundPeak and not np.isnan(inteIST.area):
-                                    ratio = inteSub.area / inteIST.area
-                                    ratio = np.nan_to_num(ratio)
-                                    inteSub.istdRatio = ratio
+                
+                if calcCal:                        
+                    for samplei, sample in enumerate(integrations[substanceName]):
+                        inteSub = integrations[substanceName][sample]
+                        if substances[substanceName].internalStandard is not None and substances[substanceName].internalStandard in integrations:
+                            if sample in integrations[substances[substanceName].internalStandard]:
+                                inteIST = integrations[substances[substanceName].internalStandard][sample]
+                                if inteSub is not None and inteSub.chromatogram is not None and inteIST is not None and inteIST.chromatogram is not None:
+                                    if inteSub.foundPeak and not np.isnan(inteSub.area) and inteIST.foundPeak and not np.isnan(inteIST.area):
+                                        ratio = inteSub.area / inteIST.area
+                                        ratio = np.nan_to_num(ratio)
+                                        inteSub.istdRatio = ratio
+                                        
+                                        calcConc = model(np.array((ratio)).reshape(-1,1))
+                                        inteSub.concentration = calcConc
+                                        
+                                        if calToOrigin is not None and ratio < calObs[calToOrigin]:
+                                            ## Idea of Ulrich Goldmann: linear interpolation to origin for the lowest calibration level
+                                            ## Attention: Use with caution, not fully tested
+                                            samplesComments[substanceName][sample].append("Outside: Ratio is lower than calibration range with a non-negative regression (level %.3f, observed %.3f). Linear interpolation from last non-negative calibration will be used. Use with caution"%(calExp[calToOrigin], calObs[calToOrigin]))
+                                            inteSub.concentration = model(np.array((calObs[calToOrigin])).reshape(-1,1)) * ratio / calObs[calToOrigin]
+                                            
+                                        elif ratio > np.max(calObs):
+                                            samplesComments[substanceName][sample].append("Outside: Ratio is higher than calibration range.")
                                     
-                                    calcConc = model(np.array((ratio)).reshape(-1,1))
-                                    inteSub.concentration = calcConc
-                                    
-                                    if ratio < np.min(calObs):
-                                        samplesComments[substanceName][sample].append("Outside: Ratio is outside of calibration range (lower).")
-                                    elif ratio > np.max(calObs):
-                                        samplesComments[substanceName][sample].append("Outside: Ratio is outside of calibration range (higher).")
-                    
-                    elif inteSub is not None and inteSub.chromatogram is not None and inteSub.foundPeak and not np.isnan(inteSub.area):
-                        calcConc = model(np.array((inteSub.area)).reshape(-1,1))
-                        inteSub.concentration = calcConc
+                        elif inteSub is not None and inteSub.chromatogram is not None and inteSub.foundPeak and not np.isnan(inteSub.area):
+                            calcConc = model(np.array((inteSub.area)).reshape(-1,1))
+                            inteSub.concentration = calcConc
+                                        
+                            if calToOrigin is not None and inteSub.area < calObs[calToOrigin]:
+                                ## Idea of Ulrich Goldmann: linear interpolation to origin for the lowest calibration level
+                                ## Attention: Use with caution, not fully tested
+                                samplesComments[substanceName][sample].append("Outside: Area is lower than calibration range with a non-negative regression (level %.3f, observed %.3f). Linear interpolation from last non-negative calibration will be used. Use with caution"%(calExp[calToOrigin], calObs[calToOrigin]))
+                                inteSub.concentration = model(np.array((calObs[calToOrigin])).reshape(-1,1)) * inteSub.area / calObs[calToOrigin]
+                                
+                            elif inteSub.area > np.max(calObs):
+                                samplesComments[substanceName][sample].append("Outside: Area is higher than calibration range.")
     
     return substancesComments, samplesComments

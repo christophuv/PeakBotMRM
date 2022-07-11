@@ -55,12 +55,14 @@ from pyqtgraph.dockarea.DockArea import DockArea
 from pyqtgraph.parametertree import Parameter, ParameterTree
 
 import numpy as np
-#import pacmap
+import pacmap
 
 import pandas as pd
 import plotnine as p9
 import tempfile
 import base64
+#from rdkit import Chem
+#from rdkit.Chem import Draw
 
 
 ## Specific tensorflow configuration. Can re omitted or adapted to users hardware
@@ -109,7 +111,7 @@ class Experiment:
         self.sampleInfo = sampleInfo
         self.importantSamples = importantSamples
 
-    def saveToFile(self, toFile):
+    def saveToFile(self, toFile, additionalData = None):
         tempIntegrations = {}
         for sub in self.integrations:
             tempIntegrations[sub] = {}
@@ -132,7 +134,7 @@ class Experiment:
                 
         try:
             with open(toFile, "wb") as fout:
-                pickle.dump((copy.deepcopy(self.expName), copy.deepcopy(self.substances), tempIntegrations, copy.deepcopy(self.sampleInfo), copy.deepcopy(self.importantSamples)), fout)
+                pickle.dump((copy.deepcopy(self.expName), copy.deepcopy(self.substances), tempIntegrations, copy.deepcopy(self.sampleInfo), copy.deepcopy(self.importantSamples), additionalData), fout)
                 return True
         except Exception as ex:
             logging.exception("Exception during binary experiment output")
@@ -464,8 +466,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                                   ("_QC[0-9]*_"   , ("QC"    , "Tech", "Orange"   , False)),
                                                   ("_SST[0-9]*_"  , ("SST"   , "Tech", "Orange"   , False)), 
                                                   (".*"           , ("sample", "Bio" , "Olivedrab", True))])
-        self.__normalColor = (112,128,144)
-        self.__highlightColor = (178,34,34)
+        self.__normalColor     = (112, 128, 144)
+        self.__highlightColor1 = (178,  34,  34)
+        self.__highlightColor2 = (255, 165,   0)
         self.__msConvertPath = "msconvert" #"%LOCALAPPDATA%\\Apps\\ProteoWizard 3.0.22119.ba94f16 32-bit\\msconvert.exe"
         self.__calibrationFunctionstep = 100
         self.__exportSeparator = "\t"
@@ -610,12 +613,12 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         item.triggered.connect(self.userSelectExperimentalData)
         toolbar.addAction(item)
 
-        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "save-outline.svg")), "Save (binary experiment)", self)
-        item.triggered.connect(self.saveBinaryExperimentHelper)
-        toolbar.addAction(item)
-
         item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "load-outline.svg")), "Open (binary experiment)", self)
         item.triggered.connect(self.loadBinaryExperimentHelper)
+        toolbar.addAction(item)
+
+        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "save-outline.svg")), "Save (binary experiment)", self)
+        item.triggered.connect(self.saveBinaryExperimentHelper)
         toolbar.addAction(item)
 
         item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "close-circle-outline.svg")), "Close experiment", self)
@@ -696,7 +699,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             
         if os.path.exists(os.path.join(self._pyFilePath, "defaultSettings.pickle")):
             self.tree.blockSignals(True)
-            self.loadSettings(settingsFile = os.path.join(self._pyFilePath, "defaultSettings.pickle"))
+            self.loadSettingsFromFile(settingsFile = os.path.join(self._pyFilePath, "defaultSettings.pickle"))
             self.tree.blockSignals(False)
 
         try:
@@ -753,14 +756,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 elif chr(event.key()) in ["G"]:
                     self.istdpeakEnd.setValue(self.istdpeakEnd.value() + self.__defaultJumpWidth)
         
-        
-
-    def saveSettings(self, settingsFile = None):
-        if settingsFile is None:
-            settingsFile = os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "defaultSettings.pickle")
-            
-        with open(settingsFile, "wb") as fout:
-            settings = {
+    def _getSaveSettingsObject(self):
+        settings = {
                     "PeakBotMRM.Config.RTSLICES": PeakBotMRM.Config.RTSLICES,
                     "PeakBotMRM.Config.UPDATEPEAKBORDERSTOMIN": PeakBotMRM.Config.UPDATEPEAKBORDERSTOMIN,
                     "PeakBotMRM.Config.INTEGRATIONMETHOD": PeakBotMRM.Config.INTEGRATIONMETHOD,
@@ -773,7 +770,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     "GUI/__rightPeakDefault": self.__rightPeakDefault,
                     "GUI/__defaultSampleConfig": self.__defaultSampleConfig,
                     "GUI/__normalColor": self.__normalColor,
-                    "GUI/__highlightColor": self.__highlightColor,
+                    "GUI/__highlightColor1": self.__highlightColor1,
+                    "GUI/__highlightColor2": self.__highlightColor2,
                     "GUI/__calibrationFunctionstep": self.__calibrationFunctionstep, 
                     "GUI/__exportSeparator": self.__exportSeparator.replace("\t", "TAB"), 
                     "GUI/__sortOrder": self.sortOrder.itemText(self.sortOrder.currentIndex()),
@@ -782,39 +780,50 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     
                     "GUI/DockAreaState": self.dockArea.saveState(),
                 }
+        return settings
+    
+    def _loadSettingsFromObject(self, settings):
+        PeakBotMRM.Config.RTSLICES = settings["PeakBotMRM.Config.RTSLICES"]
+        PeakBotMRM.Config.UPDATEPEAKBORDERSTOMIN = settings["PeakBotMRM.Config.UPDATEPEAKBORDERSTOMIN"]
+        PeakBotMRM.Config.INTEGRATIONMETHOD = settings["PeakBotMRM.Config.INTEGRATIONMETHOD"]
+        PeakBotMRM.Config.CALIBRATIONMETHOD = settings["PeakBotMRM.Config.CALIBRATIONMETHOD"]
+        PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT = settings["PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT"]
+        PeakBotMRM.Config.MRMHEADER = settings["PeakBotMRM.Config.MRMHEADER"]
+        
+        self.__sampleNameReplacements = settings["GUI/__sampleNameReplacements"]
+        self.__leftPeakDefault = settings["GUI/__leftPeakDefault"]
+        self.__rightPeakDefault = settings["GUI/__rightPeakDefault"]
+        self.__defaultSampleConfig = settings["GUI/__defaultSampleConfig"]
+        self.__normalColor = settings["GUI/__normalColor"]
+        self.__highlightColor1 = settings["GUI/__highlightColor1"]
+        self.__highlightColor2 = settings["GUI/__highlightColor2"]
+        self.__calibrationFunctionstep = settings["GUI/__calibrationFunctionstep"]
+        self.__exportSeparator = settings["GUI/__exportSeparator"].replace("TAB", "\t")
+        self.sortOrder.setCurrentIndex([i for i in range(self.sortOrder.count()) if self.sortOrder.itemText(i) == settings["GUI/__sortOrder"]][0])
+        self.__defaultJumpWidth = settings["GUI/__defaultJumpWidth"]
+        self.peakStart.setSingleStep(self.__defaultJumpWidth)
+        self.peakEnd.setSingleStep(self.__defaultJumpWidth)
+        self.istdpeakStart.setSingleStep(self.__defaultJumpWidth)
+        self.istdpeakEnd.setSingleStep(self.__defaultJumpWidth)
+        self.__areaFormatter = settings["GUI/__areaFormatter"]
+        
+        #self.dockArea.restoreState(settings["GUI/DockAreaState"])
+
+    def saveSettingsToFile(self, settingsFile = None):
+        if settingsFile is None:
+            settingsFile = os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "defaultSettings.pickle")
+            
+        with open(settingsFile, "wb") as fout:
+            settings = self._getSaveSettingsObject()
             pickle.dump(settings, fout)
 
-    def loadSettings(self, settingsFile = None):
+    def loadSettingsFromFile(self, settingsFile = None):
         if settingsFile is None:
             settingsFile = os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "defaultSettings.pickle")
             
         with open(settingsFile, "rb") as fin:
-            settings = pickle.load(fin)
-                
-            PeakBotMRM.Config.RTSLICES = settings["PeakBotMRM.Config.RTSLICES"]
-            PeakBotMRM.Config.UPDATEPEAKBORDERSTOMIN = settings["PeakBotMRM.Config.UPDATEPEAKBORDERSTOMIN"]
-            PeakBotMRM.Config.INTEGRATIONMETHOD = settings["PeakBotMRM.Config.INTEGRATIONMETHOD"]
-            PeakBotMRM.Config.CALIBRATIONMETHOD = settings["PeakBotMRM.Config.CALIBRATIONMETHOD"]
-            PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT = settings["PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT"]
-            PeakBotMRM.Config.MRMHEADER = settings["PeakBotMRM.Config.MRMHEADER"]
-            
-            self.__sampleNameReplacements = settings["GUI/__sampleNameReplacements"]
-            self.__leftPeakDefault = settings["GUI/__leftPeakDefault"]
-            self.__rightPeakDefault = settings["GUI/__rightPeakDefault"]
-            self.__defaultSampleConfig = settings["GUI/__defaultSampleConfig"]
-            self.__normalColor = settings["GUI/__normalColor"]
-            self.__highlightColor = settings["GUI/__highlightColor"]
-            self.__calibrationFunctionstep = settings["GUI/__calibrationFunctionstep"]
-            self.__exportSeparator = settings["GUI/__exportSeparator"].replace("TAB", "\t")
-            self.sortOrder.setCurrentIndex([i for i in range(self.sortOrder.count()) if self.sortOrder.itemText(i) == settings["GUI/__sortOrder"]][0])
-            self.__defaultJumpWidth = settings["GUI/__defaultJumpWidth"]
-            self.peakStart.setSingleStep(self.__defaultJumpWidth)
-            self.peakEnd.setSingleStep(self.__defaultJumpWidth)
-            self.istdpeakStart.setSingleStep(self.__defaultJumpWidth)
-            self.istdpeakEnd.setSingleStep(self.__defaultJumpWidth)
-            self.__areaFormatter = settings["GUI/__areaFormatter"]
-            
-            #self.dockArea.restoreState(settings["GUI/DockAreaState"])
+            settings = pickle.load(fin)            
+            self._loadSettingsFromObject(settings)
     
     def showSettings(self):
         dialog = PyQt6.QtWidgets.QDialog(self)
@@ -855,7 +864,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             ]},
             {'name': 'Plot colors', 'type': 'group', 'children':[
                 {'name': 'Normal color', 'type': 'color', 'value': PyQt6.QtGui.QColor.fromRgb(*self.__normalColor)},
-                {'name': 'Highlight color', 'type': 'color', 'value': PyQt6.QtGui.QColor.fromRgb(*self.__highlightColor)}
+                {'name': 'Highlight color 1', 'type': 'color', 'value': PyQt6.QtGui.QColor.fromRgb(*self.__highlightColor1)},
+                {'name': 'Highlight color 2', 'type': 'color', 'value': PyQt6.QtGui.QColor.fromRgb(*self.__highlightColor2)}
             ]},
             {'name': 'Other', 'type': 'group', 'children':[
                 {'name': 'MSConvert executible', 'type': 'str', 'value': self.__msConvertPath, 'tip': 'Download MSconvert from <a href="https://proteowizard.sourceforge.io/">https://proteowizard.sourceforge.io/</a>. Choose the version that is "able to convert ventdor files". Install the software. Then try restarting PeakBotMRM. If "msconvert" alone does not work, try "%LOCALAPPDATA%\\Apps\\ProteoWizard 3.0.22119.ba94f16 32-bit\\msconvert.exe"'},
@@ -903,7 +913,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             self.__leftPeakDefault = p.param("New chromatographic peak (relative to ref. RT)", "Default left width").value()
             self.__rightPeakDefault = p.param("New chromatographic peak (relative to ref. RT)", "Default right width").value()
             self.__normalColor = p.param("Plot colors", "Normal color").value().getRgb()
-            self.__highlightColor = p.param("Plot colors", "Highlight color").value().getRgb()
+            self.__highlightColor1 = p.param("Plot colors", "Highlight color 1").value().getRgb()
+            self.__highlightColor2 = p.param("Plot colors", "Highlight color 2").value().getRgb()
             self.__calibrationFunctionstep = p.param("PeakBotMRM Configuration", "Calibration plot step size").value()
             self.__exportSeparator = p.param("Other", "Export delimiter").value().replace("TAB", "\t")
             self.sortOrder.setCurrentIndex([i for i in range(self.sortOrder.count()) if self.sortOrder.itemText(i) == p.param("Other", "Sort order").value()][0])
@@ -927,7 +938,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         loadDefault = PyQt6.QtWidgets.QPushButton("Load default")
         def action():
             dialog.reject()
-            self.loadSettings()
+            self.loadSettingsFromFile()
             self.showSettings()
         loadDefault.clicked.connect(action)
         layout.addWidget(loadDefault, 1, 0, 1, 1)
@@ -935,7 +946,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         saveAsDefault = PyQt6.QtWidgets.QPushButton("Accept and save as default")
         def action():
             dialog.accept()
-            self.saveSettings()
+            self.saveSettingsToFile()
         saveAsDefault.clicked.connect(action)
         layout.addWidget(saveAsDefault, 1, 1, 1, 2)
         
@@ -1091,12 +1102,10 @@ class Window(PyQt6.QtWidgets.QMainWindow):
       * {
         margin-left: 40px;
         font-family: Arial;
-      }
-      
+      }      
       pre {
           font-family: Consolas,monospace
-      }
-      
+      }      
       h1, h2, h3 {
         font-family: Arial;
         color: Slategrey;
@@ -1104,19 +1113,23 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         border-radius: 3px;
         padding: 10px;
         padding-left: 14px;
-        box-shadow: 2px 6px 6px lightgrey;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.26);
         margin-top: 100px;
-        margin-left: -20px;
-      }
-      
+        margin-left: -30px;
+        margin-right: 30px;
+        transform: skew(-21deg);
+      }      
+      h1 > p, h2 > p, h3 > p {
+        transform: skew(21deg);
+        margin: 0px;
+        margin-left: 10px;
+      }      
       h1 {
         border-left: solid 6px #a93226; 
-      }
-      
+      }      
       h2 {
         border-left: solid 6px #f39c12; 
-      }
-      
+      }      
       h3 {
         border-left: solid 6px #2980b9; 
       }
@@ -1143,13 +1156,13 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 procDiag.setModal(True)
                 procDiag.show()
 
-                body.append("<h1>Results of %s</h1>"%(selExp))
+                body.append("<h1><p>Results of %s</p></h1>"%(selExp))
                 
                 if processingInfo is not None:
-                    body.append("<h2>Processing info</h2>")
+                    body.append("<h2><p>Processing info</p></h2>")
                     body.append("<p><ul><li>%s</li></ul></p>"%("</li><br><li>".join(processingInfo).replace("  | ..", "")))
                     
-                body.append("<h2>Sample statistics for user-selected samples</h2>")
+                body.append("<h2><p>Sample statistics for user-selected samples</p></h2>")
                 
                 ints = self.loadedExperiments[selExp].integrations
                 
@@ -1205,7 +1218,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 body.append("<img src='data:image/png;base64,%s'></img><br>"%(str(base64.b64encode(open(os.path.join(tmpDir, "tempFig.png"), "rb").read()))[2:-1]))
                 body.append("<p>Note: Peak areas are used, no calibration has been carried out prior to the PCA. Z-scaling is used. Blank, calibration, STD samples are also included. </p>")
                 
-                body.append("<h2>Sample statistics for all samples</h2>")
+                body.append("<h2><p>Sample statistics for all samples</p></h2>")
                 
                 ints = self.loadedExperiments[selExp].integrations
                 
@@ -1262,7 +1275,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 body.append("<p>Note: Peak areas are used, no calibration has been carried out prior to the PCA. Z-scaling is used. Blank, calibration, STD samples are also included. </p>")
                 
                                 
-                body.append("<h2>Peak statistics</h2>")
+                body.append("<h2><p>Peak statistics</p></h2>")
                 df = pd.DataFrame({"type": ["Other", "Peak", "Noise", "Manual"], "value": [np.sum(dat["peak"] == "Other"), np.sum(dat["peak"] == "Peak"), np.sum(dat["peak"] == "Noise"), np.sum(dat["peak"] == "Manual")]})
                 p = (p9.ggplot(data = df, mapping = p9.aes(x="type", y="value")) + p9.theme_minimal()
                      + p9.geom_bar(stat="identity") 
@@ -1274,7 +1287,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 body.append("<img src='data:image/png;base64,%s'></img><br>"%(str(base64.b64encode(open(os.path.join(tmpDir, "tempFig.png"), "rb").read()))[2:-1]))
                 
                 ## Peak width
-                body.append("<h3>Peak width</h3>")
+                body.append("<h3><p>Peak width</p></h3>")
                 p = (p9.ggplot(data = dat[dat["peak"] == "Peak"], mapping = p9.aes(x="peakWidth", fill = "peak")) + p9.theme_minimal()
                     + p9.geom_histogram(bins = 100, position = 'identity')
                     + p9.ggtitle("Peak width (min)")
@@ -1292,10 +1305,14 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 p9.ggsave(plot=p, filename=os.path.join(tmpDir, "tempFig.png"), dpi = 72, width = 12, height = 8, units = "in", limitsize = False)
                 body.append("<img src='data:image/png;base64,%s'></img><br>"%(str(base64.b64encode(open(os.path.join(tmpDir, "tempFig.png"), "rb").read()))[2:-1]))
                 
+                orde = list(dat[dat["peak"] == "Peak"].groupby(["peak", "substance"]).mean().sort_values(["peakWidth"], ascending = False).reset_index()["substance"])
+                for sub in dat["substance"]:
+                    if sub not in orde:
+                        orde.append(sub)
                 p = (p9.ggplot(data = dat[dat["peak"] != "Other"], mapping = p9.aes(x="peakWidth", y="substance", colour = "peak")) + p9.theme_minimal()
                     + p9.geom_jitter(alpha = 0.1, width = 0, height = 0.2)
                     + p9.xlim([0, 2])
-                    + p9.scales.scale_y_discrete(limits=list(dat[dat["peak"] == "Peak"].groupby(["peak", "substance"]).mean().sort_values(["peakWidth"], ascending = False).reset_index()["substance"]))
+                    + p9.scales.scale_y_discrete(limits=orde)
                     + p9.ggtitle("Peak width zoomed (min)")
                     + p9.xlab("Peak width (min)"))
                 p9.ggsave(plot=p, filename=os.path.join(tmpDir, "tempFig.png"), dpi = 72, width = 12, height = 32/250*len(ints), units = "in", limitsize = False)
@@ -1313,7 +1330,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                 
                 
                 ## Peak area
-                body.append("<h3>Peak areas</h3>")
+                body.append("<h3><p>Peak areas</p></h3>")
                 p = (p9.ggplot(data = dat[dat["peak"] != "Other"], mapping = p9.aes(x="area", fill = "peak")) + p9.theme_minimal()
                     + p9.geom_histogram(bins = 1000, position = 'identity')
                     + p9.scales.scale_x_log10()
@@ -1323,9 +1340,13 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 p9.ggsave(plot=p, filename=os.path.join(tmpDir, "tempFig.png"), dpi = 72, width = 12, height = 8, units = "in", limitsize = False)
                 body.append("<img src='data:image/png;base64,%s'></img><br>"%(str(base64.b64encode(open(os.path.join(tmpDir, "tempFig.png"), "rb").read()))[2:-1]))
                 
+                orde = list(dat[dat["peak"] == "Peak"].groupby(["peak", "substance"]).mean().sort_values(["area"], ascending = False).reset_index()["substance"])
+                for sub in dat["substance"]:
+                    if sub not in orde:
+                        orde.append(sub)
                 p = (p9.ggplot(data = dat[dat["peak"] != "Other"], mapping = p9.aes(x="area", y = "substance", colour = "peak")) + p9.theme_minimal()
                     + p9.geom_point(alpha=0.2)
-                    + p9.scales.scale_y_discrete(limits=list(dat[dat["peak"] == "Peak"].groupby(["peak", "substance"]).mean().sort_values(["area"], ascending = False).reset_index()["substance"]))
+                    + p9.scales.scale_y_discrete(limits=orde)
                     + p9.scales.scale_x_log10()
                     + p9.ggtitle("Peak areas"))
                 p9.ggsave(plot=p, filename=os.path.join(tmpDir, "tempFig.png"), dpi = 72, width = 12, height = 32/250*len(ints), units = "in", limitsize = False)
@@ -1333,16 +1354,20 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 
                 
                 ## Peak apex relative to reference rt
-                body.append("<h3>Peak retention times</h3>")
+                body.append("<h3><p>Peak retention times</p></h3>")
                 p = (p9.ggplot(data = dat[dat["peak"] == "Peak"], mapping = p9.aes(x="rtDeviation")) + p9.theme_minimal()
                     + p9.geom_histogram(bins = 100)
                     + p9.ggtitle("Peak deviation (min; apex - reference)"))
                 p9.ggsave(plot=p, filename=os.path.join(tmpDir, "tempFig.png"), dpi = 72, width = 12, height = 8, units = "in", limitsize = False)
                 body.append("<img src='data:image/png;base64,%s'></img><br>"%(str(base64.b64encode(open(os.path.join(tmpDir, "tempFig.png"), "rb").read()))[2:-1]))
                 
+                orde = list(dat[dat["peak"] == "Peak"].groupby(["peak", "substance"]).mean().sort_values(["rtDeviation"], ascending = False).reset_index()["substance"])
+                for sub in dat["substance"]:
+                    if sub not in orde:
+                        orde.append(sub)
                 p = (p9.ggplot(data = dat[dat["peak"] == "Peak"], mapping = p9.aes(x="rtDeviation", y="substance")) + p9.theme_minimal()
                     + p9.geom_jitter(alpha=0.2, width=0, height = 0.2)
-                    + p9.scales.scale_y_discrete(limits=list(dat[dat["peak"] == "Peak"].groupby(["peak", "substance"]).mean().sort_values(["rtDeviation"], ascending = False).reset_index()["substance"]))
+                    + p9.scales.scale_y_discrete(limits=orde)
                     + p9.ggtitle("Rt deviation (min; apex - reference)"))
                 p9.ggsave(plot=p, filename=os.path.join(tmpDir, "tempFig.png"), dpi = 72, width = 12, height = 32/250*len(ints), units = "in", limitsize = False)
                 body.append("<img src='data:image/png;base64,%s'></img><br>"%(str(base64.b64encode(open(os.path.join(tmpDir, "tempFig.png"), "rb").read()))[2:-1]))
@@ -1352,7 +1377,24 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     temp = dat[dat["peak"] == "Peak"]
                     temp = temp[temp["substance"] == sub]
                     a = temp.describe(percentiles = [0.1, 0.25, 0.5, 0.75, 0.9])
-                    body.append("<h3>%s</h3>"%(sub))
+                    body.append("<h3><p>%s</p></h3>"%(sub))
+                    
+                    if False:   ## TODO Problem with QFiledialogs.. disabled for now
+                        if self.loadedExperiments[selExp].substances[sub].cas is not None:
+                            body.append("<p>CAS: %s</p>"%(self.loadedExperiments[selExp].substances[sub].cas))
+                        mol = None
+                        if sub in self.loadedExperiments[selExp].substances:
+                            if self.loadedExperiments[selExp].substances[sub].inchiKey is not None:
+                                mol = Chem.MolFromInchi(self.loadedExperiments[selExp].substances[sub].inchiKey)
+                                body.append("<p>Inchi: %s</p>"%(self.loadedExperiments[selExp].substances[sub].inchiKey))
+                            elif self.loadedExperiments[selExp].substances[sub].canSmiles is not None:
+                                mol = Chem.MolFromSmiles(self.loadedExperiments[selExp].substances[sub].canSmiles)
+                                body.append("<p>Smiles%s</p>"%(self.loadedExperiments[selExp].substances[sub].canSmiles))
+                            
+                        if mol is not None:
+                            Draw.MolToFile(mol, os.path.join(tmpDir, "tempFig.png"))
+                            body.append("<img src='data:image/png;base64,%s'></img><br>"%(str(base64.b64encode(open(os.path.join(tmpDir, "tempFig.png"), "rb").read()))[2:-1]))                        
+                    
                     body.append("<p>Note: Only chromatographic peaks (category 'Peak') are considered</p>")
                     body.append("<pre>%s</pre>"%(str(a).replace("\n", "<br>")))
                     
@@ -1448,7 +1490,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 button = PyQt6.QtWidgets.QMessageBox.question(self, "Reset experiment", "<b>Warning</b><br><br>This will reset the selected experiment (%s). Al progress (automated and manual annotations) will be lost. This action cannot be undone. <br>Are you sure that you want to continue?"%(selExp))
                 if button == PyQt6.QtWidgets.QMessageBox.StandardButton.Yes:
                     
-                    it.setBackground(0, PyQt6.QtGui.QColor.fromRgb(int(self.__highlightColor[0]), int(self.__highlightColor[1]), int(self.__highlightColor[2]), int(255 * 0.2)))
+                    it.setBackground(0, PyQt6.QtGui.QColor.fromRgb(int(self.__highlightColor1[0]), int(self.__highlightColor1[1]), int(self.__highlightColor1[2]), int(255 * 0.2)))
                     for s in self.loadedExperiments[selExp].integrations:
                         for h in self.loadedExperiments[selExp].integrations[s]:
                             self.loadedExperiments[selExp].integrations[s][h].foundPeak = 0
@@ -1586,7 +1628,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 for i, l in enumerate(ls):
                     procDiag.setValue(i)
                     procDiag.setLabelText("Saving experiments, %d / %d done"%(i, len(ls)))
-                    if not self.loadedExperiments[l.experiment].saveToFile(os.path.join(fDir, l.experiment+".pbexp")):
+                    if not self.loadedExperiments[l.experiment].saveToFile(os.path.join(fDir, l.experiment+".pbexp"), additionalData = {"settings": copy.deepcopy(self._getSaveSettingsObject())}):
                         PyQt6.QtWidgets.QMessageBox.error(self, "PeakBotMRM", "<b>Error: could not export experiment</b><br><br>See log for further details.")
                     else:
                         procDiag.setLabelText("Saved experiment %s"%(l.experiment))
@@ -1615,11 +1657,15 @@ class Window(PyQt6.QtWidgets.QMainWindow):
 
     def loadBinaryExperiment(self, fromFile):
         with open(fromFile, "rb") as fin:
-            expName, substances, integrations, sampleInfo, importantSamples = pickle.load(fin)
+            expName, substances, integrations, sampleInfo, importantSamples, additionalData = pickle.load(fin)
+            
             i = 1
             while expName in self.loadedExperiments:
                 expName = expName + "_" + str(i)
                 i = i + 1
+            
+            if additionalData is not None and type(additionalData) == dict and "settings" in additionalData:
+                self._loadSettingsFromObject(additionalData["settings"])
             self.addExperimentToGUI(expName, substances, integrations, sampleInfo, importantSamples)
     
     def loadExperiment(self, expName, transitionFile, rawDataPath, integrationsFile, delimChar, importantSamples = None):
@@ -1695,7 +1741,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         rootItem = PyQt6.QtWidgets.QTreeWidgetItem(self.tree)
         rootItem.setText(0, expName)
         if not integrationsLoaded:
-            rootItem.setBackground(0, PyQt6.QtGui.QColor.fromRgb(int(self.__highlightColor[0]), int(self.__highlightColor[1]), int(self.__highlightColor[2]), int(255 * 0.2)))
+            rootItem.setBackground(0, PyQt6.QtGui.QColor.fromRgb(int(self.__highlightColor1[0]), int(self.__highlightColor1[1]), int(self.__highlightColor1[2]), int(255 * 0.2)))
         rootItem.experiment = expName; rootItem.substance = None; rootItem.sample = None
         
         if True:
@@ -1727,7 +1773,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     sampleItem.setText(1, self.__areaFormatter%(inte.area) if inte.foundPeak else "")
                     sampleItem.setText(2, "%.2f - %.2f"%(inte.rtStart, inte.rtEnd) if inte.foundPeak else "")
                     if inte.type == "Manual integration":
-                        sampleItem.setBackground(0, PyQt6.QtGui.QColor.fromRgb(int(self.__highlightColor[0]), int(self.__highlightColor[1]), int(self.__highlightColor[2]), int(255 * 0.2)))
+                        sampleItem.setBackground(0, PyQt6.QtGui.QColor.fromRgb(int(self.__highlightColor1[0]), int(self.__highlightColor1[1]), int(self.__highlightColor1[2]), int(255 * 0.2)))
                     inte.other["GUIElement"] = sampleItem
                     
                     allSamples.append(sample)
@@ -1808,7 +1854,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     it.setText(2, "")
                 inte.type = "Manual integration"
                 inte.comment = ""
-                inte.other["GUIElement"].setBackground(0, PyQt6.QtGui.QColor.fromRgb(int(self.__highlightColor[0]), int(self.__highlightColor[1]), int(self.__highlightColor[2]), int(255 * 0.2)))
+                inte.other["GUIElement"].setBackground(0, PyQt6.QtGui.QColor.fromRgb(int(self.__highlightColor1[0]), int(self.__highlightColor1[1]), int(self.__highlightColor1[2]), int(255 * 0.2)))
                     
                 if selIST is not None and selIST in self.loadedExperiments[selExp].substances and selIST in self.loadedExperiments[selExp].integrations and selSam in self.loadedExperiments[selExp].integrations[selIST]:
                     inte = self.loadedExperiments[selExp].integrations[selIST][selSam]
@@ -1852,7 +1898,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         
                     inte.type = "Manual integration"
                     inte.comment = ""            
-                    inte.other["GUIElement"].setBackground(0, PyQt6.QtGui.QColor.fromRgb(int(self.__highlightColor[0]), int(self.__highlightColor[1]), int(self.__highlightColor[2]), int(255 * 0.2)))
+                    inte.other["GUIElement"].setBackground(0, PyQt6.QtGui.QColor.fromRgb(int(self.__highlightColor1[0]), int(self.__highlightColor1[1]), int(self.__highlightColor1[2]), int(255 * 0.2)))
                
         self.treeSelectionChanged()
         self.tree.blockSignals(False); self.hasPeak.blockSignals(False); self.peakStart.blockSignals(False); self.peakEnd.blockSignals(False); self.istdhasPeak.blockSignals(False); self.istdpeakStart.blockSignals(False); self.istdpeakEnd.blockSignals(False);  self.useForCalibration.blockSignals(False); self.calibrationMethod.blockSignals(False);
@@ -1984,16 +2030,16 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                             oit = it.child(oitInd)
                             for calSampPart, level in substance.calSamples.items():
                                 if "userType" in oit.__dict__ and oit.userType == "Single peak" and calSampPart in oit.sample:
-                                    if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak == 1:
+                                    if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak in [1,3]:
                                         subArea.append((self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].area, level * substance.calLevel1Concentration))
                                         if oit.sample == selSam:
                                             highlightLevel = level * substance.calLevel1Concentration
                                     if istd is not None:
-                                        if self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak == 1:
+                                        if self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak in [1,3]:
                                             isArea.append((self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area, level * istd.calLevel1Concentration))
                                             if oit.sample == selSam:
                                                 highlightLevelIS = level
-                                            if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak == 1 and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak == 1: 
+                                            if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak in [1,3] and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak in [1,3]: 
                                                 subRatio.append((self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].area / self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area, level * substance.calLevel1Concentration))
                                                 if oit.sample == selSam:
                                                     highlightLevelRatio = level * substance.calLevel1Concentration
@@ -2007,7 +2053,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                             self.plotCalibration(subRatio, "Sub/ISTD", addLM = True, highlightLevel = highlightLevelRatio, plotInd = 8)
                 
                 
-                if False: #selExp != self.lastExp or self.paCMAP is None:
+                if selExp != self.lastExp or self.paCMAP is None:
                     self.paCMAPAllEICsS = []
                     self.paCMAPAllRTsS = []
                     self.paCMAPsubstances = []
@@ -2084,7 +2130,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             poly = np.array([(q[1].x(), q[1].y()) for q in self.polyROI.getLocalHandlePositions()], dtype="float32")
             points = self.paCMAP
             
-            self.polyROI = pyqtgraph.PolyLineROI(poly, closed=True, pen=self.__highlightColor)
+            self.polyROI = pyqtgraph.PolyLineROI(poly, closed=True, pen=self.__highlightColor1)
             self.polyROI.sigRegionChangeFinished.connect(self.updatePACMAPROI)
             self._plots[9].addItem(self.polyROI)
 
@@ -2105,7 +2151,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 self._plots[2].clear()
                 self.plotIntegrations(ints, colors, "All EICs Sub", plotInds = [1,2], makeUniformRT = True, scaleEIC = True)
         elif addROI:
-            self.polyROI = pyqtgraph.PolyLineROI([[-0.8, -0.8], [0.8, -0.8], [0.8, 0.8], [-0.8, 0.8]], closed=True, pen=self.__highlightColor)
+            self.polyROI = pyqtgraph.PolyLineROI([[-0.8, -0.8], [0.8, -0.8], [0.8, 0.8], [-0.8, 0.8]], closed=True, pen=self.__highlightColor1)
             self.polyROI.sigRegionChangeFinished.connect(self.updatePACMAPROI)
             self._plots[9].addItem(self.polyROI)
         
@@ -2118,9 +2164,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             if self.paCMAPsubstances[i] == selSub:
                 highlight.append(i)
         if len(highlight) > 0:
-            self._plots[9].plot(self.paCMAP[highlight, 0], self.paCMAP[highlight, 1], pen=None, symbol='o', symbolPen=(0, self.__highlightColor[1], self.__highlightColor[2], int(255*1)), symbolSize=4, symbolBrush=(0, self.__highlightColor[1], self.__highlightColor[2], int(255*1)))
+            self._plots[9].plot(self.paCMAP[highlight, 0], self.paCMAP[highlight, 1], pen=None, symbol='o', symbolPen=(0, self.__highlightColor1[1], self.__highlightColor1[2], int(255*1)), symbolSize=4, symbolBrush=(0, self.__highlightColor1[1], self.__highlightColor1[2], int(255*1)))
         if highlightSingle is not None:
-            self._plots[9].plot(self.paCMAP[[highlightSingle], 0], self.paCMAP[[highlightSingle], 1], pen=None, symbol='o', symbolPen=(self.__highlightColor[0], self.__highlightColor[1], self.__highlightColor[2], int(255*1)), symbolSize=4, symbolBrush=(self.__highlightColor[0], self.__highlightColor[1], self.__highlightColor[2], int(255*1)))
+            self._plots[9].plot(self.paCMAP[[highlightSingle], 0], self.paCMAP[[highlightSingle], 1], pen=None, symbol='o', symbolPen=(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2], int(255*1)), symbolSize=4, symbolBrush=(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2], int(255*1)))
             
     def updatePACMAPROI(self):
         self.plotPaCMAP(self.lastSub, self.lastSam)
@@ -2136,10 +2182,15 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             try:
                 rts = inte.chromatogram["rts"][np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
                 eic = inte.chromatogram["eic"][np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
-                p = self._plots[plotInd].plot(rts, eic, pen = self.__highlightColor)
+                pen = self.__highlightColor1
+                if inte.foundPeak == 2:
+                    pen = self.__highlightColor2
+                p = self._plots[plotInd].plot(rts, eic, pen = pen)
                 a = np.min(eic)
                 p1 = self._plots[plotInd].plot(rts, np.ones(rts.shape[0]) * a)
-                brush = (self.__highlightColor[0], self.__highlightColor[1], self.__highlightColor[2], 255*transp)
+                brush = (self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2], 255*transp)
+                if inte.foundPeak == 2:
+                    brush = (self.__highlightColor2[0], self.__highlightColor2[1], self.__highlightColor2[2], 255*transp)
                 fill = pyqtgraph.FillBetweenItem(p, p1, brush)
                 fill.setZValue(-1)
                 self._plots[plotInd].addItem(fill)
@@ -2170,7 +2221,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             if inte.foundPeak:
                 x = x[np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
                 y = y[np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
-                col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor[0], self.__highlightColor[1], self.__highlightColor[2]) # PyQt6.QtGui.QColor(colors[ind])
+                col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2]) # PyQt6.QtGui.QColor(colors[ind])
+                if inte.foundPeak == 2:
+                    col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor2[0], self.__highlightColor2[1], self.__highlightColor2[2])
                 self._plots[plotInds[0]].plot(x, y, pen = (col.red(), col.green(), col.blue(), 255))
         if refRT is not None:
             infLine = pyqtgraph.InfiniteLine(pos = [refRT, 0], movable=False, angle=90, label='', pen=self.__normalColor)
@@ -2191,7 +2244,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     maxVal = np.max(temp - minVal)
                     peakApexRT = tempRT[np.argmax(temp)]
 
-                    col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor[0], self.__highlightColor[1], self.__highlightColor[2]) # PyQt6.QtGui.QColor(colors[ind])PyQt6.QtGui.QColor(colors[ind])
+                    col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2]) # PyQt6.QtGui.QColor(colors[ind])PyQt6.QtGui.QColor(colors[ind])
+                    if inte.foundPeak == 2:
+                        col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor2[0], self.__highlightColor2[1], self.__highlightColor2[2])
                     self._plots[plotInds[1]].plot(tempRT - peakApexRT, 
                                                 (temp - minVal) / maxVal,
                                                 pen = (col.red(), col.green(), col.blue(), 255*0.3))
@@ -2231,9 +2286,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             if highlightLevel is not None:
                 for ci, (i, l) in enumerate(calInfo):
                     if l == highlightLevel:
-                        self._plots[plotInd].plot([calInfo[ci][0]], [abs(calInfo[ci][1])], pen=None, symbolSize=8, symbolBrush=(self.__highlightColor[0], self.__highlightColor[1], self.__highlightColor[2], int(255 * (1 if l > 0 else 0.33))), symbolPen='w')
+                        self._plots[plotInd].plot([calInfo[ci][0]], [abs(calInfo[ci][1])], pen=None, symbolSize=8, symbolBrush=(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2], int(255 * (1 if l > 0 else 0.33))), symbolPen='w')
             ax = self._plots[plotInd].getAxis('left')
-            ax.setTicks([[(abs(l), "%.3f"%(abs(l))) for i, l in calInfo]])
+            ax.setTicks([] + [[(abs(l), "%.3f"%(abs(l))) for i, l in calInfo + [(0,0)]]])          
             
             if len(calInfo) > 1 and addLM:
                 usedAreas = [a for a, c in calInfo if c > 0]
@@ -2260,6 +2315,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     
                 self._plots[plotInd].plot(a, b, pen=self.__normalColor)
                 self._plots[plotInd].plot(usedAreas, calcCons, pen=None, symbolSize=8, symbolBrush="Orange", symbolPen='w')
+                infLine = pyqtgraph.InfiniteLine(pos = 0, movable=False, angle=0, label='', pen=self.__normalColor)
+                self._plots[plotInd].addItem(infLine)  
                         
                 self._plots[plotInd].setTitle(title + "; R2 %.3f; %d points"%(r2, len(calInfo)))
                 self._plots[plotInd].setLabel('bottom', "Value")

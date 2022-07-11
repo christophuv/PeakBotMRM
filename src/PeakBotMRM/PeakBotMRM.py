@@ -1063,7 +1063,7 @@ def evaluatePeakBotMRM(instancesWithGT, modelPath = None, model = None, verbose 
 
 
 class Substance:
-    def __init__(self, name, Q1, Q3, CE, CEMethod, refRT, peakForm, rtShift, note, polarity, type, criteria, internalStandard, calLevel1Concentration, calSamples, useCalSamples, calibrationMethod, calculateCalibration):
+    def __init__(self, name, Q1, Q3, CE, CEMethod, refRT, peakForm, rtShift, note, polarity, type, criteria, internalStandard, calLevel1Concentration, calSamples, useCalSamples, calibrationMethod, calculateCalibration, cas = None, inchiKey = None, canSmiles = None):
         self.name = name
         self.Q1 = Q1
         self.Q3 = Q3
@@ -1082,6 +1082,10 @@ class Substance:
         self.useCalSamples = useCalSamples
         self.calibrationMethod = calibrationMethod
         self.calculateCalibration = calculateCalibration
+        
+        self.cas = cas
+        self.inchiKey = inchiKey
+        self.canSmiles = canSmiles
     
     def __str__(self):
         return "%s (Q1 '%s', Q3 '%s', CE '%s', CEMethod '%s', ref.RT %.2f, calLvl1: '%s', calSamples '%s', calculateCalibration '%s')"%(self.name, self.Q1, self.Q3, self.CE, self.CEMethod, self.refRT, self.calLevel1Concentration, self.calSamples, self.calculateCalibration)
@@ -1136,7 +1140,11 @@ def loadTargets(targetFile, excludeSubstances = None, includeSubstances = None, 
                                                 inCalSamples,
                                                 inCalSamples if "UseCalSamples" not in substance or substance["UseCalSamples"] is None or substance["UseCalSamples"] == "" else eval(substance["UseCalSamples"]),
                                                 substance["CalibrationMethod"],
-                                                eval("'%s'.lower() == 'true'"%(substance["CalculateCalibration"]))
+                                                eval("'%s'.lower() == 'true'"%(substance["CalculateCalibration"])),
+                                                
+                                                cas = substance["CAS"] if "CAS" in headers else None,
+                                                inchiKey = substance["InChIKey"] if "InChIKey" in headers else None,
+                                                canSmiles = substance["canonicalSmiles"] if "canonicalSmiles" in headers else None
                                                )
     errors = 0
     for substanceName, substance in temp.items():        
