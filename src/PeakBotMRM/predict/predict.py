@@ -324,7 +324,7 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
     
     with open(toFile, "w") as fout:
         headersSample = ["", "", "Name", "Data File", "Type", "Level", "Acq. Date-Time", "Method", "Inj. volume", "Dilution", "Comment"]
-        headersPerSubstance = ["Comment", "IntegrationType", "RT", "Int. Start", "Int. End", "Area", "ISTDRatio", "Final Conc.", "Accuracy"]
+        headersPerSubstance = ["Comment", "IntegrationType", "RT", "Int. Start", "Int. End", "Area", "ISTDRatio", "Final Conc.", "Conc. unit", "Accuracy"]
                 
         if oneRowHeader4Results:
             fout.write(separator)  ## SampleName and CalibrationLevel
@@ -387,6 +387,7 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
                             peakInfo["ISTDRatio"]         = "%f"  %(temp.istdRatio)
                         if temp.concentration is not None:
                             peakInfo["Final Conc."]       = "%.5f"%(temp.concentration)
+                        peakInfo["Conc. unit"]            = substances[substanceName].calLevel1ConcentrationUnit
                 else:
                     peakInfo["Comment"] = "not processed"
                 fout.write(separator)

@@ -1063,7 +1063,7 @@ def evaluatePeakBotMRM(instancesWithGT, modelPath = None, model = None, verbose 
 
 
 class Substance:
-    def __init__(self, name, Q1, Q3, CE, CEMethod, refRT, peakForm, rtShift, note, polarity, type, criteria, internalStandard, calLevel1Concentration, calSamples, useCalSamples, calibrationMethod, calculateCalibration, cas = None, inchiKey = None, canSmiles = None):
+    def __init__(self, name, Q1, Q3, CE, CEMethod, refRT, peakForm, rtShift, note, polarity, type, criteria, internalStandard, calLevel1Concentration, calLevel1ConcentrationUnit, calSamples, useCalSamples, calibrationMethod, calculateCalibration, cas = None, inchiKey = None, canSmiles = None):
         self.name = name
         self.Q1 = Q1
         self.Q3 = Q3
@@ -1078,6 +1078,7 @@ class Substance:
         self.type = type
         self.internalStandard = internalStandard
         self.calLevel1Concentration = calLevel1Concentration
+        self.calLevel1ConcentrationUnit = calLevel1ConcentrationUnit
         self.calSamples = calSamples
         self.useCalSamples = useCalSamples
         self.calibrationMethod = calibrationMethod
@@ -1088,7 +1089,7 @@ class Substance:
         self.canSmiles = canSmiles
     
     def __str__(self):
-        return "%s (Q1 '%s', Q3 '%s', CE '%s', CEMethod '%s', ref.RT %.2f, calLvl1: '%s', calSamples '%s', calculateCalibration '%s')"%(self.name, self.Q1, self.Q3, self.CE, self.CEMethod, self.refRT, self.calLevel1Concentration, self.calSamples, self.calculateCalibration)
+        return "%s (Q1 '%s', Q3 '%s', CE '%s', CEMethod '%s', ref.RT %.2f, calLvl1: '%s %s', calSamples '%s', calculateCalibration '%s')"%(self.name, self.Q1, self.Q3, self.CE, self.CEMethod, self.refRT, self.calLevel1Concentration, self.calLevel1ConcentrationUnit, self.calSamples, self.calculateCalibration)
 
 class Integration:
     def __init__(self, foundPeak, rtStart, rtEnd, area, chromatogram, type = "Unknown", comment = "", other = None):
@@ -1137,6 +1138,7 @@ def loadTargets(targetFile, excludeSubstances = None, includeSubstances = None, 
                                                 substance["Criteria"], 
                                                 None if substance["InternalStandard"] == "" else substance["InternalStandard"].strip(),
                                                 substance["Concentration"],
+                                                substance["Concentration Unit"],
                                                 inCalSamples,
                                                 inCalSamples if "UseCalSamples" not in substance or substance["UseCalSamples"] is None or substance["UseCalSamples"] == "" else eval(substance["UseCalSamples"]),
                                                 substance["CalibrationMethod"],
@@ -1301,7 +1303,7 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                         fields = d["SampleInfo"]["Field"]
                         for f in fields:
                             if f["DisplayName"][0]["_text"] == "Inj Vol (µl)":
-                                return f["Value"][0]["_text"]
+                                return f["Value"][0]["_text"] + " µL"
                     foundSamples[Path(sample).stem]["Inj. volume"] = getInjVol(d)
                 except:
                     pass

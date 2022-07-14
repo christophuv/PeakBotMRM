@@ -41,6 +41,18 @@ import pickle
 import subprocess
 from pathlib import Path
 import copy
+import csv
+import datetime
+import platform
+import regex
+
+import unit_converter
+from unit_converter.converter import convert, converts
+unit_converter.data.UNITS["L"] = unit_converter.units.Unit("L", "liter", L=1)
+## converts("1 g * L^-1", "µg * L^-1")
+
+#from rdkit import Chem
+#from rdkit.Chem import Draw
 
 import PyQt6.QtWidgets
 import PyQt6.QtCore
@@ -61,8 +73,6 @@ import pandas as pd
 import plotnine as p9
 import tempfile
 import base64
-#from rdkit import Chem
-#from rdkit.Chem import Draw
 
 
 ## Specific tensorflow configuration. Can re omitted or adapted to users hardware
@@ -89,7 +99,7 @@ fontSizeP9 = 8
 
 def sortSamples(sampleNames, importantSamplesRegEx):
     order = []
-    for imp, typ in importantSamplesRegEx.items():
+    for imp in importantSamplesRegEx:
         for samp in natsort.natsorted(sampleNames, key = lambda x: x.lower()):
             if re.search(imp, samp) and samp not in order:
                 order.append(samp)
@@ -104,12 +114,11 @@ def sortSamples(sampleNames, importantSamplesRegEx):
 
 
 class Experiment:
-    def __init__(self, expName = "", substances = None, integrations = None, sampleInfo = None, importantSamples = None):
+    def __init__(self, expName = "", substances = None, integrations = None, sampleInfo = None):
         self.expName = expName
         self.substances = substances
         self.integrations = integrations
         self.sampleInfo = sampleInfo
-        self.importantSamples = importantSamples
 
     def saveToFile(self, toFile, additionalData = None):
         tempIntegrations = {}
@@ -134,7 +143,7 @@ class Experiment:
                 
         try:
             with open(toFile, "wb") as fout:
-                pickle.dump((copy.deepcopy(self.expName), copy.deepcopy(self.substances), tempIntegrations, copy.deepcopy(self.sampleInfo), copy.deepcopy(self.importantSamples), additionalData), fout)
+                pickle.dump((copy.deepcopy(self.expName), copy.deepcopy(self.substances), tempIntegrations, copy.deepcopy(self.sampleInfo), additionalData), fout)
                 return True
         except Exception as ex:
             logging.exception("Exception during binary experiment output")
@@ -205,14 +214,88 @@ class TimerMessageBox(PyQt6.QtWidgets.QMessageBox):
         
 
 
+class EditTableDialog(PyQt6.QtWidgets.QDialog):
+    def __init__(self, parent=None, data = None):
+        super(EditTableDialog, self).__init__(parent)
+        
+        self.setWindowTitle("Edit data")
+        
+        rowi = 0
+        grid = PyQt6.QtWidgets.QGridLayout()
+        grid.addWidget(PyQt6.QtWidgets.QLabel("<b>Edit table data</b>"), rowi, 0, 1, 3)
+        
+        rowi = rowi + 1
+        grid.addWidget(QHSeperationLine(), rowi, 0, 1, 3)
+        
+        rowi = rowi + 1
+        self.table = pyqtgraph.TableWidget(editable = True, sortable = True)
+        self.table.setData(data)
+        ## TODO self.table.setCellWidget(3,3, PyQt6.QtWidgets.QDoubleSpinBox())
+        grid.addWidget(self.table, rowi, 0, 1, 3)
+        
+        rowi = rowi + 1
+        grid.addWidget(QHSeperationLine(), rowi, 0, 1, 3)
+        
+        rowi = rowi + 1
+        self.addCol = PyQt6.QtWidgets.QPushButton("Add column")
+        self.addCol.clicked.connect(self.addColumn)
+        grid.addWidget(self.addCol, rowi, 1, 1, 1)
+        
+        rowi = rowi + 1
+        self.rmCol = PyQt6.QtWidgets.QPushButton("Remove column")
+        self.rmCol.clicked.connect(self.removeColum)
+        self.rmCol.setVisible(False)
+        grid.addWidget(self.rmCol, rowi, 1, 1, 1)
+        
+        rowi = rowi + 1
+        grid.addWidget(QHSeperationLine(), rowi, 0, 1, 3)
+                
+        rowi = rowi + 1
+        self.cancel = PyQt6.QtWidgets.QPushButton("Cancel")
+        self.cancel.clicked.connect(self.reject)
+        grid.addWidget(self.cancel, rowi, 1, 1, 1)
+        
+        self.fin = PyQt6.QtWidgets.QPushButton("Ok")
+        self.fin.clicked.connect(self.accept)
+        grid.addWidget(self.fin, rowi, 2, 1, 1)
+        
+        self.setLayout(grid)
+    
+    def addColumn(self):
+        name = PyQt6.QtWidgets.QInputDialog.getText(self, "Add column", "please specify the new column's name (only text allowed)")
+        
+        if name[1] and name[0] is not None and name[0] != "":
+            self.table.insertColumn(self.table.columnCount())
+            self.table.setHorizontalHeaderItem(self.table.columnCount() - 1, PyQt6.QtWidgets.QTableWidgetItem(name[0]))
+    
+    def removeColum(self):
+        print("TODO implement")
+        
+    def getUserData(self):
+        data = []
+        headers = set()
+        for rowi in range(self.table.rowCount()):
+            temp = {}
+            for coli in range(self.table.columnCount()):
+                colname = self.table.horizontalHeaderItem(coli)
+                if colname is not None:
+                    colname = colname.text()
+                    headers.add(colname)
+                    item = self.table.item(rowi, coli)
+                    if item is not None:
+                        temp[colname] = self.table.item(rowi, coli).text()
+                    else:
+                        temp[colname] = None
+            data.append(temp)
+        
+        return headers, data
+    
+
 
 
 class TrainModelDialog(PyQt6.QtWidgets.QDialog):
-    def __init__(self, parent=None, sampleOrder = None):
+    def __init__(self, parent=None):
         super(TrainModelDialog, self).__init__(parent)
-        
-        if sampleOrder is None:
-            sampleOrder = "{}"
         
         self.setWindowTitle("Train new model - parameters")
         
@@ -347,11 +430,8 @@ class TrainModelDialog(PyQt6.QtWidgets.QDialog):
 
 
 class OpenExperimentDialog(PyQt6.QtWidgets.QDialog):
-    def __init__(self, parent=None, sampleOrder = None):
+    def __init__(self, parent=None):
         super(OpenExperimentDialog, self).__init__(parent)
-        
-        if sampleOrder is None:
-            sampleOrder = "{}"
         
         self.setWindowTitle("New experiment")
         
@@ -399,22 +479,6 @@ class OpenExperimentDialog(PyQt6.QtWidgets.QDialog):
         
         rowi = rowi + 1
         grid.addWidget(QHSeperationLine(), rowi, 0, 1, 3)
-       
-        rowi = rowi + 1
-        grid.addWidget(PyQt6.QtWidgets.QLabel("Important samples"), rowi, 0)
-        self.importantSamples = PyQt6.QtWidgets.QPlainTextEdit(str(sampleOrder))
-        def cahnged():
-            s = self.importantSamples.text()
-            try:
-                eval(s)
-                self.importantSamples.setStyleSheet("border-color: Olivedrab; border-style: solid; border-width: 2px;")
-            except:
-                self.importantSamples.setStyleSheet("border-color: Firebrick; border-style: solid; border-width: 2px;")
-        self.importantSamples.textChanged.connect(cahnged)
-        grid.addWidget(self.importantSamples, rowi, 1, 2, 2)
-        
-        rowi = rowi + 1
-        grid.addWidget(QHSeperationLine(), rowi, 0, 1, 3)
         
         rowi = rowi + 1
         self.fin = PyQt6.QtWidgets.QPushButton("Open experiment")
@@ -443,7 +507,7 @@ class OpenExperimentDialog(PyQt6.QtWidgets.QDialog):
             self.resPath.setText(fName[0])
         
     def getUserData(self):
-        return (self.expName.text(), self.traPath.text(), self.rawPath.text(), self.resPath.text(), self.delim.currentText().replace("TAB", "\t"), self.importantSamples.toPlainText())
+        return (self.expName.text(), self.traPath.text(), self.rawPath.text(), self.resPath.text(), self.delim.currentText().replace("TAB", "\t"))
     
 
 
@@ -460,12 +524,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.__sampleNameReplacements = {"Ref_": "", "METAB02_": "", "MCC025_": "", "R100140_": "", "R100138_": ""}
         self.__leftPeakDefault = -0.1
         self.__rightPeakDefault = 0.1
-        self.__defaultSampleConfig = OrderedDict([("_CAL[0-9]+_"  , ("CAL"   , "Tech", "Firebrick", False)), 
-                                                  ("_NIST[0-9]+_" , ("NIST"  , "Tech", "Orange"   , False)), 
-                                                  ("_BLK[0-9]+_"  , ("Blank" , "Tech", "Slategrey", False)), 
-                                                  ("_QC[0-9]*_"   , ("QC"    , "Tech", "Orange"   , False)),
-                                                  ("_SST[0-9]*_"  , ("SST"   , "Tech", "Orange"   , False)), 
-                                                  (".*"           , ("sample", "Bio" , "Olivedrab", True))])
+        self.__defaultSampleOrder = ['_CAL[0-9]+_', '_NIST[0-9]+_', '_BLK[0-9]+_', '_QC[0-9]*_', '_SST[0-9]*_', '.*']
         self.__normalColor     = (112, 128, 144)
         self.__highlightColor1 = (178,  34,  34)
         self.__highlightColor2 = (255, 165,   0)
@@ -631,12 +690,20 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         item.triggered.connect(self.processActiveExperimentEventHelper)
         toolbar.addAction(item)
 
+        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "create-outline.svg")), "Edit experiment meta data", self)
+        item.triggered.connect(self.editExperimentMetaData)
+        toolbar.addAction(item)
+
         item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "list-circle-outline.svg")), "Show summary of active experiment", self)
         item.triggered.connect(functools.partial(self.showSummary, processingInfo = None))
         toolbar.addAction(item)
 
-        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "download-outline.svg")), "Export active experiment results (Excel files)", self)
+        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "download-outline.svg")), "Export active experiment results", self)
         item.triggered.connect(functools.partial(self.exportIntegrations, all = False))
+        toolbar.addAction(item)
+
+        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "document-text-outline.svg")), "Export active experiment report", self)
+        item.triggered.connect(functools.partial(self.exportReport))
         toolbar.addAction(item)
 
         item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "thunderstorm-outline.svg")), "Reset instances", self)
@@ -768,7 +835,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     "GUI/__sampleNameReplacements": self.__sampleNameReplacements,
                     "GUI/__leftPeakDefault": self.__leftPeakDefault,
                     "GUI/__rightPeakDefault": self.__rightPeakDefault,
-                    "GUI/__defaultSampleConfig": self.__defaultSampleConfig,
+                    "GUI/__defaultSampleConfig": self.__defaultSampleOrder,
                     "GUI/__normalColor": self.__normalColor,
                     "GUI/__highlightColor1": self.__highlightColor1,
                     "GUI/__highlightColor2": self.__highlightColor2,
@@ -793,7 +860,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.__sampleNameReplacements = settings["GUI/__sampleNameReplacements"]
         self.__leftPeakDefault = settings["GUI/__leftPeakDefault"]
         self.__rightPeakDefault = settings["GUI/__rightPeakDefault"]
-        self.__defaultSampleConfig = settings["GUI/__defaultSampleConfig"]
+        self.__defaultSampleOrder = settings["GUI/__defaultSampleConfig"]
         self.__normalColor = settings["GUI/__normalColor"]
         self.__highlightColor1 = settings["GUI/__highlightColor1"]
         self.__highlightColor2 = settings["GUI/__highlightColor2"]
@@ -856,7 +923,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             ]},
             {'name': 'Sample names', 'type': 'group', 'children':[
                 {'name': 'Replacements', 'type': 'str', 'value': str(self.__sampleNameReplacements)},
-                {'name': 'Default samples configuration', 'type': 'str', 'value': str(self.__defaultSampleConfig)},
+                {'name': 'Default sample order', 'type': 'str', 'value': str(self.__defaultSampleOrder)},
             ]},
             {'name': 'New chromatographic peak (relative to ref. RT)', 'type': 'group', 'children': [
                 {'name': 'Default left width', 'type': 'float', 'value': self.__leftPeakDefault, 'limits': [-1., 0], 'step' : .005, 'suffix': 'min'},
@@ -902,14 +969,14 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 except:
                     PyQt6.QtWidgets.QMessageBox.critical(None, "PeakBotMRM", "Error<br><br>The entered sample replacements are not a valid python dictionary (e.g. {'longSampleStringThatIsNotRelevant':''}). Please modify.")
                     self.__sampleNameReplacements = {}
-            if p.param("Sample names", "Default samples configuration") is None or p.param("Sample names", "Default samples configuration") == "":
-                self.__defaultSampleConfig = {}
+            if p.param("Sample names", "Default sample order") is None or p.param("Sample names", "Default sample order") == "":
+                self.__defaultSampleOrder = {}
             else:
                 try:
-                    self.__defaultSampleConfig = eval(p.param("Sample names", "Default samples configuration").value())
+                    self.__defaultSampleOrder = eval(p.param("Sample names", "Default sample order").value())
                 except:
                     PyQt6.QtWidgets.QMessageBox.critical(None, "PeakBotMRM", "Error<br><br>The entered sample importances are not a valid python dictionary (e.g. {'_CAL[0-9]+_':'Cal'}). Please modify.")
-                    self.__defaultSampleConfig = ["Error, invalid python object"]
+                    self.__defaultSampleOrder = ["Error, invalid python object"]
             self.__leftPeakDefault = p.param("New chromatographic peak (relative to ref. RT)", "Default left width").value()
             self.__rightPeakDefault = p.param("New chromatographic peak (relative to ref. RT)", "Default right width").value()
             self.__normalColor = p.param("Plot colors", "Normal color").value().getRgb()
@@ -1091,6 +1158,45 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 if len(l) == 1 and "experiment" in l[0].__dict__:
                     PyQt6.QtWidgets.QMessageBox.information(self, "Processed experiment(s)", "Experiment(s) has/have been processed. ")
             
+    def editExperimentMetaData(self):
+        
+        l = list(self.tree.selectedItems())
+        if len(l) == 1 and "experiment" in l[0].__dict__:
+            it = l[0]
+            while it.parent() is not None:
+                it = it.parent()
+            
+            selExp = it.experiment if "experiment" in it.__dict__ else None
+            
+            if selExp is not None:
+                data = []
+                for samp in self.loadedExperiments[selExp].sampleInfo:
+                    temp = {}
+                    temp["File name"] = samp
+                    for k in self.loadedExperiments[selExp].sampleInfo[samp]:
+                        if not k in ["File name", "path", "converted", "Acq. Date-Time", "Method", "Name", "Data File"]:
+                            temp[k] = self.loadedExperiments[selExp].sampleInfo[samp][k]
+                    data.append(temp)
+                    
+            x = EditTableDialog(self, data = data)
+            x.setModal(True)
+            x.exec()
+            
+            headers, dat = x.getUserData()
+            for samp in self.loadedExperiments[selExp].sampleInfo:
+                temp = [x for x in dat if x["File name"] == samp]
+                assert len(temp) == 1
+                temp = temp[0]
+                
+                for k in headers:
+                    if not k in ["File name", "path", "converted", "Acq. Date-Time", "Method", "Name", "Data File"]:
+                        if not k in self.loadedExperiments[selExp].sampleInfo[samp]:
+                            self.loadedExperiments[selExp].sampleInfo[samp][k] = ""
+                        if k in temp and self.loadedExperiments[selExp].sampleInfo[samp][k] != temp[k]:
+                            
+                            self.loadedExperiments[selExp].sampleInfo[samp][k] = temp[k]
+            
+    
     def showSummary(self, processingInfo = None):
         top = """
 <!DOCTYPE html>
@@ -1463,11 +1569,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 elif sortMode == 2:
                     order = [i[0] for i in sorted(enumerate(ints), key = lambda x: x[1].area if x[1].foundPeak else 0, reverse = True)]
                 else:
-                    ## TODO apply important samples list for sorting similar to loadExperiments
-                    #order = sortSamples(integrations[substance], importantSamples if importantSamples is not None else {}) 
-                    #[i[0] for i in sorted(enumerate(sampleNames), key = lambda x: x[1])]
-                    importantSamples = self.loadedExperiments[selExp].importantSamples
-                    temp = sortSamples(sampleNames, importantSamples if importantSamples is not None else {}) 
+                    temp = sortSamples(sampleNames, self.__defaultSampleOrder) 
                     order = []
                     for sampleName in temp:
                         order.append(sampleNames.index(sampleName))
@@ -1563,7 +1665,6 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             
             if selExp is not None and selExp != "" and selExp in self.loadedExperiments:
                 substancesComments, samplesComments = PeakBotMRM.predict.calibrateIntegrations(self.loadedExperiments[selExp].substances, self.loadedExperiments[selExp].integrations)
-                
                 PeakBotMRM.predict.exportIntegrations(outputFile, 
                                                       self.loadedExperiments[selExp].substances, 
                                                       self.loadedExperiments[selExp].integrations, 
@@ -1579,7 +1680,122 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         procDiag.close()
         if len(ls) > 1:
             PyQt6.QtWidgets.QMessageBox.information(self, "Exporting results", "Experiment results have been exported")
+    
+    def exportReport(self):
+        try:
+            ext = ""
+            preExt = ""
+            if self.__exportSeparator == "\t": 
+                ext = "Tab separated values files (*.tsv);;All files (*.*)"
+                preExt = ".tsv"
+            elif self.__exportSeparator in [",", ";", "$"]: 
+                ext = "Comma separated values (*.csv);;All files (*.*)"
+                preExt = ".csv"
+            else:
+                ext = "All files (*.*)"
+                preExt = ".txt"
+            
+            ls = list(self.tree.selectedItems())
+            if len(ls) != 1:
+                PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "No experiment has been selected. Please select one from the list and retry.")
+                return
+            
+            selExp = ls[0].experiment
+            
+            fName = PyQt6.QtWidgets.QFileDialog.getSaveFileName(self, "Save results to file", directory = os.path.join(".", "%s_PBReport%s"%(selExp, preExt)), filter = ext)
+            if fName[0]:
+                outputFile = fName[0]
+            
+                PeakBotMRM.predict.calibrateIntegrations(self.loadedExperiments[selExp].substances, self.loadedExperiments[selExp].integrations)
+                
+                samples = set()
+                for sub in self.loadedExperiments[selExp].substances:
+                    if self.loadedExperiments[selExp].substances[sub].type.lower() not in ["target", "istd"]:
+                        raise Exception("Unknown substance type '%s' for '%s'"%(self.loadedExperiments[selExp].substances[sub].type, sub))
+                    if sub in self.loadedExperiments[selExp].integrations:
+                        for samp in self.loadedExperiments[selExp].integrations[sub]:
+                            samples.add(samp)
+                
+                samples = sortSamples(list(samples), self.__defaultSampleOrder)
+                substances = natsort.natsorted([sub for sub in self.loadedExperiments[selExp].substances if self.loadedExperiments[selExp].substances[sub].type.lower() == "target"], key = lambda x: x.lower())
+                
+                with open(outputFile, "w", newline = "") as fout:
+                    tsvWr = csv.writer(fout, delimiter = self.__exportSeparator)
+                    tsvWr.writerow(["Sample", "Normalization"] + substances)
                     
+                    out = ["X", "X"]
+                    for sub in substances:
+                        out.append(self.loadedExperiments[selExp].substances[sub].calLevel1ConcentrationUnit)
+                    tsvWr.writerow(out)
+                            
+                    for samp in samples:
+                        sampleType = self.loadedExperiments[selExp].sampleInfo[samp]["Type"]
+                        if sampleType.lower() == "bio":
+                            
+                            sampleID = self.loadedExperiments[selExp].sampleInfo[samp]["Sample ID"]
+                            if sampleID == "":
+                                raise Exception("Unknown sample type for sample '%s'"%(samp))
+                            
+                            reportType = self.loadedExperiments[selExp].sampleInfo[samp]["Report type"]
+                            
+                            unit = ""
+                            if reportType == "As is":
+                                unit = "relative to calibration"
+                            elif reportType == "Per cell":
+                                sampleCellCount = int(regex.sub("([0-9]+) .*", "\\1", self.loadedExperiments[selExp].sampleInfo[samp]["Cell count"]))
+                                unit = "per cell (%d cells)"%(sampleCellCount)
+                            elif reportType == "Per tissue":
+                                weight = float(regex.sub("([+-]?([0-9]*[.])?[0-9]+) .*", "\\1", self.loadedExperiments[selExp].sampleInfo[samp]["Tissue weight"]))
+                                unit = "per tissue unit (%s)"%(self.loadedExperiments[selExp].sampleInfo[samp]["Tissue weight"])
+                            elif reportType == "Per volume":
+                                volume = float(regex.sub("([+-]?([0-9]*[.])?[0-9]+) .*", "\\1", self.loadedExperiments[selExp].sampleInfo[samp]["Sample volume"]))
+                                unit = "per volume unit (%s)"%(self.loadedExperiments[selExp].sampleInfo[samp]["Sample volume"])
+                            else:
+                                raise Exception("Unknown report type '%s' for sample '%s'"%(reportType, samp))
+                            
+                            dilution = float(self.loadedExperiments[selExp].sampleInfo[samp]["Dilution"])
+                            unit = unit + "; corrected for dilution (%.3f)"%(dilution)
+                            
+                            injVol = float(regex.sub("([+-]?([0-9]*[.])?[0-9]+) .*", "\\1", self.loadedExperiments[selExp].sampleInfo[samp]["Inj. volume"]))
+                            unit = unit + "; corrected for injection volume (%s)"%(self.loadedExperiments[selExp].sampleInfo[samp]["Inj. volume"])
+                                
+                            out = [str(sampleID), unit]
+                            for sub in substances:
+                                if sub in self.loadedExperiments[selExp].integrations and samp in self.loadedExperiments[selExp].integrations[sub] and self.loadedExperiments[selExp].integrations[sub][samp].concentration is not None:
+                                    val = self.loadedExperiments[selExp].integrations[sub][samp].concentration[0]
+                                    
+                                    if reportType == "As is":
+                                        pass
+                                    elif reportType == "Per cell":
+                                        val = val / sampleCellCount
+                                    elif reportType == "Per tissue":
+                                        weight = val / weight
+                                    elif reportType == "Per volume":
+                                        volume = val / volume
+                                    
+                                    val = val / dilution
+                                    val = val / injVol
+                                    
+                                    out.append(val)
+                                else:
+                                    out.append("<LOQ")
+                            tsvWr.writerow(out)
+                        
+                    tsvWr.writerow(["#"])
+                    tsvWr.writerow(["## General information"])
+                    tsvWr.writerow(["## .. Date: '%s'"%(datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S"))])
+                    tsvWr.writerow(["## .. Computer: '%s'"%(platform.node())])
+                    tsvWr.writerow(["## Parameters"])
+                    tsvWr.writerow(["## PeakBotMRM configuration"])
+                    for r in PeakBotMRM.Config.getAsString().split(";"):
+                        tsvWr.writerow(["## .. '" + r + "'"])
+            
+                PyQt6.QtWidgets.QMessageBox.information(self, "Exporting results", "Report for '%s' has been created and saved to file<br>'%s'"%(selExp, outputFile))
+                
+        except Exception as ex:
+            PyQt6.QtWidgets.QMessageBox.critical(self, "Error", "An exception occured while generating the report.<br><br><b>%s</b>"%(ex))
+            logging.exception("Exception")
+        
                 
     def closeExperiment(self):
         l = list(self.tree.selectedItems())
@@ -1604,12 +1820,12 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         return plot
     
     def userSelectExperimentalData(self):
-        dialog = OpenExperimentDialog(parent = self, sampleOrder = self.__defaultSampleConfig)
+        dialog = OpenExperimentDialog(parent = self)
         dialog.setModal(True)
         okay = dialog.exec()
         if okay:
-            expName, transitionsFile, rawDataPath, resultsFile, delimChar, importantSamples = dialog.getUserData()
-            main.loadExperiment(expName, transitionsFile, rawDataPath, resultsFile, delimChar, importantSamples = eval(importantSamples))
+            expName, transitionsFile, rawDataPath, resultsFile, delimChar = dialog.getUserData()
+            main.loadExperiment(expName, transitionsFile, rawDataPath, resultsFile, delimChar)
     
     def saveBinaryExperimentHelper(self):        
         ls = [self.tree.topLevelItem(i) for i in range(self.tree.topLevelItemCount())]
@@ -1657,7 +1873,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
 
     def loadBinaryExperiment(self, fromFile):
         with open(fromFile, "rb") as fin:
-            expName, substances, integrations, sampleInfo, importantSamples, additionalData = pickle.load(fin)
+            expName, substances, integrations, sampleInfo, additionalData = pickle.load(fin)
             
             i = 1
             while expName in self.loadedExperiments:
@@ -1666,9 +1882,10 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             
             if additionalData is not None and type(additionalData) == dict and "settings" in additionalData:
                 self._loadSettingsFromObject(additionalData["settings"])
-            self.addExperimentToGUI(expName, substances, integrations, sampleInfo, importantSamples)
+            
+            self.addExperimentToGUI(expName, substances, integrations, sampleInfo)
     
-    def loadExperiment(self, expName, transitionFile, rawDataPath, integrationsFile, delimChar, importantSamples = None):
+    def loadExperiment(self, expName, transitionFile, rawDataPath, integrationsFile, delimChar):
                 
         procDiag = PyQt6.QtWidgets.QProgressDialog(self, labelText="Loading experiment '%s'"%(expName))
         procDiag.setWindowIcon(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "robot.png")))
@@ -1695,13 +1912,18 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                                                             logPrefix = "  | ..",
                                                                             errorCallback = functools.partial(TimerMessageBox, self, "File failed", timeout = 10))
         
+        for substance in substances:
+            if substance.type.lower() not in ["target", "istd"]:
+                PyQt6.QtWidgets.QMessageBox.ciritical(self, "Error with substance type", "Error<br><br>Substance type '%s' for '%s' not valid.<br>Must be  'Target' or 'ISTD.<br><br>Import will be aborted"%(substance.type, substance.name))
+                return
+        
         procDiag.close()       
         
-        self.addExperimentToGUI(expName, substances, integrations, sampleInfo, importantSamples, integrationsLoaded)
+        self.addExperimentToGUI(expName, substances, integrations, sampleInfo, integrationsLoaded)
 
-    def addExperimentToGUI(self, expName, substances, integrations, sampleInfo, importantSamples, integrationsLoaded = False, showProcDiag = True):
+    def addExperimentToGUI(self, expName, substances, integrations, sampleInfo, integrationsLoaded = False, showProcDiag = True):
         self.tree.blockSignals(True)
-        self.loadedExperiments[expName] = Experiment(expName, substances, integrations, sampleInfo, importantSamples)
+        self.loadedExperiments[expName] = Experiment(expName, substances, integrations, sampleInfo)
         
         if showProcDiag:
             procDiag = PyQt6.QtWidgets.QProgressDialog(self, labelText="Loading experiment '%s'"%(expName))
@@ -1717,26 +1939,33 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 procDiag.setValue(i)
             i = i + 1
             
-            typ = None
-            if importantSamples is not None:
-                for h, (group, sType, color, use4Stat)  in importantSamples.items():
-                    if re.search(h, k):
-                        typ = h
-                        break
-            if typ is not None:
-                self.loadedExperiments[expName].sampleInfo[k]["Group"] = importantSamples[typ][0]
-                self.loadedExperiments[expName].sampleInfo[k]["Type"] = importantSamples[typ][1]
-                self.loadedExperiments[expName].sampleInfo[k]["Color"] = importantSamples[typ][2]
-                self.loadedExperiments[expName].sampleInfo[k]["use4Stats"] = importantSamples[typ][3]
-            else:
-                self.loadedExperiments[expName].sampleInfo[k]["Group"] = "NA"
-                self.loadedExperiments[expName].sampleInfo[k]["Type"] = "NA"
-                self.loadedExperiments[expName].sampleInfo[k]["Color"] = "Grey"
+            if "Group" not in self.loadedExperiments[expName].sampleInfo[k]:
+                self.loadedExperiments[expName].sampleInfo[k]["Group"]     = ""
+            if "Type" not in self.loadedExperiments[expName].sampleInfo[k]:
+                self.loadedExperiments[expName].sampleInfo[k]["Type"]      = ""
+            if "Color" not in self.loadedExperiments[expName].sampleInfo[k]:
+                self.loadedExperiments[expName].sampleInfo[k]["Color"]     = ""
+            if "use4Stats" not in self.loadedExperiments[expName].sampleInfo[k]:
                 self.loadedExperiments[expName].sampleInfo[k]["use4Stats"] = False
-                    
+            if "Dilution" not in self.loadedExperiments[expName].sampleInfo[k]:
+                self.loadedExperiments[expName].sampleInfo[k]["Dilution"] = ""
+            if "Inj. volume" not in self.loadedExperiments[expName].sampleInfo[k]:
+                self.loadedExperiments[expName].sampleInfo[k]["Inj. volume"] = ""
+            if "Sample ID" not in self.loadedExperiments[expName].sampleInfo[k]:
+                self.loadedExperiments[expName].sampleInfo[k]["Sample ID"] = ""
+            if "Report type" not in self.loadedExperiments[expName].sampleInfo[k]:
+                self.loadedExperiments[expName].sampleInfo[k]["Report type"] = ""
+            if "Cell count" not in self.loadedExperiments[expName].sampleInfo[k]:
+                self.loadedExperiments[expName].sampleInfo[k]["Cell count"] = ""
+            if "Tissue weight" not in self.loadedExperiments[expName].sampleInfo[k]:
+                self.loadedExperiments[expName].sampleInfo[k]["Tissue weight"] = ""
+            if "Sample volume" not in self.loadedExperiments[expName].sampleInfo[k]:
+                self.loadedExperiments[expName].sampleInfo[k]["Sample volume"] = ""
+                       
         for k, v in self.loadedExperiments[expName].sampleInfo.items():
             self.loadedExperiments[expName].sampleInfo[k]["Name"] = Path(self.loadedExperiments[expName].sampleInfo[k]["path"]).stem
             self.loadedExperiments[expName].sampleInfo[k]["Data File"] = os.path.basename(self.loadedExperiments[expName].sampleInfo[k]["path"])
+            ## TODO add other info here
         
         rootItem = PyQt6.QtWidgets.QTreeWidgetItem(self.tree)
         rootItem.setText(0, expName)
@@ -1759,9 +1988,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     if s is not None and s != "":
                         substanceItem.setText(1, s)
                 else:
-                    substanceItem.setText(1, "Not found in transition list")
+                    substanceItem.setText(1, "not found in transition list")
                 
-                for sample in sortSamples(integrations[substance], importantSamples if importantSamples is not None else {}):
+                for sample in sortSamples(integrations[substance], self.__defaultSampleOrder):
                     inte = integrations[substance][sample]
                     sampleItem = PyQt6.QtWidgets.QTreeWidgetItem(substanceItem)
                     sampleItem.experiment = expName; sampleItem.substance = substance; sampleItem.sample = sample; sampleItem.userType = "Single peak"
@@ -1808,7 +2037,6 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 if selExp is not None and selSub is not None:
                     self.calibrationMethod.setCurrentIndex(self.calibrationMethod.findText(self.loadedExperiments[selExp].substances[selSub].calibrationMethod))
                 
-                ## TODO improve this selection and move it to a generic format with __importantSamplesRegEx
                 if "_CAL" in selSam:
                     m = re.search("(_CAL[0-9]+_)", selSam)
                     x = m.group(0)
@@ -2293,34 +2521,35 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             if len(calInfo) > 1 and addLM:
                 usedAreas = [a for a, c in calInfo if c > 0]
                 usedConcs = [c for a, c in calInfo if c > 0]
-                model, r2, yhat, params, strRepr = PeakBotMRM.calibrationRegression(usedAreas, usedConcs,
-                                                                                    type = self.calibrationMethod.currentText())
-                useCals = [a for a, c in calInfo if c > 0]
-                if len(useCals) > 1:
-                    useCals = sorted(useCals)
-                    a = np.linspace(useCals[0], useCals[1], self.__calibrationFunctionstep)
-                    if len(useCals) > 2:
-                        for i in range(1, len(useCals) - 1):
-                            a = np.concatenate((a, np.linspace(useCals[i], useCals[i+1], self.__calibrationFunctionstep)))
-                
-                b = None
-                calcCons = None
-                if self.calibrationMethod.currentText() in ["linear", "linear, 1/expConc."]:
-                    b = model(np.array((a)).reshape(-1,1))
-                    calcCons = model(np.array((usedAreas)).reshape(-1,1))
+                if len(usedAreas) >= 2:
+                    model, r2, yhat, params, strRepr = PeakBotMRM.calibrationRegression(usedAreas, usedConcs,
+                                                                                        type = self.calibrationMethod.currentText())
+                    useCals = [a for a, c in calInfo if c > 0]
+                    if len(useCals) > 1:
+                        useCals = sorted(useCals)
+                        a = np.linspace(useCals[0], useCals[1], self.__calibrationFunctionstep)
+                        if len(useCals) > 2:
+                            for i in range(1, len(useCals) - 1):
+                                a = np.concatenate((a, np.linspace(useCals[i], useCals[i+1], self.__calibrationFunctionstep)))
                     
-                elif self.calibrationMethod.currentText() in ["quadratic", "quadratic, 1/expConc."]:
-                    b = model(np.array((a)).reshape(-1,1))[:,0]
-                    calcCons = model(np.array((usedAreas)).reshape(-1,1))[:,0]
-                    
-                self._plots[plotInd].plot(a, b, pen=self.__normalColor)
-                self._plots[plotInd].plot(usedAreas, calcCons, pen=None, symbolSize=8, symbolBrush="Orange", symbolPen='w')
-                infLine = pyqtgraph.InfiniteLine(pos = 0, movable=False, angle=0, label='', pen=self.__normalColor)
-                self._plots[plotInd].addItem(infLine)  
+                    b = None
+                    calcCons = None
+                    if self.calibrationMethod.currentText() in ["linear", "linear, 1/expConc."]:
+                        b = model(np.array((a)).reshape(-1,1))
+                        calcCons = model(np.array((usedAreas)).reshape(-1,1))
                         
-                self._plots[plotInd].setTitle(title + "; R2 %.3f; %d points"%(r2, len(calInfo)))
-                self._plots[plotInd].setLabel('bottom', "Value")
-                self._plots[plotInd].setLabel('left', "Exp. concentration")
+                    elif self.calibrationMethod.currentText() in ["quadratic", "quadratic, 1/expConc."]:
+                        b = model(np.array((a)).reshape(-1,1))[:,0]
+                        calcCons = model(np.array((usedAreas)).reshape(-1,1))[:,0]
+                        
+                    self._plots[plotInd].plot(a, b, pen=self.__normalColor)
+                    self._plots[plotInd].plot(usedAreas, calcCons, pen=None, symbolSize=8, symbolBrush="Orange", symbolPen='w')
+                    infLine = pyqtgraph.InfiniteLine(pos = 0, movable=False, angle=0, label='', pen=self.__normalColor)
+                    self._plots[plotInd].addItem(infLine)  
+                            
+                    self._plots[plotInd].setTitle(title + "; R2 %.3f; %d points"%(r2, len(calInfo)))
+                    self._plots[plotInd].setLabel('bottom', "Value")
+                    self._plots[plotInd].setLabel('left', "Exp. concentration")
         except:
             PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "<b>Critical problem</b><br><br>A critical problem happend. Please save your work, take a screenshot, document what you have been doing, contact the developers, and then continue in a new Window. <br><br>We apololgize for this inconvenience!")
             logging.exception("Exception in plotCalibration")
@@ -2351,8 +2580,8 @@ main = Window()
 main.showMaximized()
 
 try:
-    #main.loadExperiment("R100140", "./Reference/transitions.tsv", "./Reference/R100140_METAB02_MCC025_20200306", None, "\t", importantSamples = OrderedDict([("_CAL[0-9]+_", "CAL"), ("_NIST[0-9]+_", "NIST"), (".*", "sample")]))
-    #main.loadExperiment("Ref_R100140", "./Reference/transitions.tsv", "./Reference/R100140_METAB02_MCC025_20200306", "./Reference/R100140_Integrations.csv", ",", importantSamples = OrderedDict([("_CAL[0-9]+_", "CAL"), ("_NIST[0-9]+_", "NIST"), (".*", "sample")]))
+    #main.loadExperiment("R100140", "./Reference/transitions.tsv", "./Reference/R100140_METAB02_MCC025_20200306", None, "\t")
+    #main.loadExperiment("Ref_R100140", "./Reference/transitions.tsv", "./Reference/R100140_METAB02_MCC025_20200306", "./Reference/R100140_Integrations.csv", ",")
     #main.loadExperiment("R100138", "./Reference/transitions.tsv", "./Reference/R100138_METAB02_MCC025_20200304", None, ",")
     #main.loadExperiment("Ref_R100138", "./Reference/transitions.tsv", "./Reference/R100138_METAB02_MCC025_20200304", "./Reference/R100138_Integrations.csv", ",")
     
@@ -2361,7 +2590,7 @@ try:
                                             ("R100210", "validation", "R100210_METAB02_MCC025_20210305"), ("R100147", "training", "R100147_METAB02_MCC025_20200409"), 
                                             ("R100194", "training", "R100194_METAB02_MCC025_20201203"), ("R100211", "training", "R100211_METAB02_MCC025_20210316"), 
                                             ("R100232", "training", "R100232_B_METAB02_MCC025_20210804")]:
-            main.loadExperiment(expName, "./machine_learning_datasets_peakbot/%s/adaptedTransitions/%s.tsv"%(folder1, expName), "./machine_learning_datasets_peakbot/%s/%s"%(folder1, rawFolder), None, ",", importantSamples = None)
+            main.loadExperiment(expName, "./machine_learning_datasets_peakbot/%s/adaptedTransitions/%s.tsv"%(folder1, expName), "./machine_learning_datasets_peakbot/%s/%s"%(folder1, rawFolder), None, ",")
     
     if False:
         exps = [
@@ -2372,8 +2601,7 @@ try:
         ]
         
         for expName, rawFolder in exps:
-            main.loadExperiment(expName, "./Reference/transitions.tsv", "./machine_learning_datasets_peakbot/unprocessed/%s"%(rawFolder), None, ",", 
-                                importantSamples = None)
+            main.loadExperiment(expName, "./Reference/transitions.tsv", "./machine_learning_datasets_peakbot/unprocessed/%s"%(rawFolder), None, ",")
             
     if False:
         exps = ["C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100131_METAB02_MCC025_20200225",
@@ -2459,20 +2687,23 @@ try:
             expName = expName[ : expName.find("_")]
             main.loadExperiment(expName, 
                                 "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions.tsv", 
-                                exp, None, ",", 
-                                importantSamples = None)
+                                exp, None, ",")
         
     
     if False:
-        main.loadExperiment("R100285", "./Reference/transitions.tsv", "./machine_learning_datasets_peakbot/unprocessed/R100285_METAB02_MCC025_20220610", None, ",", 
-                            importantSamples = OrderedDict([("_CAL[0-9]+_"  , ("CAL"   , "Tech", "Firebrick", False)), 
-                                                            ("_NIST[0-9]+_" , ("NIST"  , "Tech", "Orange"   , False)), 
-                                                            ("_BLK[0-9]+_"  , ("Blank" , "Tech", "Slategrey", False)), 
-                                                            ("_QC[0-9]*_"   , ("QC"    , "Tech", "Orange"   , False)),
-                                                            ("_SST[0-9]*_"  , ("SST"   , "Tech", "Orange"   , False)), 
-                                                            (".*"           , ("sample", "Bio" , "Olivedrab", True))]))
+        main.loadExperiment("R100285", "./Reference/transitions.tsv", "./machine_learning_datasets_peakbot/unprocessed/R100285_METAB02_MCC025_20220610", None, ",")
         main.tree.setCurrentItem(main.tree.topLevelItem(0))
         main.processExperimentS(peakBotMRMModelFile = "C:/Users/cbueschl/AppData/Local/PeakBotMRM/models\METAB02__0a967796629c438387f2ba81482cd37e.h5", all = True, keepManualIntegrations = False)
+    
+    if True:
+        binaryExps = [f for f in os.listdir(".") if os.path.isfile(f) and os.path.basename(f).lower().endswith(".pbexp")]
+        if len(binaryExps) > 0:
+            button = PyQt6.QtWidgets.QMessageBox.question(main, "Found experiments", "%d experiments have been found in the current working directory<br>'%s'"%(len(binaryExps), os.path.abspath(".").replace("\\", "/")))
+            if button == PyQt6.QtWidgets.QMessageBox.StandardButton.Yes:
+                for binExp in binaryExps:
+                    main.loadBinaryExperiment(binExp)
+                main.tree.setCurrentItem(main.tree.topLevelItem(0))
+            
     
 except Exception as ex:
     print(ex)
