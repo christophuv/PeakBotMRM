@@ -1722,11 +1722,6 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 with open(outputFile, "w", newline = "") as fout:
                     tsvWr = csv.writer(fout, delimiter = self.__exportSeparator)
                     tsvWr.writerow(["Sample", "Normalization"] + substances)
-                    
-                    out = ["X", "X"]
-                    for sub in substances:
-                        out.append(self.loadedExperiments[selExp].substances[sub].calLevel1ConcentrationUnit)
-                    tsvWr.writerow(out)
                             
                     for samp in samples:
                         sampleType = self.loadedExperiments[selExp].sampleInfo[samp]["Type"]
@@ -1736,45 +1731,15 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                             if sampleID == "":
                                 raise Exception("Unknown sample type for sample '%s'"%(samp))
                             
-                            reportType = self.loadedExperiments[selExp].sampleInfo[samp]["Report type"]
-                            
-                            unit = ""
-                            if reportType == "As is":
-                                unit = "relative to calibration"
-                            elif reportType == "Per cell":
-                                sampleCellCount = int(regex.sub("([0-9]+) .*", "\\1", self.loadedExperiments[selExp].sampleInfo[samp]["Cell count"]))
-                                unit = "per cell (%d cells)"%(sampleCellCount)
-                            elif reportType == "Per tissue":
-                                weight = float(regex.sub("([+-]?([0-9]*[.])?[0-9]+) .*", "\\1", self.loadedExperiments[selExp].sampleInfo[samp]["Tissue weight"]))
-                                unit = "per tissue unit (%s)"%(self.loadedExperiments[selExp].sampleInfo[samp]["Tissue weight"])
-                            elif reportType == "Per volume":
-                                volume = float(regex.sub("([+-]?([0-9]*[.])?[0-9]+) .*", "\\1", self.loadedExperiments[selExp].sampleInfo[samp]["Sample volume"]))
-                                unit = "per volume unit (%s)"%(self.loadedExperiments[selExp].sampleInfo[samp]["Sample volume"])
-                            else:
-                                raise Exception("Unknown report type '%s' for sample '%s'"%(reportType, samp))
-                            
-                            dilution = float(self.loadedExperiments[selExp].sampleInfo[samp]["Dilution"])
-                            unit = unit + "; corrected for dilution (%.3f)"%(dilution)
-                            
-                            injVol = float(regex.sub("([+-]?([0-9]*[.])?[0-9]+) .*", "\\1", self.loadedExperiments[selExp].sampleInfo[samp]["Inj. volume"]))
-                            unit = unit + "; corrected for injection volume (%s)"%(self.loadedExperiments[selExp].sampleInfo[samp]["Inj. volume"])
+                            reportDescription = self.loadedExperiments[selExp].sampleInfo[samp]["Report description"]
+                            reportCalculation = self.loadedExperiments[selExp].sampleInfo[samp]["Report calculation"]
                                 
-                            out = [str(sampleID), unit]
+                            out = [str(sampleID), reportDescription + " (val = %s)"%(reportCalculation)]
                             for sub in substances:
                                 if sub in self.loadedExperiments[selExp].integrations and samp in self.loadedExperiments[selExp].integrations[sub] and self.loadedExperiments[selExp].integrations[sub][samp].concentration is not None:
                                     val = self.loadedExperiments[selExp].integrations[sub][samp].concentration[0]
                                     
-                                    if reportType == "As is":
-                                        pass
-                                    elif reportType == "Per cell":
-                                        val = val / sampleCellCount
-                                    elif reportType == "Per tissue":
-                                        weight = val / weight
-                                    elif reportType == "Per volume":
-                                        volume = val / volume
-                                    
-                                    val = val / dilution
-                                    val = val / injVol
+                                    val = eval(reportCalculation)
                                     
                                     out.append(val)
                                 else:
@@ -1961,6 +1926,10 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 self.loadedExperiments[expName].sampleInfo[k]["Tissue weight"] = ""
             if "Sample volume" not in self.loadedExperiments[expName].sampleInfo[k]:
                 self.loadedExperiments[expName].sampleInfo[k]["Sample volume"] = ""
+            if "Report description" not in self.loadedExperiments[expName].sampleInfo[k]:
+                self.loadedExperiments[expName].sampleInfo[k]["Report description"] = "None"
+            if "Report calculation" not in self.loadedExperiments[expName].sampleInfo[k]:
+                self.loadedExperiments[expName].sampleInfo[k]["Report calculation"] = "val"
                        
         for k, v in self.loadedExperiments[expName].sampleInfo.items():
             self.loadedExperiments[expName].sampleInfo[k]["Name"] = Path(self.loadedExperiments[expName].sampleInfo[k]["path"]).stem
@@ -2274,11 +2243,11 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         self.calibrationMethod.setCurrentIndex(self.calibrationMethod.findText(self.loadedExperiments[selExp].substances[selSub].calibrationMethod))
                         
                         if len(subArea) > 0:
-                            self.plotCalibration(subArea, "Sub; areas", addLM = True, highlightLevel = highlightLevel, plotInd = 6)
+                            self.plotCalibration(subArea, "Sub; areas", unit = substance.calLevel1ConcentrationUnit, addLM = True, highlightLevel = highlightLevel, plotInd = 6)
                         if len(isArea) > 0:
-                            self.plotCalibration(isArea, "ISTD, areas", addLM = False, highlightLevel = highlightLevelIS, plotInd = 7)
+                            self.plotCalibration(isArea, "ISTD, areas", unit = substance.calLevel1ConcentrationUnit, addLM = False, highlightLevel = highlightLevelIS, plotInd = 7)
                         if len(subRatio) > 0:
-                            self.plotCalibration(subRatio, "Sub/ISTD", addLM = True, highlightLevel = highlightLevelRatio, plotInd = 8)
+                            self.plotCalibration(subRatio, "Sub/ISTD", unit = substance.calLevel1ConcentrationUnit, addLM = True, highlightLevel = highlightLevelRatio, plotInd = 8)
                 
                 
                 if selExp != self.lastExp or self.paCMAP is None:
@@ -2507,7 +2476,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             self.tree.setCurrentItem(closest[1].other["GUIElement"])
             self.tree.scrollToItem(closest[1].other["GUIElement"])
         
-    def plotCalibration(self, calInfo, title, addLM = True, highlightLevel = None, plotInd = 6):
+    def plotCalibration(self, calInfo, title, unit = "NA", addLM = True, highlightLevel = None, plotInd = 6):
         try:
             self._plots[plotInd].plot([i for i, l in calInfo], [abs(l) for i, l in calInfo], pen=None, symbolSize=8, symbolBrush=(self.__normalColor[0], self.__normalColor[1], self.__normalColor[2], int(255*0.33)), symbolPen='w')
             self._plots[plotInd].plot([i for i, l in calInfo if l > 0], [abs(l) for i, l in calInfo if l > 0], pen=None, symbolSize=8, symbolBrush=self.__normalColor, symbolPen='w')
@@ -2549,7 +2518,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                             
                     self._plots[plotInd].setTitle(title + "; R2 %.3f; %d points"%(r2, len(calInfo)))
                     self._plots[plotInd].setLabel('bottom', "Value")
-                    self._plots[plotInd].setLabel('left', "Exp. concentration")
+                    self._plots[plotInd].setLabel('left', "Expected (%s)"%(unit))
         except:
             PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "<b>Critical problem</b><br><br>A critical problem happend. Please save your work, take a screenshot, document what you have been doing, contact the developers, and then continue in a new Window. <br><br>We apololgize for this inconvenience!")
             logging.exception("Exception in plotCalibration")
