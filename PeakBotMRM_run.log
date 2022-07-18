@@ -1,0 +1,16 @@
+2022-07-18 10:39:22,278 [INFO ]  Initializing PeakBotMRM
+2022-07-18 10:39:22,278 [INFO ]    | .. OS: Windows-10-10.0.19041-SP0
+2022-07-18 10:39:22,278 [INFO ]    | .. Python: 3.8.0 | packaged by conda-forge | (default, Nov 22 2019, 19:04:36) [MSC v.1916 64 bit (AMD64)]
+2022-07-18 10:39:22,278 [INFO ]    | .. TensorFlow version: 2.8.0
+2022-07-18 10:39:23,740 [INFO ]    | .. CPU: 11th Gen Intel(R) Core(TM) i7-1185G7 @ 3.00GHz
+2022-07-18 10:39:23,740 [INFO ]    | .. Main memory: 34.1 GB
+2022-07-18 10:39:23,816 [WARNI]    | .. fetching GPU info failed
+2022-07-18 10:39:23,816 [INFO ]  
+2022-07-18 10:46:43,400 [INFO ]  Initializing PeakBotMRM
+2022-07-18 10:46:43,400 [INFO ]    | .. OS: Windows-10-10.0.19041-SP0
+2022-07-18 10:46:43,400 [INFO ]    | .. Python: 3.8.0 | packaged by conda-forge | (default, Nov 22 2019, 19:04:36) [MSC v.1916 64 bit (AMD64)]
+2022-07-18 10:46:43,400 [INFO ]    | .. TensorFlow version: 2.8.0
+2022-07-18 10:46:44,818 [INFO ]    | .. CPU: 11th Gen Intel(R) Core(TM) i7-1185G7 @ 3.00GHz
+2022-07-18 10:46:44,818 [INFO ]    | .. Main memory: 34.1 GB
+2022-07-18 10:46:44,859 [WARNI]    | .. fetching GPU info failed
+2022-07-18 10:46:44,859 [INFO ]  

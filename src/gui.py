@@ -1899,10 +1899,6 @@ class Window(PyQt6.QtWidgets.QMainWindow):
     def loadBinaryExperiment(self, fromFile):
         with open(fromFile, "rb") as fin:
             expName, substances, integrations, sampleInfo, additionalData = pickle.load(fin)
-            #for sub in integrations:
-            #    for samp in integrations[sub]:
-            #        inte = integrations[sub][samp]
-            #        inte.foundPeak = {0:0, 1:1, 2:2, 3: 128+1, 128:128, 129:129, 130:130}[inte.foundPeak]
             
             i = 1
             while expName in self.loadedExperiments:
@@ -1943,7 +1939,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                                                                 errorCallback = functools.partial(TimerMessageBox, self, "File failed", timeout = 10))
         
         for substance in substances:
-            if substance.type.lower() not in ["target", "istd"]:
+            if substances[substance].type.lower() not in ["target", "istd"]:
                 PyQt6.QtWidgets.QMessageBox.ciritical(self, "Error with substance type", "Error<br><br>Substance type '%s' for '%s' not valid.<br>Must be  'Target' or 'ISTD.<br><br>Import will be aborted"%(substance.type, substance.name))
                 return
         
@@ -2032,9 +2028,10 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     for temp, rep in self.__sampleNameReplacements.items():
                         showName = showName.replace(temp, rep)
                     sampleItem.setText(0, showName)
-                    sampleItem.setIcon(0, {0: self.__icons["res/PB/nothing"], 1: self.__icons["res/PB/peak"], 2: self.__icons["res/PB/noise"], 128: self.__icons["res/manual/nothing"], 129: self.__icons["res/manual/peak"], 130: self.__icons["res/manual/noise"]}[inte.foundPeak])
-                    sampleItem.setText(1, self.__areaFormatter%(inte.area) if inte.foundPeak % 128 else "")
-                    sampleItem.setText(2, "%.2f - %.2f"%(inte.rtStart, inte.rtEnd) if inte.foundPeak % 128 != 0 else "")
+                    if inte.foundPeak != None:
+                        sampleItem.setIcon(0, {0: self.__icons["res/PB/nothing"], 1: self.__icons["res/PB/peak"], 2: self.__icons["res/PB/noise"], 128: self.__icons["res/manual/nothing"], 129: self.__icons["res/manual/peak"], 130: self.__icons["res/manual/noise"]}[inte.foundPeak])
+                        sampleItem.setText(1, self.__areaFormatter%(inte.area) if inte.foundPeak % 128 else "")
+                        sampleItem.setText(2, "%.2f - %.2f"%(inte.rtStart, inte.rtEnd) if inte.foundPeak % 128 != 0 else "")
                     inte.other["GUIElement"] = sampleItem
                     
                     allSamples.append(sample)
@@ -2236,8 +2233,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                 if not isCalSample:
                                     self.useForCalibration.setChecked(False)
                                 
-                                self.hasPeak.setCurrentIndex({0:0, 1:1, 2:2, 128:3, 129:4, 130:5}[inte.foundPeak])
-                                if inte.foundPeak % 128:
+                                if inte.foundPeak is not None and inte.foundPeak % 128:
+                                    self.hasPeak.setCurrentIndex({0:0, 1:1, 2:2, 128:3, 129:4, 130:5}[inte.foundPeak])
                                     self.peakStart.setValue(inte.rtStart)
                                     self.peakEnd.setValue(inte.rtEnd)
                                 self.plotIntegration(inte, "Sub", refRT = self.loadedExperiments[selExp].substances[selSub].refRT, plotInd = 0, transp = max(0.05, 0.8 /len(its)))
@@ -2247,8 +2244,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                     if len(its) == 1:
                                         self.infoLabel.setText("%s<br>ISTD integration <b>%s%s</b>"%(self.infoLabel.text(), inte.type, " (%s)"%(inte.comment) if inte.comment is not None and inte.comment != "" else ""))
                                     
-                                    self.istdhasPeak.setCurrentIndex({0:0, 1:1, 2:2, 128:3, 129:4, 130:5}[inte.foundPeak])
-                                    if inte.foundPeak % 128:
+                                    if inte.foundPeak is not None and inte.foundPeak % 128:
+                                        self.istdhasPeak.setCurrentIndex({0:0, 1:1, 2:2, 128:3, 129:4, 130:5}[inte.foundPeak])
                                         self.istdpeakStart.setValue(inte.rtStart)
                                         self.istdpeakEnd.setValue(inte.rtEnd)
                                     self.plotIntegration(inte, "ISTD", refRT = self.loadedExperiments[selExp].substances[selIST].refRT if selIST is not None and selIST in self.loadedExperiments[selExp].substances else None, plotInd = 3, transp = max(0.05, 0.8 /len(its)))
@@ -2290,12 +2287,12 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                 oit = it.child(oitInd)
                                 for calSampPart, level in substance.calSamples.items():
                                     if "userType" in oit.__dict__ and oit.userType == "Single peak" and calSampPart in oit.sample:
-                                        if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1:
+                                        if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1:
                                             subArea.append((self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].area, level * substance.calLevel1Concentration))
                                             if oit.sample == selSam:
                                                 highlightLevel = level * substance.calLevel1Concentration
                                         if istd is not None:
-                                            if self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1:
+                                            if self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1:
                                                 isArea.append((self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area, level * istd.calLevel1Concentration))
                                                 if oit.sample == selSam:
                                                     highlightLevelIS = level
@@ -2439,7 +2436,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
     def plotIntegration(self, inte, title, refRT = None, plotInd = 0, transp = 0.2):
         self._plots[plotInd].plot(inte.chromatogram["rts"], inte.chromatogram["eic"], pen = self.__normalColor)
         
-        if inte.foundPeak % 128:
+        if inte.foundPeak is not None and inte.foundPeak % 128:
             try:
                 rts = inte.chromatogram["rts"][np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
                 eic = inte.chromatogram["eic"][np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
@@ -2479,11 +2476,11 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 y = y / np.max(y)
             col = PyQt6.QtGui.QColor.fromRgb(self.__normalColor[0], self.__normalColor[1], self.__normalColor[2]) # PyQt6.QtGui.QColor(colors[ind])
             self._plots[plotInds[0]].plot(x,y, pen = (col.red(), col.green(), col.blue(), 255*0.33))
-            if inte.foundPeak % 128:
+            if inte.foundPeak is not None and inte.foundPeak % 128:
                 x = x[np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
                 y = y[np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
                 col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2]) # PyQt6.QtGui.QColor(colors[ind])
-                if inte.foundPeak % 128 == 2:
+                if inte.foundPeak is not None and inte.foundPeak % 128 == 2:
                     col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor2[0], self.__highlightColor2[1], self.__highlightColor2[2])
                 self._plots[plotInds[0]].plot(x, y, pen = (col.red(), col.green(), col.blue(), 255))
         if refRT is not None:
@@ -2497,7 +2494,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         for ind in range(len(intes)):
             inte = intes[ind]
             
-            if inte.foundPeak % 128:
+            if inte.foundPeak is not None and inte.foundPeak % 128:
                 try:
                     tempRT = inte.chromatogram["rts"][np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
                     temp = inte.chromatogram["eic"][np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
@@ -2506,7 +2503,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     peakApexRT = tempRT[np.argmax(temp)]
 
                     col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2]) # PyQt6.QtGui.QColor(colors[ind])PyQt6.QtGui.QColor(colors[ind])
-                    if inte.foundPeak % 128 == 2:
+                    if inte.foundPeak is not None and inte.foundPeak % 128 == 2:
                         col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor2[0], self.__highlightColor2[1], self.__highlightColor2[2])
                     self._plots[plotInds[1]].plot(tempRT - peakApexRT, 
                                                 (temp - minVal) / maxVal,
