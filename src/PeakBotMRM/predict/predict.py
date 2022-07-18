@@ -218,7 +218,7 @@ def predictDataset(modelFile, substances, integrations, callBackFunction = None,
                         areas.append(inte.other["pred.areaPB"])
                         
                     else:
-                        inte.other["pred.foundPeak"] = 0
+                        inte.other["pred.foundPeak"] =  0
                         inte.other["pred.rtstart"]   = -1
                         inte.other["pred.rtend"]     = -1
                         inte.other["pred.areaPB"]    = -1
@@ -269,13 +269,13 @@ def predictDataset(modelFile, substances, integrations, callBackFunction = None,
 def acceptPredictions(integrations):
     for subName in integrations:
         for sampName in integrations[subName]:
-            inte = integrations[subName][sampName]
-            inte.type = inte.other["pred.type"]
-            inte.comment = inte.other["pred.comment"]
+            inte           = integrations[subName][sampName]
+            inte.type      = inte.other["pred.type"]
+            inte.comment   = inte.other["pred.comment"]
             inte.foundPeak = inte.other["pred.foundPeak"]
-            inte.rtStart = inte.other["pred.rtstart"]
-            inte.rtEnd = inte.other["pred.rtEnd"]
-            inte.area = inte.other["pred.areaPB"]
+            inte.rtStart   = inte.other["pred.rtstart"]
+            inte.rtEnd     = inte.other["pred.rtEnd"]
+            inte.area      = inte.other["pred.areaPB"]
             
 
 def getCalibrationSamplesAndLevels(substances):
@@ -377,9 +377,10 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
                     
                     peakInfo["Type"] = "%s"%(temp.type)
                     pbComments.add(temp.comment)
+                    
                     ## Prediction
-                    if temp.foundPeak:
-                        peakInfo["IntegrationType"]       = ["", "Peak", "Noise", "Manual"][temp.foundPeak]
+                    peakInfo["IntegrationType"]       = {0: "Nothing", 1: "Peak", 2: "Noise", 128: "Manual - Nothing", 129: "Manual - Peak", 130: "Manual - Noise"}[temp.foundPeak]
+                    if temp.foundPeak % 128:
                         peakInfo["Int. Start"]            = "%.3f"%(temp.rtStart)
                         peakInfo["Int. End"]              = "%.3f"%(temp.rtEnd)
                         peakInfo["Area"]                  = "%.3f"%(temp.area)
@@ -460,7 +461,7 @@ def calibrateIntegrations(substances, integrations):
                         if substances[substanceName].internalStandard is not None and substances[substanceName].internalStandard in integrations:
                             inteIST = integrations[substances[substanceName].internalStandard][sample]
                             if inteSub is not None and inteSub.chromatogram is not None and inteIST is not None and inteIST.chromatogram is not None:
-                                if inteSub.foundPeak in [1,3] and not np.isnan(inteSub.area) and inteIST.foundPeak in [1,3] and not np.isnan(inteIST.area):
+                                if inteSub.foundPeak % 128 == 1 and not np.isnan(inteSub.area) and inteIST.foundPeak % 128 == 1 and not np.isnan(inteIST.area):
                                     ratio = inteSub.area / inteIST.area
                                     inteSub.istdRatio = ratio
                                             
@@ -468,7 +469,7 @@ def calibrateIntegrations(substances, integrations):
                                     obs = ratio
                                     fromType = "ISTD ratio"
                         else:
-                            if inteSub is not None and inteSub.chromatogram is not None and inteSub.foundPeak in [1,3] and not np.isnan(inteSub.area):
+                            if inteSub is not None and inteSub.chromatogram is not None and inteSub.foundPeak % 128 == 1 and not np.isnan(inteSub.area):
                                 exp = level * substances[substanceName].calLevel1Concentration
                                 obs = inteSub.area
                                 fromType = "Peak areas"
@@ -503,7 +504,7 @@ def calibrateIntegrations(substances, integrations):
                             if sample in integrations[substances[substanceName].internalStandard]:
                                 inteIST = integrations[substances[substanceName].internalStandard][sample]
                                 if inteSub is not None and inteSub.chromatogram is not None and inteIST is not None and inteIST.chromatogram is not None:
-                                    if inteSub.foundPeak and not np.isnan(inteSub.area) and inteIST.foundPeak and not np.isnan(inteIST.area):
+                                    if inteSub.foundPeak % 128 and not np.isnan(inteSub.area) and inteIST.foundPeak % 128 and not np.isnan(inteIST.area):
                                         ratio = inteSub.area / inteIST.area
                                         ratio = np.nan_to_num(ratio)
                                         inteSub.istdRatio = ratio
@@ -520,7 +521,7 @@ def calibrateIntegrations(substances, integrations):
                                         elif ratio > np.max(calObs):
                                             samplesComments[substanceName][sample].append("Outside: Ratio is higher than calibration range.")
                                     
-                        elif inteSub is not None and inteSub.chromatogram is not None and inteSub.foundPeak and not np.isnan(inteSub.area):
+                        elif inteSub is not None and inteSub.chromatogram is not None and inteSub.foundPeak % 128 and not np.isnan(inteSub.area):
                             calcConc = model(np.array((inteSub.area)).reshape(-1,1))
                             inteSub.concentration = calcConc
                                         
