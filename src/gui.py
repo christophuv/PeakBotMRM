@@ -546,8 +546,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self._pyFilePath = os.path.join(pythonScriptDirectory)
         
         self.__sampleNameReplacements = {"Ref_": "", "METAB02_": "", "MCC025_": "", "R100140_": "", "R100138_": ""}
-        self.__leftPeakDefault = -0.1
-        self.__rightPeakDefault = 0.1
+        self.__leftPeakDefault = -0.05
+        self.__rightPeakDefault = 0.05
         self.__defaultSampleOrder = ['_CAL[0-9]+_', '_NIST[0-9]+_', '_BLK[0-9]+_', '_QC[0-9]*_', '_SST[0-9]*_', '.*']
         self.__normalColor     = (112, 128, 144)
         self.__highlightColor1 = (178,  34,  34)
@@ -821,7 +821,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             subprocess.run(self.__msConvertPath, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except FileNotFoundError as ex:
             logging.error("\033[91mError: msconvert (%s) not found.\033[0m Download and install from https://proteowizard.sourceforge.io/")
-            PyQt6.QtWidgets.QMessageBox.critical(None, "PeakBotMRM", "Error<br><br>MSConvert (at '%s') cannot be found. Please verify that it is present/installed and/or set the path to the executible accordingly in the settings<br><br>Download MSconvert from <a href='https://proteowizard.sourceforge.io/'>https://proteowizard.sourceforge.io/</a>.<br>Choose the version that is 'able to convert ventdor files'.<br>Install the software.<br>Then try restarting PeakBotMRM. If 'msconvert' alone does not work, try '%%LOCALAPPDATA%%\\Apps\\ProteoWizard 3.0.22119.ba94f16 32-bit\\msconvert.exe'"%(self.__msConvertPath))
+            PyQt6.QtWidgets.QMessageBox.critical(None, "PeakBotMRM", "Error<br><br>MSConvert (at '%s') cannot be found. Please verify that it is present/installed and/or set the path to the executible accordingly in the settings<br><br>Download MSconvert from <a href='https://proteowizard.sourceforge.io/'>https://proteowizard.sourceforge.io/</a>.<br>Choose the version that is 'able to convert ventdor files'.<br>Install the software.<br>Then try restarting PeakBotMRM. If 'msconvert' alone does not work, try '%%LOCALAPPDATA%%\\Apps\\ProteoWizard 3.0.22119.ba94f16 32-bit\\msconvert.exe' (and/or replace the version with the one you have installed)"%(self.__msConvertPath))
     
     def filterUpdated(self):
         filter = self.treeFilter.text()
