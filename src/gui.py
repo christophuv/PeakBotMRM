@@ -821,7 +821,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             subprocess.run(self.__msConvertPath, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except FileNotFoundError as ex:
             logging.error("\033[91mError: msconvert (%s) not found.\033[0m Download and install from https://proteowizard.sourceforge.io/")
-            PyQt6.QtWidgets.QMessageBox.critical(None, "PeakBotMRM", "Error<br><br>MSConvert (at '%s') cannot be found. Please verify that it is present/installed and/or set the path to the executible accordingly<br><br>Download MSconvert from <a href='https://proteowizard.sourceforge.io/'>https://proteowizard.sourceforge.io/</a>.<br>Choose the version that is 'able to convert ventdor files'.<br>Install the software.<br>Then try restarting PeakBotMRM. If 'msconvert' alone does not work, try '%%LOCALAPPDATA%%\\Apps\\ProteoWizard 3.0.22119.ba94f16 32-bit\\msconvert.exe'"%(self.__msConvertPath))
+            PyQt6.QtWidgets.QMessageBox.critical(None, "PeakBotMRM", "Error<br><br>MSConvert (at '%s') cannot be found. Please verify that it is present/installed and/or set the path to the executible accordingly in the settings<br><br>Download MSconvert from <a href='https://proteowizard.sourceforge.io/'>https://proteowizard.sourceforge.io/</a>.<br>Choose the version that is 'able to convert ventdor files'.<br>Install the software.<br>Then try restarting PeakBotMRM. If 'msconvert' alone does not work, try '%%LOCALAPPDATA%%\\Apps\\ProteoWizard 3.0.22119.ba94f16 32-bit\\msconvert.exe'"%(self.__msConvertPath))
     
     def filterUpdated(self):
         filter = self.treeFilter.text()
@@ -989,7 +989,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 {'name': 'Highlight color 2', 'type': 'color', 'value': PyQt6.QtGui.QColor.fromRgb(*self.__highlightColor2)}
             ]},
             {'name': 'Other', 'type': 'group', 'children':[
-                {'name': 'MSConvert executible', 'type': 'str', 'value': self.__msConvertPath, 'tip': 'Download MSconvert from <a href="https://proteowizard.sourceforge.io/">https://proteowizard.sourceforge.io/</a>. Choose the version that is "able to convert ventdor files". Install the software. Then try restarting PeakBotMRM. If "msconvert" alone does not work, try "%LOCALAPPDATA%\\Apps\\ProteoWizard 3.0.22119.ba94f16 32-bit\\msconvert.exe"'},
+                {'name': 'MSConvert executable', 'type': 'str', 'value': self.__msConvertPath, 'tip': 'Download MSconvert from <a href="https://proteowizard.sourceforge.io/">https://proteowizard.sourceforge.io/</a>. Choose the version that is "able to convert ventdor files". Install the software. Then try restarting PeakBotMRM. If "msconvert" alone does not work, try "%LOCALAPPDATA%\\Apps\\ProteoWizard 3.0.22119.ba94f16 32-bit\\msconvert.exe"'},
                 {'name': 'Export delimiter', 'type': 'list', 'value': self.__exportSeparator, 'values': ["TAB", ",", ";", "$"]},
                 {'name': 'Sort order', 'type': 'list', 'value': self.sortOrder.itemText(self.sortOrder.currentIndex()), 'values': [self.sortOrder.itemText(i) for i in range(self.sortOrder.count())]},
                 {'name': 'Default jump width', 'type': 'float', 'value': self.__defaultJumpWidth, 'limits': [0.001, 0.2], 'suffix': 'min'},
@@ -1040,6 +1040,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             self.__highlightColor1 = p.param("Plot colors", "Highlight color 1").value().getRgb()
             self.__highlightColor2 = p.param("Plot colors", "Highlight color 2").value().getRgb()
             self.__calibrationFunctionstep = p.param("PeakBotMRM Configuration", "Calibration plot step size").value()
+            self.__msConvertPath = p.param("Other", "MSConvert executable").value()
             self.__exportSeparator = p.param("Other", "Export delimiter").value().replace("TAB", "\t")
             self.sortOrder.setCurrentIndex([i for i in range(self.sortOrder.count()) if self.sortOrder.itemText(i) == p.param("Other", "Sort order").value()][0])
             self.__defaultJumpWidth = p.param("Other", "Default jump width").value()
