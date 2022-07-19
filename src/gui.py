@@ -444,7 +444,7 @@ class TrainModelDialog(PyQt6.QtWidgets.QDialog):
         self.setLayout(grid)
         
     def openRaw(self):
-        fDir = PyQt6.QtWidgets.QFileDialog.getExistingDirectory(self, "Open folder for model and log")
+        fDir = PyQt6.QtWidgets.QFileDialog.getExistingDirectory(self, "Open folder for model and log", options = PyQt6.QtWidgets.QFileDialog.Option.DontUseNativeDialog)
         if fDir:
             self.folderPath.setText(fDir)
     
@@ -516,17 +516,17 @@ class OpenExperimentDialog(PyQt6.QtWidgets.QDialog):
         self.setLayout(grid)
         
     def openTransitions(self):
-        fName = PyQt6.QtWidgets.QFileDialog.getOpenFileName(self, "Open transitions file", filter="Tab separated values files (*.tsv);;Comma separated values files (*.csv);;All files (*.*)")
+        fName = PyQt6.QtWidgets.QFileDialog.getOpenFileName(self, "Open transitions file", filter="Tab separated values files (*.tsv);;Comma separated values files (*.csv);;All files (*.*)", options = PyQt6.QtWidgets.QFileDialog.Option.DontUseNativeDialog)
         if fName[0]:
             self.traPath.setText(fName[0])
         
     def openRaw(self):
-        fDir = PyQt6.QtWidgets.QFileDialog.getExistingDirectory(self, "Open folder with raw LCMS data")
+        fDir = PyQt6.QtWidgets.QFileDialog.getExistingDirectory(self, "Open folder with raw LCMS data", options = PyQt6.QtWidgets.QFileDialog.Option.DontUseNativeDialog)
         if fDir:
             self.rawPath.setText(fDir)
     
     def openResults(self):
-        fName = PyQt6.QtWidgets.QFileDialog.getOpenFileName(self, "Open results table", filter="Tab separated values files (*.tsv);;Comma separated values file (*.csv);;All files (*.*)")
+        fName = PyQt6.QtWidgets.QFileDialog.getOpenFileName(self, "Open results table", filter="Tab separated values files (*.tsv);;Comma separated values file (*.csv);;All files (*.*)", options = PyQt6.QtWidgets.QFileDialog.Option.DontUseNativeDialog)
         if fName[0]:
             self.resPath.setText(fName[0])
         
@@ -1126,7 +1126,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
     def processExperimentS(self, peakBotMRMModelFile = None, all = False, keepManualIntegrations = None):
                 
         if peakBotMRMModelFile is None:
-            peakBotMRMModelFile = PyQt6.QtWidgets.QFileDialog.getOpenFileName(self, "Open PeakBotMRM model file", filter="PeakBotMRM models (*.h5)", directory=os.path.join(self._pyFilePath, "models"))
+            peakBotMRMModelFile = PyQt6.QtWidgets.QFileDialog.getOpenFileName(self, "Open PeakBotMRM model file", filter="PeakBotMRM models (*.h5)", directory=os.path.join(self._pyFilePath, "models"), options = PyQt6.QtWidgets.QFileDialog.Option.DontUseNativeDialog)
             if peakBotMRMModelFile[0]:
                 peakBotMRMModelFile = peakBotMRMModelFile[0]
                 button = PyQt6.QtWidgets.QMessageBox.question(self, "New model", "Do you want this model to be copied to your default models for easy and quick access?")
@@ -1688,7 +1688,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         
         if all:
             ls = [self.tree.topLevelItem(i) for i in range(self.tree.topLevelItemCount())]
-            outputFolder = PyQt6.QtWidgets.QFileDialog.getExistingDirectory(self, "Select output directory")
+            outputFolder = PyQt6.QtWidgets.QFileDialog.getExistingDirectory(self, "Select output directory", options = PyQt6.QtWidgets.QFileDialog.Option.DontUseNativeDialog)
 
         else:
             ls = list(self.tree.selectedItems())
@@ -1697,7 +1697,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 return
             selExp = ls[0].experiment if "experiment" in ls[0].__dict__ else None
             
-            fName = PyQt6.QtWidgets.QFileDialog.getSaveFileName(self, "Save results to file", directory = os.path.join(".", "%s_PB%s"%(selExp, preExt)), filter = ext)
+            fName = PyQt6.QtWidgets.QFileDialog.getSaveFileName(self, "Save results to file", directory = os.path.join(".", "%s_PB%s"%(selExp, preExt)), filter = ext, options = PyQt6.QtWidgets.QFileDialog.Option.DontUseNativeDialog)
             if fName[0]:
                 outputFile = fName[0]
             else:
@@ -1760,7 +1760,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             
             selExp = ls[0].experiment
             
-            fName = PyQt6.QtWidgets.QFileDialog.getSaveFileName(self, "Save results to file", directory = os.path.join(".", "%s_PBReport%s"%(selExp, preExt)), filter = ext)
+            fName = PyQt6.QtWidgets.QFileDialog.getSaveFileName(self, "Save results to file", directory = os.path.join(".", "%s_PBReport%s"%(selExp, preExt)), filter = ext, options = PyQt6.QtWidgets.QFileDialog.Option.DontUseNativeDialog)
             if fName[0]:
                 with pyqtgraph.BusyCursor():
                     outputFile = fName[0]
@@ -1855,7 +1855,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         ls = [self.tree.topLevelItem(i) for i in range(self.tree.topLevelItemCount())]
         if len(ls) >= 1:
             
-            fDir = PyQt6.QtWidgets.QFileDialog.getExistingDirectory(self, "Open folder for model and log")
+            fDir = PyQt6.QtWidgets.QFileDialog.getExistingDirectory(self, "Open folder for model and log", options = PyQt6.QtWidgets.QFileDialog.Option.DontUseNativeDialog)
             if fDir:
                 
                 procDiag = PyQt6.QtWidgets.QProgressDialog(self, labelText="Saving experiments")
@@ -1879,7 +1879,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             PyQt6.QtWidgets.QMessageBox.warning(self, "PeakBotMRM", "Please select an experiment from the list first")        
         
     def loadBinaryExperimentHelper(self):
-        files = PyQt6.QtWidgets.QFileDialog.getOpenFileNames(self, "Open binary experiment", filter="PeakBotMRM experiments (*.pbexp)")
+        files = PyQt6.QtWidgets.QFileDialog.getOpenFileNames(self, "Open binary experiment", filter="PeakBotMRM experiments (*.pbexp)", options = PyQt6.QtWidgets.QFileDialog.Option.DontUseNativeDialog)
         if len(files[0]) > 0:
             
             procDiag = PyQt6.QtWidgets.QProgressDialog(self, labelText="Loading experiments")
