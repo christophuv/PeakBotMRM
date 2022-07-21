@@ -101,12 +101,14 @@ Some columns necessary will be provided per default. Please fill as many as poss
 | Column name | Description |
 |---|---|
 | File name | The name of the sample. Do not change. |
-| Inj. volume | Volume injected by the LC-MS instrument. This information is fetched from the raw LC-MS data if available. Note: Previous sampling volumes are not accounted for.|
-| Dilution | The dilution level by the LC-MS instrument. This information is fetched from the raw LC-MS data if available. Note: Previous dilution steps are not accounted for. |
+| Sample ID | The external sample IDs. |
 | Comment | An arbitrary comment. |
 | Group | Sample group to assign this sample to. Can be anything, but needs to be the same for all samples of the same group. 
 | Type | Sample type. This should be 'Bio' for biological samples or 'Tech' for technical samples such as blanks, calibration samples, or QC samples. |
-| Sample ID | The external sample IDs. |
+| Color | Color of the samples. Must be a valid string with either an HTML color name or a hex-code (e.g. Firebrick, Dodgerblue, Slategrey, Black, #337799). |
+| use4Stats | Either True or False. Indicator whether the samples shall be illustrated in the samples PCA. |
+| Inj. volume | Volume injected by the LC-MS instrument. This information is fetched from the raw LC-MS data if available. Note: Previous sampling volumes are not accounted for.|
+| Dilution | The dilution level by the LC-MS instrument. This information is fetched from the raw LC-MS data if available. Note: Previous dilution steps are not accounted for. |
 | Report type | TODO |
 | Tissue type | The tissue type this sample has been generated from (if applicable). |
 | Tissue weight | The weight of the tissue used for generating this sample. Attention: needs to be the same unit for all samples. |

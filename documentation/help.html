@@ -169,12 +169,8 @@ img {
 <td>The name of the sample. Do not change.</td>
 </tr>
 <tr>
-<td>Inj. volume</td>
-<td>Volume injected by the LC-MS instrument. This information is fetched from the raw LC-MS data if available. Note: Previous sampling volumes are not accounted for.</td>
-</tr>
-<tr>
-<td>Dilution</td>
-<td>The dilution level by the LC-MS instrument. This information is fetched from the raw LC-MS data if available. Note: Previous dilution steps are not accounted for.</td>
+<td>Sample ID</td>
+<td>The external sample IDs.</td>
 </tr>
 <tr>
 <td>Comment</td>
@@ -189,8 +185,20 @@ img {
 <td>Sample type. This should be 'Bio' for biological samples or 'Tech' for technical samples such as blanks, calibration samples, or QC samples.</td>
 </tr>
 <tr>
-<td>Sample ID</td>
-<td>The external sample IDs.</td>
+<td>Color</td>
+<td>Color of the samples. Must be a valid string with either an HTML color name or a hex-code (e.g. Firebrick, Dodgerblue, Slategrey, Black, #337799).</td>
+</tr>
+<tr>
+<td>use4Stats</td>
+<td>Either True or False. Indicator whether the samples shall be illustrated in the samples PCA.</td>
+</tr>
+<tr>
+<td>Inj. volume</td>
+<td>Volume injected by the LC-MS instrument. This information is fetched from the raw LC-MS data if available. Note: Previous sampling volumes are not accounted for.</td>
+</tr>
+<tr>
+<td>Dilution</td>
+<td>The dilution level by the LC-MS instrument. This information is fetched from the raw LC-MS data if available. Note: Previous dilution steps are not accounted for.</td>
 </tr>
 <tr>
 <td>Report type</td>
@@ -213,12 +221,8 @@ img {
 <td>The volume of the aqueous sample (if applicable).</td>
 </tr>
 <tr>
-<td>Report description</td>
-<td>TODO</td>
-</tr>
-<tr>
 <td>Report calculation</td>
-<td>Additional caluculations after regression.</td>
+<td>Additional calculations after regression. Must be a tuple in the form of 'caluclation, &quot;unit&quot;' (without the ' symbols). E.g. 'val, &quot;NA&quot;' or 'val * 0.2, &quot;µg/l&quot;'. Do not use the , as the decimal separator</td>
 </tr>
 </tbody>
 </table>
