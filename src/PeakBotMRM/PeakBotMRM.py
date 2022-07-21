@@ -1324,6 +1324,7 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                             if f["DisplayName"][0]["_text"] == "Comment":
                                 return f["Value"][0]["_text"]
                     foundSamples[Path(sample).stem]["Comment"] = getComment(d).strip()
+                    foundSamples[Path(sample).stem]["Sample ID"] = getComment(d).strip()
                 except:
                     pass
             except:

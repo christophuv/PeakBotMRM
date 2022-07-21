@@ -1226,33 +1226,38 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             
             selExp = it.experiment if "experiment" in it.__dict__ else None
             
+            order = ["File name", "Sample ID", "Comment", "Group", "Type", "Color", "use4Stats", "Inj. volume", "Dilution", "Report type", "Tissue type", "Tissue weight",
+                     "Cell count", "Sample volume", "Report calculation"]
             if selExp is not None:
                 data = []
                 for samp in self.loadedExperiments[selExp].sampleInfo:
-                    temp = {}
+                    temp = OrderedDict()
                     temp["File name"] = samp
+                    for k in order:
+                        if k not in ["File name", "path", "converted", "Acq. Date-Time", "Method", "Name", "Data File"] and k in self.loadedExperiments[selExp].sampleInfo[samp]:
+                            temp[k] = self.loadedExperiments[selExp].sampleInfo[samp][k]
                     for k in self.loadedExperiments[selExp].sampleInfo[samp]:
-                        if not k in ["File name", "path", "converted", "Acq. Date-Time", "Method", "Name", "Data File"]:
+                        if k not in ["File name", "path", "converted", "Acq. Date-Time", "Method", "Name", "Data File"] and k not in temp:
                             temp[k] = self.loadedExperiments[selExp].sampleInfo[samp][k]
                     data.append(temp)
                     
-            x = EditTableDialog(self, data = data)
-            x.setModal(True)
-            x.exec()
-            
-            headers, dat = x.getUserData()
-            for samp in self.loadedExperiments[selExp].sampleInfo:
-                temp = [x for x in dat if x["File name"] == samp]
-                assert len(temp) == 1
-                temp = temp[0]
+                x = EditTableDialog(self, data = data)
+                x.setModal(True)
+                x.exec()
                 
-                for k in headers:
-                    if not k in ["File name", "path", "converted", "Acq. Date-Time", "Method", "Name", "Data File"]:
-                        if not k in self.loadedExperiments[selExp].sampleInfo[samp]:
-                            self.loadedExperiments[selExp].sampleInfo[samp][k] = ""
-                        if k in temp and self.loadedExperiments[selExp].sampleInfo[samp][k] != temp[k]:
-                            
-                            self.loadedExperiments[selExp].sampleInfo[samp][k] = temp[k]
+                headers, dat = x.getUserData()
+                for samp in self.loadedExperiments[selExp].sampleInfo:
+                    temp = [x for x in dat if x["File name"] == samp]
+                    assert len(temp) == 1
+                    temp = temp[0]
+                    
+                    for k in headers:
+                        if not k in ["File name", "path", "converted", "Acq. Date-Time", "Method", "Name", "Data File"]:
+                            if not k in self.loadedExperiments[selExp].sampleInfo[samp]:
+                                self.loadedExperiments[selExp].sampleInfo[samp][k] = ""
+                            if k in temp and self.loadedExperiments[selExp].sampleInfo[samp][k] != temp[k]:
+                                
+                                self.loadedExperiments[selExp].sampleInfo[samp][k] = temp[k]
             
     
     def showSummary(self, processingInfo = None):
@@ -1908,6 +1913,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
     def loadBinaryExperiment(self, fromFile):
         with open(fromFile, "rb") as fin:
             expName, substances, integrations, sampleInfo, additionalData = pickle.load(fin)
+            for samp in sampleInfo:
+                
+                del sampleInfo[samp]["Report description"]
             
             i = 1
             while expName in self.loadedExperiments:
@@ -1976,8 +1984,6 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             
             if "Group" not in self.loadedExperiments[expName].sampleInfo[k]:
                 self.loadedExperiments[expName].sampleInfo[k]["Group"]     = ""
-            if "Type" not in self.loadedExperiments[expName].sampleInfo[k]:
-                self.loadedExperiments[expName].sampleInfo[k]["Type"]      = ""
             if "Color" not in self.loadedExperiments[expName].sampleInfo[k]:
                 self.loadedExperiments[expName].sampleInfo[k]["Color"]     = ""
             if "use4Stats" not in self.loadedExperiments[expName].sampleInfo[k]:
@@ -1996,8 +2002,6 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 self.loadedExperiments[expName].sampleInfo[k]["Tissue weight"] = ""
             if "Sample volume" not in self.loadedExperiments[expName].sampleInfo[k]:
                 self.loadedExperiments[expName].sampleInfo[k]["Sample volume"] = ""
-            if "Report description" not in self.loadedExperiments[expName].sampleInfo[k]:
-                self.loadedExperiments[expName].sampleInfo[k]["Report description"] = "None"
             if "Report calculation" not in self.loadedExperiments[expName].sampleInfo[k]:
                 self.loadedExperiments[expName].sampleInfo[k]["Report calculation"] = "val"
                        
