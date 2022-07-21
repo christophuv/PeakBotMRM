@@ -298,6 +298,20 @@ def getCalibrationSamplesAndLevels(substances):
         raise RuntimeError("Error: Calibration levels are not unique among samples")
     return calSamplesAndLevels
 
+
+
+def calcNormalizedValue(val, sampleInfo):
+    if "Report type" not in sampleInfo or "Report calculation" not in sampleInfo:
+        return val, "(no calculation)"
+    
+    if sampleInfo["Report type"] is None or sampleInfo["Report type"] == "":
+        return val, "(no calculation)"
+    
+    ## TODO parse info from sampleInfo to be available for calculation
+    return eval(sampleInfo["Report calculation"])
+
+
+
 def exportIntegrations(toFile, substances, integrations, substanceOrder = None, samplesOrder = None, substancesComments = None, samplesComments = None, sampleMetaData = None, oneRowHeader4Results = False, additionalCommentsForFile = None, separator = "\t"):
     for substanceName in integrations:
         isd = [substances[s].name for s in substances if substances[s].internalStandard == substanceName]
@@ -323,8 +337,8 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
         samplesOrder = natsort.natsorted(list(allSamps))
     
     with open(toFile, "w") as fout:
-        headersSample = ["", "", "Name", "Data File", "Type", "Level", "Acq. Date-Time", "Method", "Inj. volume", "Dilution", "Comment"]
-        headersPerSubstance = ["Comment", "IntegrationType", "RT", "Int. Start", "Int. End", "Area", "ISTDRatio", "Final Conc.", "Conc. unit", "Accuracy"]
+        headersSample = ["", "", "Name", "Data File", "Type", "Level", "Acq. Date-Time", "Method", "Inj. volume", "Dilution", "Comment","Report type","Report calculation"]
+        headersPerSubstance = ["Comment", "IntegrationType", "RT", "Int. Start", "Int. End", "Area", "ISTDRatio", "Final Conc.", "Conc. unit", "Absolut quantification", "Absolut quantification unit", "Accuracy"]
                 
         if oneRowHeader4Results:
             fout.write(separator)  ## SampleName and CalibrationLevel
@@ -381,14 +395,17 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
                     ## Prediction
                     peakInfo["IntegrationType"]       = {0: "Nothing", 1: "Peak", 2: "Noise", 128: "Manual - Nothing", 129: "Manual - Peak", 130: "Manual - Noise"}[temp.foundPeak]
                     if temp.foundPeak % 128:
-                        peakInfo["Int. Start"]            = "%.3f"%(temp.rtStart)
-                        peakInfo["Int. End"]              = "%.3f"%(temp.rtEnd)
-                        peakInfo["Area"]                  = "%.3f"%(temp.area)
+                        peakInfo["Int. Start"]                      = "%.3f"%(temp.rtStart)
+                        peakInfo["Int. End"]                        = "%.3f"%(temp.rtEnd)
+                        peakInfo["Area"]                            = "%.3f"%(temp.area)
                         if temp.istdRatio is not None:
-                            peakInfo["ISTDRatio"]         = "%f"  %(temp.istdRatio)
+                            peakInfo["ISTDRatio"]                   = "%f"  %(temp.istdRatio)
                         if temp.concentration is not None:
-                            peakInfo["Final Conc."]       = "%.5f"%(temp.concentration)
-                        peakInfo["Conc. unit"]            = substances[substanceName].calLevel1ConcentrationUnit
+                            peakInfo["Final Conc."]                 = "%.5f"%(temp.concentration)
+                            val, unit                               = calcNormalizedValue(temp.concentration, sampleMetaData[sample])
+                            peakInfo["Absolut quantification"]      = "%.5f"%val
+                            peakInfo["Absolut quantification unit"] = unit
+                        peakInfo["Conc. unit"]                      = substances[substanceName].calLevel1ConcentrationUnit
                 else:
                     peakInfo["Comment"] = "not processed"
                 fout.write(separator)
@@ -461,7 +478,7 @@ def calibrateIntegrations(substances, integrations):
                         if substances[substanceName].internalStandard is not None and substances[substanceName].internalStandard in integrations:
                             inteIST = integrations[substances[substanceName].internalStandard][sample]
                             if inteSub is not None and inteSub.chromatogram is not None and inteIST is not None and inteIST.chromatogram is not None:
-                                if inteSub.foundPeak % 128 == 1 and not np.isnan(inteSub.area) and inteIST.foundPeak % 128 == 1 and not np.isnan(inteIST.area):
+                                if inteSub.foundPeak % 128 == 1 and not np.isnan(inteSub.area) and inteIST.foundPeak % 128 == 1 and not np.isnan(inteIST.area) and inteIST.area > 0:
                                     ratio = inteSub.area / inteIST.area
                                     inteSub.istdRatio = ratio
                                             
@@ -504,7 +521,7 @@ def calibrateIntegrations(substances, integrations):
                             if sample in integrations[substances[substanceName].internalStandard]:
                                 inteIST = integrations[substances[substanceName].internalStandard][sample]
                                 if inteSub is not None and inteSub.chromatogram is not None and inteIST is not None and inteIST.chromatogram is not None:
-                                    if inteSub.foundPeak % 128 and not np.isnan(inteSub.area) and inteIST.foundPeak % 128 and not np.isnan(inteIST.area):
+                                    if inteSub.foundPeak % 128 and not np.isnan(inteSub.area) and inteIST.foundPeak % 128 and not np.isnan(inteIST.area) and inteIST.area > 0:
                                         ratio = inteSub.area / inteIST.area
                                         ratio = np.nan_to_num(ratio)
                                         inteSub.istdRatio = ratio

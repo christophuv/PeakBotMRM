@@ -1359,29 +1359,31 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 dat = pd.DataFrame(dat)
                 
                 temp = dat.pivot(index="sample", columns="substance", values="area").fillna(0)
+                if temp.shape[0] >= 2:
+                    from sklearn.decomposition import PCA
+                    from sklearn.preprocessing import StandardScaler
+                    
+                    temp_norm = StandardScaler().fit_transform(temp.to_numpy())
+                    temp = pd.DataFrame(temp_norm, columns = temp.columns, index = temp.index)
+                    pca = PCA(n_components=2)
+                    pca.fit(temp)
+                    pcaScores = pca.fit_transform(temp)
+                    temp = pd.DataFrame({"X": pcaScores[:,0],
+                                        "Y": pcaScores[:,1],
+                                        "sample": temp.index.values,
+                                        "group": [groups[samp] for samp in temp.index.values]})
 
-                from sklearn.decomposition import PCA
-                from sklearn.preprocessing import StandardScaler
-                
-                temp_norm = StandardScaler().fit_transform(temp.to_numpy())
-                temp = pd.DataFrame(temp_norm, columns = temp.columns, index = temp.index)
-                pca = PCA(n_components=2)
-                pca.fit(temp)
-                pcaScores = pca.fit_transform(temp)
-                temp = pd.DataFrame({"X": pcaScores[:,0],
-                                     "Y": pcaScores[:,1],
-                                     "sample": temp.index.values,
-                                     "group": [groups[samp] for samp in temp.index.values]})
-
-                p = (p9.ggplot(data = temp, mapping = p9.aes(x="X", y="Y", label="sample", colour="group")) + p9.theme_minimal()
-                    #+ p9.geom_point()
-                    + p9.geom_text()
-                    + p9.scales.scale_colour_manual(values = colors)
-                    + p9.ggtitle("PCA") + p9.xlab("Principal component 1") + p9.ylab("Principal component 2"))
-                p9.ggsave(plot=p, filename=os.path.join(tmpDir, "tempFig.png"), dpi = 72, width = 24, height = 24, units = "in", limitsize = False)
-                body.append("<img src='data:image/png;base64,%s'></img><br>"%(str(base64.b64encode(open(os.path.join(tmpDir, "tempFig.png"), "rb").read()))[2:-1]))
-                body.append("<p>Note: Peak areas are used, no calibration has been carried out prior to the PCA. Z-scaling is used. Only samples with the flag 'use4Stats' are used. </p>")
-                
+                    p = (p9.ggplot(data = temp, mapping = p9.aes(x="X", y="Y", label="sample", colour="group")) + p9.theme_minimal()
+                        #+ p9.geom_point()
+                        + p9.geom_text()
+                        + p9.scales.scale_colour_manual(values = colors)
+                        + p9.ggtitle("PCA") + p9.xlab("Principal component 1") + p9.ylab("Principal component 2"))
+                    p9.ggsave(plot=p, filename=os.path.join(tmpDir, "tempFig.png"), dpi = 72, width = 24, height = 24, units = "in", limitsize = False)
+                    body.append("<img src='data:image/png;base64,%s'></img><br>"%(str(base64.b64encode(open(os.path.join(tmpDir, "tempFig.png"), "rb").read()))[2:-1]))
+                    body.append("<p>Note: Peak areas are used, no calibration has been carried out prior to the PCA. Z-scaling is used. Only samples with the flag 'use4Stats' are used. </p>")
+                else:
+                    body.append("<p>No PCA could be calculated. Please select the samples you want to include in the meta-data dialog (set the column 'use4Stats' for the samples to 'True')</p>")
+                    
                 body.append("<h2><p>Sample statistics for all samples</p></h2>")
                 
                 ints = self.loadedExperiments[selExp].integrations
@@ -1780,7 +1782,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     
                     with open(outputFile, "w", newline = "") as fout:
                         tsvWr = csv.writer(fout, delimiter = self.__exportSeparator)
-                        tsvWr.writerow(["Sample", "Normalization"] + substances)
+                        tsvWr.writerow(["Sample", "Normalization", "Unit"] + substances)
                                 
                         for samp in samples:
                             sampleType = self.loadedExperiments[selExp].sampleInfo[samp]["Type"]
@@ -1790,19 +1792,24 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                 if sampleID == "":
                                     raise Exception("Unknown sample type for sample '%s'"%(samp))
                                 
-                                reportDescription = self.loadedExperiments[selExp].sampleInfo[samp]["Report description"]
+                                reportDescription = self.loadedExperiments[selExp].sampleInfo[samp]["Report type"]
                                 reportCalculation = self.loadedExperiments[selExp].sampleInfo[samp]["Report calculation"]
-                                    
-                                out = [str(sampleID), reportDescription + " (val = %s)"%(reportCalculation)]
+                                
+                                units = set()
+                                out = [str(sampleID), reportDescription + " (val = %s)"%(reportCalculation.split(",")[0]), reportCalculation.split(",")[1]]
                                 for sub in substances:
                                     if sub in self.loadedExperiments[selExp].integrations and samp in self.loadedExperiments[selExp].integrations[sub] and self.loadedExperiments[selExp].integrations[sub][samp].concentration is not None:
                                         val = self.loadedExperiments[selExp].integrations[sub][samp].concentration[0]
                                         
-                                        val = eval(reportCalculation)
+                                        val, unit = PeakBotMRM.predict.calcNormalizedValue(val, self.loadedExperiments[selExp].sampleInfo[samp])
+                                        units.add(unit)
                                         
                                         out.append(val)
                                     else:
                                         out.append("<LOQ")
+                                if len(units) != 1:
+                                    PyQt6.QtWidgets.QMessageBox.critical(self, "Exporting results", "<b>Error</b><br><br>Sample '%s' resulted in ambiguous units for the calculation.<br>The export will be aborted!"%(samp))
+                                    logging.error("Error, several units calculated for one sample")
                                 tsvWr.writerow(out)
                             
                         tsvWr.writerow(["#"])
@@ -1875,6 +1882,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                             procDiag.setLabelText("Saved experiment %s"%(l.experiment))
                         
                 procDiag.close()
+            PyQt6.QtWidgets.QMessageBox.information(self, "PeakBotMRM", "Experiment%s saved successfully"%("(s)" if len(ls) > 1 else "'%s'"%ls[0].experiment))    
         else:
             PyQt6.QtWidgets.QMessageBox.warning(self, "PeakBotMRM", "Please select an experiment from the list first")        
         
@@ -2635,90 +2643,90 @@ try:
             main.loadExperiment(expName, "./Reference/transitions.tsv", "./machine_learning_datasets_peakbot/unprocessed/%s"%(rawFolder), None, ",")
             
     if False:
-        exps = ["C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100131_METAB02_MCC025_20200225",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100138_METAB02_MCC025_20200304",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100142_METAB02_MCC025_20200317",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100147_METAB02_MCC025_20200409",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100150_METAB02_MCC0025_20200504",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100152_METAB02_MCC025_20200519",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100154_METAB02_MCC025_20200605",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100156_METAB02_MCC025_20200702",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100162_METAB02_MCC025_20200721",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100172_METAB02_MCC025_20200819",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100174_METAB02_MCC025_20200831",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100178_METAB02_MCC025_20200922",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100181_METAB02_MCC025_20201006",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100183_METAB02_MCC025_20201020",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100187_METAB02_MCC025_20201111",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100194_METAB02_MCC025_20201203",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100206_METAB02_MCC025_20210210",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100209_METAB02_MCC025_20210226",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100211_METAB02_MCC025_20210316",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100219_METAB02_MCC025_20210423",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100224_METAB02_MCC025_20210518",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100226_METAB02_MCC025_20210527",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100232_B_METAB02_MCC025_20210804",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100245_METAB02_MCC025_20210915",
+        exps = [("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100131_METAB02_MCC025_20200225",  "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100138_METAB02_MCC025_20200304",  "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100142_METAB02_MCC025_20200317",  "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100147_METAB02_MCC025_20200409",  "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100150_METAB02_MCC0025_20200504", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100152_METAB02_MCC025_20200519",  "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100154_METAB02_MCC025_20200605",  "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100156_METAB02_MCC025_20200702",  "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100162_METAB02_MCC025_20200721",  "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100172_METAB02_MCC025_20200819",  "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100174_METAB02_MCC025_20200831",  "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100178_METAB02_MCC025_20200922",  "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100181_METAB02_MCC025_20201006",  "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100183_METAB02_MCC025_20201020",  "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100187_METAB02_MCC025_20201111",  "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100194_METAB02_MCC025_20201203",  "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100206_METAB02_MCC025_20210210",  "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100209_METAB02_MCC025_20210226",  "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100211_METAB02_MCC025_20210316",  "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100219_METAB02_MCC025_20210423",  "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100224_METAB02_MCC025_20210518",  "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100226_METAB02_MCC025_20210527",  "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100232_B_METAB02_MCC025_20210804","C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"),  
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/training/R100245_METAB02_MCC025_20210915",  "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"),  
                 
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100134_METAB02_MCC025_20200228",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100140_METAB02_MCC025_20200306",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100146_METAB02_MCC025_20200403",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100151_METAB02_MCC025_20200507",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100153_METAB02_MCC025_20200612",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100155_METAB02_MCC025_20200623",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100159_MEATB02_MCC025_20200714",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100171_METAB02_MCC025_MCC059_20200814",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100173_METAB02_MCC025_20200825",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100175_METAB02_MCC025_20200908",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100182_METAB02_MCC025_20201016",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100185_METAB02_MCC025_20201106",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100188_METAB02_MCC025_20201117",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100192_METAB02_MCC025_20201125",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100200_METAB02_MCC025_20201210",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100205_METAB02_MCC025_20210205",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100207_METAB02_MCC025_20210223",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100210_METAB02_MCC025_20210305",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100217_METAB02_MCC025_20210420",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100221_METAB02_MCC025_20210430",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100225_METAB02_MCC025_20210521",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100236_METAB02_MCC025_LYSO_GABA_20210903",
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100134_METAB02_MCC025_20200228",           "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100140_METAB02_MCC025_20200306",           "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100146_METAB02_MCC025_20200403",           "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100151_METAB02_MCC025_20200507",           "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100153_METAB02_MCC025_20200612",           "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100155_METAB02_MCC025_20200623",           "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100159_MEATB02_MCC025_20200714",           "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100171_METAB02_MCC025_MCC059_20200814",    "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"),        
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100173_METAB02_MCC025_20200825",           "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100175_METAB02_MCC025_20200908",           "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100182_METAB02_MCC025_20201016",           "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100185_METAB02_MCC025_20201106",           "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100188_METAB02_MCC025_20201117",           "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100192_METAB02_MCC025_20201125",           "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100200_METAB02_MCC025_20201210",           "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100205_METAB02_MCC025_20210205",           "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100207_METAB02_MCC025_20210223",           "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100210_METAB02_MCC025_20210305",           "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100217_METAB02_MCC025_20210420",           "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100221_METAB02_MCC025_20210430",           "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100225_METAB02_MCC025_20210521",           "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100236_METAB02_MCC025_LYSO_GABA_20210903", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"),           
                 
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100246_METAB02_MCC025_20210924",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100248_METAB02_MCC025_20211007",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100249_METAB02_MCC025_20211012",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100251_METAB02_MCC025_20211021",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100252_METAB02_MCC025_20211028",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100254_METAB02_MCC025_20211105",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100256_METAB02_MCC025_20211203",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100258_METAB02_MCC025_20211210",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100260_METAB02_MCC025_20211217",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100261_METAB02_MCC025_20220131",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100262_METAB02_MCC025_20220209",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100238_METAB02_MCC025_20210730",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100239_METAB02_MCC025_20210806",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100240_METAB02_MCC025_20210819",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100245_METAB02_MCC025_20210915",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100266_METAB02_MCC025_20220218",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100267_METAB02_MCC025_20220225",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100268_METAB02_MCC025_20220304",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100269_METAB02_MCC025_20220311",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100270_METAB02_MCC025_20220325",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100272_METAB02_MCC025_20220401",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100275_METAB02_MCC025_20220421",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100276_METAB02_MCC025_20220427",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100277_METAB02_MCC025_20220505",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100278_METAB02_MCC025_20220512",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100284_METAB02_MCC025_20220519",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100285_METAB02_MCC025_20220610",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100286_METAB02_MCC025_20220615",
-                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100287_METAB02_MCC025_20220622"
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100246_METAB02_MCC025_20210924", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100248_METAB02_MCC025_20211007", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100249_METAB02_MCC025_20211012", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100251_METAB02_MCC025_20211021", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100252_METAB02_MCC025_20211028", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100254_METAB02_MCC025_20211105", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100256_METAB02_MCC025_20211203", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100258_METAB02_MCC025_20211210", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100260_METAB02_MCC025_20211217", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100261_METAB02_MCC025_20220131", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100262_METAB02_MCC025_20220209", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100238_METAB02_MCC025_20210730", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100239_METAB02_MCC025_20210806", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100240_METAB02_MCC025_20210819", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100245_METAB02_MCC025_20210915", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100266_METAB02_MCC025_20220218", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100267_METAB02_MCC025_20220225", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100268_METAB02_MCC025_20220304", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100269_METAB02_MCC025_20220311", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100270_METAB02_MCC025_20220325", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100272_METAB02_MCC025_20220401", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100275_METAB02_MCC025_20220421", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100276_METAB02_MCC025_20220427", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100277_METAB02_MCC025_20220505", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100278_METAB02_MCC025_20220512", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100284_METAB02_MCC025_20220519", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100285_METAB02_MCC025_20220610", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100286_METAB02_MCC025_20220615", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
+                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100287_METAB02_MCC025_20220622", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
                 ]
         for exp in exps:
-            expName = os.path.basename(exp)
+            expName = os.path.basename(exp[0])
             expName = expName[ : expName.find("_")]
             main.loadExperiment(expName, 
-                                "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions.tsv", 
-                                exp, None, ",")
+                                exp[1], 
+                                exp[0], None, ",")
         
     
     if False:

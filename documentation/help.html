@@ -130,13 +130,13 @@ img {
 <h2 id="prediction-mode">Prediction mode</h2>
 <h3 id="start-the-gui">Start the GUI</h3>
 <p>Double-click on the runPeakBotMRM.bat in the folder TODO. The GUI will appear in a couple of seconds.</p>
-<p><img src="file:///c:\Projects\PeakBot_MRM\PeakBotMRM\documentation\gui_mainWindow.png" alt="Main window of the GUI of PeakBotMRM"></p>
+<p><img src="./gui_mainWindow.png" alt="Main window of the GUI of PeakBotMRM"></p>
 <p>Note: Copy the runPeakBotMRM.bat file to the directory where the LC-MS raw data is located. If this copied runPeakBotMRM.bat file is then double-clicked, the working directory will be the folder with the raw data and, if available, the previously saved experiment will automatically be loaded. Additionally, the PeakBotMRM application can be started faster for a particular experiment.</p>
 <h3 id="load-raw-lc-ms-data">Load raw LC-MS data</h3>
 <p>This step loads raw LC-MS data into PeakBotMRM. Click on the open symbol to load a new experiment.</p>
-<p><img src="file:///c:\Projects\PeakBot_MRM\PeakBotMRM\documentation\gui_newExperiment.png" alt="Button for creating a new experiment"></p>
+<p><img src="./gui_newExperiment.png" alt="Button for creating a new experiment"></p>
 <p>A dialog will appear.</p>
-<p><img src="file:///c:\Projects\PeakBot_MRM\PeakBotMRM\documentation\gui_newExperiment_dialog.png" alt="New experiment dialog"></p>
+<p><img src="./gui_newExperiment_dialog.png" alt="New experiment dialog"></p>
 <p>The following information has to be provided in this dialog:</p>
 <ul>
 <li>Experiment name: The name of the experiment. It is recommended to use a short, yet descriptive name and include some sort of ID. Underscores should be used instead of spaces or tabs.</li>
@@ -150,11 +150,11 @@ img {
 <p>When new raw LC-MS data is loaded, it is first converted into the mzXML format with the msConvert tool of ProteoWizard. This step is fully integrated into PeakBotMRM. It can take a couple of minutes for the conversion to finish. Reopening an already converted experiment is much faster.</p>
 <h2 id="load-a-previously-processed-experiment">Load a previously processed experiment</h2>
 <p>A previously saved experiment can be loaded via the second open button in the menu on the left side. It and all associated settings will be resored into the current workspace.</p>
-<p><img src="file:///c:\Projects\PeakBot_MRM\PeakBotMRM\documentation\gui_loadBinary.gif" alt="Load binary experiment"></p>
+<p><img src="./gui_loadBinary.gif" alt="Load binary experiment"></p>
 <h2 id="set-meta-data-for-files">Set meta-data for files</h2>
 <p>It is important to specify some meta-information for the samples. This includes whether a sample is a technical necessity or a biological samples. To start the meta-data annotation, click on the Edit button in the menu on the left side. A dialog will open showing a table.</p>
 <p>Some columns necessary will be provided per default. Please fill as many as possible with the respective meta-data of the samples (if applicable). To edit a cell, double-click on it and edit its contents. To copy the values of one cell to its bottom cells (similar to Excel), select the first cell and the bottom cells. Then click on the button 'Fill with first cells' to copy the information of the first cell to its bottom cells. To clear the contents of several cells at once, select the cells and then click on 'Rest selected cells'.</p>
-<p><img src="file:///c:\Projects\PeakBot_MRM\PeakBotMRM\documentation\gui_metainfo.gif" alt="Meta information edit dialog">
+<p><img src="./gui_metainfo.gif" alt="Meta information edit dialog">
 <br><br></p>
 <table>
 <thead>
@@ -235,7 +235,7 @@ img {
 <h3 id="process-dataset-with-a-peakbotmrm-model">Process dataset with a PeakBotMRM model</h3>
 <p>To predict if the EICs of an experiment contain chromatographic peaks, first select an experiment by clicking on its name in the experiment list. Then click on the PeakBotMRM button in the menu on the left side of the window.</p>
 <p>A small pop-up will appear showing a list of default models and the option to load other models. Click on a default model's name or select to option to load another model. When loading another model is selected, a file dialog will appear. Select the model to be used there. A dialog will ask if this model should be added to the list of default models. If yes is selected, the model will be copied and next time appear in the list of default models when a new dataset is to be processed.</p>
-<p><img src="file:///c:\Projects\PeakBot_MRM\PeakBotMRM\documentation\gui_selectModel.gif" alt="Select model"></p>
+<p><img src="gui_selectModel.gif" alt="Select model"></p>
 <p>After selecting a model, all raw LC-MS data will be loaded and processed with the selected PeakBotMRM model. This step typically only needs a couple of seconds to finish and a progress dialog will be shown. After completion of the prediction, a summary can be generated in the form of an HTML file.</p>
 <p>Additionally, after a dataset has been processed, the results will be added to the experiment.</p>
 <h3 id="navigate-results">Navigate results</h3>
@@ -248,14 +248,14 @@ img {
 </ul>
 <p>Note: It is not possible to select several substances at once, but several samples of a substance in the same experiment can be selected. Use the Ctrl and/or shift key to select several samples at once.</p>
 <p>In the following figure the sample 'CAL8_20220628' with the substance '13C5 15N1 Proline' of the experiment 'R100289' is loaded. The plot 'Sub EIC' shows the EIC in the sample 'CAL8_20220628' while the plot 'Sub EICs' shows all EICs of the subtance in the experiment overlaid.</p>
-<p><img src="file:///c:\Projects\PeakBot_MRM\PeakBotMRM\documentation\gui_loadedExperiment_singleEIC.png" alt="Example results"></p>
+<p><img src="gui_loadedExperiment_singleEIC.png" alt="Example results"></p>
 <h4 id="zoom-into-eics">Zoom into EICs</h4>
 <p>The plot to illustrate several chromatographic peaks at once is handy to quickly review several samples at once. However, the more peaks are depicted at the same time, the more crowded the area is. To zoom into certain areas of the plot use the mouse.</p>
 <p>To simply move the plot area, click and hold the left mouse button and move the mouse into the desired direction. The plot will update instantaneously.</p>
 <p>To zoom in or out of the plot, click and hold the right mouse button and move the mouse into the desired direction. Movement up and right will zoom into, while movement to the left and bottom will zoom out of the area. The point where the right click is performed is crucial since this will be used as the anchor durint the zoom operation.</p>
 <p>To reset the default zoom, click the little icon that appears in the left bottom corner. A switch to a different substance will automatically reset the zoom on any plot.</p>
 <p>The following gif shows the move and zoom feature in action. A red circle means that the right mouse button has been clicked and held, while a yellow circle indicates that the left mouse button has been clicked and held.</p>
-<p><img src="file:///c:\Projects\PeakBot_MRM\PeakBotMRM\documentation\gui_navigationEIC.gif" alt="Move and zoom illustration"></p>
+<p><img src="./gui_navigationEIC.gif" alt="Move and zoom illustration"></p>
 <h4 id="result-types">Result types</h4>
 <p>Three different types of results are available in PeakBotMRM. These are:</p>
 <ul>
@@ -275,32 +275,32 @@ img {
 </thead>
 <tbody>
 <tr>
-<td><img alt="Nothing has been detected" src="file:///c:\Projects\PeakBot_MRM\PeakBotMRM\src\gui-resources\res_PB_nothing.png" style="width:200px;"/></td>
+<td><img alt="Nothing has been detected" src="./../src/gui-resources/res_PB_nothing.png" style="width:200px;"/></td>
 <td>Nothing has been detected with the used PeakBotMRM model in an automated fashion.</td>
 <td>PB - Nothing</td>
 </tr>
 <tr>
-<td><img alt="A peak has been detected" src="file:///c:\Projects\PeakBot_MRM\PeakBotMRM\src\gui-resources\res_PB_peak.png" style="width:200px;"/></td>
+<td><img alt="A peak has been detected" src="./../src/gui-resources/res_PB_peak.png" style="width:200px;"/></td>
 <td>A chromatographic peak has been detected with the used PeakBotMRM model in an automated fashion.</td>
 <td>PB - Peak</td>
 </tr>
 <tr>
-<td><img alt="Noise has been detected" src="file:///c:\Projects\PeakBot_MRM\PeakBotMRM\src\gui-resources\res_PB_noise.png" style="width:200px;"/></td>
+<td><img alt="Noise has been detected" src="./../src/gui-resources/res_PB_noise.png" style="width:200px;"/></td>
 <td>No chromatographic peak has been detected with the used PeakBotMRM model in an automated fashion and noise has been integrated as a substitute.</td>
 <td>PB - Noise</td>
 </tr>
 <tr>
-<td><img alt="Nothing has been curated" src="file:///c:\Projects\PeakBot_MRM\PeakBotMRM\src\gui-resources\res_manual_nothing.png" style="width:100px;"/></td>
+<td><img alt="Nothing has been curated" src="./../src/gui-resources/res_manual_nothing.png" style="width:100px;"/></td>
 <td>Nothing has been curated by the user.</td>
 <td>Manual - Nothing</td>
 </tr>
 <tr>
-<td><img alt="A peak has been curated" src="file:///c:\Projects\PeakBot_MRM\PeakBotMRM\src\gui-resources\res_manual_peak.png" style="width:100px;"/></td>
+<td><img alt="A peak has been curated" src="./../src/gui-resources/res_manual_peak.png" style="width:100px;"/></td>
 <td>A chromatographic peak has been curated by the user.</td>
 <td>Manual - Peak</td>
 </tr>
 <tr>
-<td><img alt="Noise has been curated" src="file:///c:\Projects\PeakBot_MRM\PeakBotMRM\src\gui-resources\res_manual_noise.png" style="width:100px;"/></td>
+<td><img alt="Noise has been curated" src="./../src/gui-resources/res_manual_noise.png" style="width:100px;"/></td>
 <td>Noise has been curated by the user.</td>
 <td>Manual - Noise</td>
 </tr>
@@ -378,13 +378,13 @@ img {
 <h3 id="save-results">Save results</h3>
 <p>At any time the results can be saved to a binary file that can at a later time be loaded into PeakBotMRM again.</p>
 <p>To save an experiment, click on its name and then select the save icon in the menu on the left side. Select the folder to which the experiment shall be saved to. The file-name will be the name of the experimnt.</p>
-<p><img src="file:///c:\Projects\PeakBot_MRM\PeakBotMRM\documentation\gui_saveBinary.gif" alt="Save binary"></p>
+<p><img src="./gui_saveBinary.gif" alt="Save binary"></p>
 <h3 id="export-results">Export results</h3>
 <p>Processing and manual curation results can be exported to a comprehensive tsv file (global overview of the processing including meta-information about the detected peaks and noise areas) as well as a concise report including only the biological samples and their normalized values. To export either the results or the report, click the Export buttons in the menu on the left side.</p>
-<p><img src="file:///c:\Projects\PeakBot_MRM\PeakBotMRM\documentation\gui_export.gif" alt="Export results and report"></p>
+<p><img src="./gui_export.gif" alt="Export results and report"></p>
 <h3 id="settings">Settings</h3>
 <p>To change common settings such as file-name replacements, colors, export options, and others, click on the settings button in the menu on the left side. A dialog will open. Modify the contents of the desired field(s) and accept the settings. To save the settings on a permanent basis, click on 'Accept and save as default'.</p>
-<p><img src="file:///c:\Projects\PeakBot_MRM\PeakBotMRM\documentation\gui_settings.gif" alt="Settings dialog"></p>
+<p><img src="./gui_settings.gif" alt="Settings dialog"></p>
 <h2 id="contact">Contact</h2>
 <p>If you have any questions or problems with the application, please contact the main developers.</p>
 <h2 id="credits">Credits</h2>

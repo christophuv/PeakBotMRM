@@ -112,8 +112,7 @@ Some columns necessary will be provided per default. Please fill as many as poss
 | Tissue weight | The weight of the tissue used for generating this sample. Attention: needs to be the same unit for all samples. |
 | Cell count | The cell count of the sample (if applicable). |
 | Sample volume | The volume of the aqueous sample (if applicable). |
-| Report description | TODO |
-| Report calculation | Additional caluculations after regression. |
+| Report calculation | Additional calculations after regression. Must be a tuple in the form of 'caluclation, "unit"' (without the ' symbols). E.g. 'val, "NA"' or 'val * 0.2, "µg/l"'. Do not use the , as the decimal separator|
 
 The field 'Report calculation' is of utmost importance for correct absolute quantification. Any dilution step, cell count calculation, etc. must be implemented there taking the variable 'val' into consideration. Here 'val' represents the regression calculation of the peak area and the calcualted regression curve. Input values can be:
 * val ## calibration value as determined by the peak area and regression curve is reported

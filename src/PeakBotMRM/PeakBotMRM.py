@@ -1339,7 +1339,7 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
 
     samples = [os.path.join(samplesPath, f) for f in os.listdir(samplesPath) if os.path.isfile(os.path.join(samplesPath, f)) and f.lower().endswith(".mzml")]
     usedSamples = set()
-    if os.path.isfile(os.path.join(samplesPath, "integrations.pickle")) and loadFromPickleIfPossible and False:
+    if os.path.isfile(os.path.join(samplesPath, "integrations.pickle")) and loadFromPickleIfPossible:
         with open(os.path.join(samplesPath, "integrations.pickle"), "rb") as fin:
             temp, usedSamples = pickle.load(fin)
             if integrations is None or len(integrations) == 0:
