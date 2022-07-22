@@ -51,8 +51,8 @@ from unit_converter.converter import convert, converts
 unit_converter.data.UNITS["L"] = unit_converter.units.Unit("L", "liter", L=1)
 ## converts("1 g * L^-1", "µg * L^-1")
 
-#from rdkit import Chem
-#from rdkit.Chem import Draw
+from rdkit import Chem
+from rdkit.Chem import Draw
 
 import PyQt6.QtWidgets
 import PyQt6.QtCore
@@ -1550,17 +1550,17 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     a = temp.describe(percentiles = [0.1, 0.25, 0.5, 0.75, 0.9])
                     body.append("<h3><p>%s</p></h3>"%(sub))
                     
-                    if False:   ## TODO Problem with QFiledialogs.. disabled for now
-                        if self.loadedExperiments[selExp].substances[sub].cas is not None:
+                    if True: 
+                        if "cas" in  self.loadedExperiments[selExp].substances[sub].__dict__ and self.loadedExperiments[selExp].substances[sub].cas is not None:
                             body.append("<p>CAS: %s</p>"%(self.loadedExperiments[selExp].substances[sub].cas))
+                            
                         mol = None
-                        if sub in self.loadedExperiments[selExp].substances:
-                            if self.loadedExperiments[selExp].substances[sub].inchiKey is not None:
-                                mol = Chem.MolFromInchi(self.loadedExperiments[selExp].substances[sub].inchiKey)
-                                body.append("<p>Inchi: %s</p>"%(self.loadedExperiments[selExp].substances[sub].inchiKey))
-                            elif self.loadedExperiments[selExp].substances[sub].canSmiles is not None:
-                                mol = Chem.MolFromSmiles(self.loadedExperiments[selExp].substances[sub].canSmiles)
-                                body.append("<p>Smiles%s</p>"%(self.loadedExperiments[selExp].substances[sub].canSmiles))
+                        if "inchiKey" in  self.loadedExperiments[selExp].substances[sub].__dict__ and self.loadedExperiments[selExp].substances[sub].inchiKey is not None:
+                            mol = Chem.MolFromInchi(self.loadedExperiments[selExp].substances[sub].inchiKey)
+                            body.append("<p>Inchi: %s</p>"%(self.loadedExperiments[selExp].substances[sub].inchiKey))
+                        elif "canSmiles" in  self.loadedExperiments[selExp].substances[sub].__dict__ and self.loadedExperiments[selExp].substances[sub].canSmiles is not None:
+                            mol = Chem.MolFromSmiles(self.loadedExperiments[selExp].substances[sub].canSmiles)
+                            body.append("<p>Smiles%s</p>"%(self.loadedExperiments[selExp].substances[sub].canSmiles))
                             
                         if mol is not None:
                             Draw.MolToFile(mol, os.path.join(tmpDir, "tempFig.png"))
@@ -1591,13 +1591,12 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     fout.write("%s%s%s"%(top, "\n".join(body), bot))
                                 
                 if False:
-                    pass
                     ## TODO correct this bug; there is a bug with QFileDialog that does not show when the QWebEngineView is imported. 
-                    #x = WebViewDialog(self, title = selExp, url = PyQt6.QtCore.QUrl("file:///%s"%(outFil.replace("\\", "/"))))
-                    #x.setModal(True)
-                    #x.setFixedWidth(1100)
-                    #x.setFixedHeight(900)
-                    #x.exec()
+                    x = WebViewDialog(self, title = selExp, url = PyQt6.QtCore.QUrl("file:///%s"%(outFil.replace("\\", "/"))))
+                    x.setModal(True)
+                    x.setFixedWidth(1100)
+                    x.setFixedHeight(900)
+                    x.exec()
                 else:
                     import webbrowser
                     webbrowser.open("file:///%s"%(outFil.replace("\\", "/")), new = 1)
