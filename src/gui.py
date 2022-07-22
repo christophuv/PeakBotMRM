@@ -811,19 +811,38 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.tree._keyPressEvent = self.tree.keyPressEvent
         self.tree.keyPressEvent = self.keyPressEvent
             
-        if os.path.exists(os.path.join(self._pyFilePath, "defaultSettings.pickle")):
+        if os.path.exists(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "defaultSettings.pickle")):
             self.tree.blockSignals(True)
             try:
-                self.loadSettingsFromFile(settingsFile = os.path.join(self._pyFilePath, "defaultSettings.pickle"))
+                self.loadSettingsFromFile()
             except: 
                 PyQt6.QtWidgets.QMessageBox.critical(None, "PeakBotMRM", "<b>Error</b><br><br>Could not load settings from file. The defaults will be restored.<br>Please change them and save the settings again") 
             self.tree.blockSignals(False)
 
+        msConvertIsFine = False
         try:
             subprocess.run(self.__msConvertPath, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            msConvertIsFine = True
         except FileNotFoundError as ex:
-            logging.error("\033[91mError: msconvert (%s) not found.\033[0m Download and install from https://proteowizard.sourceforge.io/")
-            PyQt6.QtWidgets.QMessageBox.critical(None, "PeakBotMRM", "Error<br><br>MSConvert (at '%s') cannot be found. Please verify that it is present/installed and/or set the path to the executible accordingly in the settings<br><br>Download MSconvert from <a href='https://proteowizard.sourceforge.io/'>https://proteowizard.sourceforge.io/</a>.<br>Choose the version that is 'able to convert ventdor files'.<br>Install the software.<br>Then try restarting PeakBotMRM. If 'msconvert' alone does not work, try '%%LOCALAPPDATA%%\\Apps\\ProteoWizard 3.0.22119.ba94f16 32-bit\\msconvert.exe' (and/or replace the version with the one you have installed)"%(self.__msConvertPath))
+            try:
+                for searchPath in [os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "Apps"), os.path.expandvars("%PROGRAMFILES%"), os.path.expandvars("%PROGRAMFILES(X86)%")]:
+                    if not msConvertIsFine:
+                        ls = os.listdir(searchPath)
+                        for x in ls:
+                            if not msConvertIsFine and x.startswith("ProteoWizard"):
+                                try:
+                                    subprocess.run(os.path.join(searchPath, x, "msconvert.exe"), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                    self.__msConvertPath = os.path.join(searchPath, x, "msconvert.exe")
+                                    msConvertIsFine = True
+                                    break
+                                except:
+                                    pass
+            except:
+                pass
+            
+            if not msConvertIsFine:            
+                logging.error("\033[91mError: msconvert (%s) not found.\033[0m Download and install from https://proteowizard.sourceforge.io/")
+                PyQt6.QtWidgets.QMessageBox.critical(None, "PeakBotMRM", "Error<br><br>MSConvert (at '%s') cannot be found. Please verify that it is present/installed and/or set the path to the executible accordingly in the settings<br><br>Download MSconvert from <a href='https://proteowizard.sourceforge.io/'>https://proteowizard.sourceforge.io/</a>.<br>Choose the version that is 'able to convert ventdor files'.<br>Install the software.<br>Then try restarting PeakBotMRM. If 'msconvert' alone does not work, try '%%LOCALAPPDATA%%\\Apps\\ProteoWizard 3.0.22119.ba94f16 32-bit\\msconvert.exe' (and/or replace the version with the one you have installed)"%(self.__msConvertPath))
     
     def filterUpdated(self):
         filter = self.treeFilter.text()
@@ -1942,9 +1961,6 @@ class Window(PyQt6.QtWidgets.QMainWindow):
     def loadBinaryExperiment(self, fromFile):
         with open(fromFile, "rb") as fin:
             expName, substances, integrations, sampleInfo, additionalData = pickle.load(fin)
-            for samp in sampleInfo:
-                
-                del sampleInfo[samp]["Report description"]
             
             i = 1
             while expName in self.loadedExperiments:
