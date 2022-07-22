@@ -105,7 +105,7 @@ Some columns necessary will be provided per default. Please fill as many as poss
 | Comment | An arbitrary comment. |
 | Group | Sample group to assign this sample to. Can be anything, but needs to be the same for all samples of the same group. 
 | Type | Sample type. This should be 'Bio' for biological samples or 'Tech' for technical samples such as blanks, calibration samples, or QC samples. |
-| Color | Color of the samples. Must be a valid string with either an HTML color name or a hex-code (e.g. Firebrick, Dodgerblue, Slategrey, Black, #337799). |
+| Color | Color of the samples. Must be a valid string with either an HTML color name or a hex-code (e.g. Firebrick, Dodgerblue, Slategrey, Black, #337799). A list of color names is available (https://www.w3schools.com/cssref/css_colors.asp)[here] |
 | use4Stats | Either True or False. Indicator whether the samples shall be illustrated in the samples PCA. |
 | Inj. volume | Volume injected by the LC-MS instrument. This information is fetched from the raw LC-MS data if available. Note: Previous sampling volumes are not accounted for.|
 | Dilution | The dilution level by the LC-MS instrument. This information is fetched from the raw LC-MS data if available. Note: Previous dilution steps are not accounted for. |

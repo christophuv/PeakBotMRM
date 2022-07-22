@@ -44,7 +44,6 @@ import copy
 import csv
 import datetime
 import platform
-import regex
 
 import unit_converter
 from unit_converter.converter import convert, converts
@@ -814,7 +813,10 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             
         if os.path.exists(os.path.join(self._pyFilePath, "defaultSettings.pickle")):
             self.tree.blockSignals(True)
-            self.loadSettingsFromFile(settingsFile = os.path.join(self._pyFilePath, "defaultSettings.pickle"))
+            try:
+                self.loadSettingsFromFile(settingsFile = os.path.join(self._pyFilePath, "defaultSettings.pickle"))
+            except: 
+                PyQt6.QtWidgets.QMessageBox.critical(None, "PeakBotMRM", "<b>Error</b><br><br>Could not load settings from file. The defaults will be restored.<br>Please change them and save the settings again") 
             self.tree.blockSignals(False)
 
         try:
@@ -892,6 +894,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     "GUI/__highlightColor2": self.__highlightColor2,
                     "GUI/__calibrationFunctionstep": self.__calibrationFunctionstep, 
                     "GUI/__exportSeparator": self.__exportSeparator.replace("\t", "TAB"), 
+                    "GUI/__msConvertPath": self.__msConvertPath, 
                     "GUI/__sortOrder": self.sortOrder.itemText(self.sortOrder.currentIndex()),
                     "GUI/__defaultJumpWidth": self.__defaultJumpWidth, 
                     "GUI/__areaFormatter": self.__areaFormatter, 
@@ -901,32 +904,55 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         return settings
     
     def _loadSettingsFromObject(self, settings):
-        PeakBotMRM.Config.RTSLICES = settings["PeakBotMRM.Config.RTSLICES"]
-        PeakBotMRM.Config.UPDATEPEAKBORDERSTOMIN = settings["PeakBotMRM.Config.UPDATEPEAKBORDERSTOMIN"]
-        PeakBotMRM.Config.INTEGRATIONMETHOD = settings["PeakBotMRM.Config.INTEGRATIONMETHOD"]
-        PeakBotMRM.Config.CALIBRATIONMETHOD = settings["PeakBotMRM.Config.CALIBRATIONMETHOD"]
-        PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT = settings["PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT"]
-        PeakBotMRM.Config.MRMHEADER = settings["PeakBotMRM.Config.MRMHEADER"]
-        PeakBotMRM.Config.INTEGRATENOISE = settings["PeakBotMRM.Config.INTEGRATENOISE"]
-        PeakBotMRM.Config.INTEGRATENOISE_StartQuantile = settings["PeakBotMRM.Config.INTEGRATENOISE_StartQuantile"]
-        PeakBotMRM.Config.INTEGRATENOISE_EndQuantile = settings["PeakBotMRM.Config.INTEGRATENOISE_EndQuantile"]
+        if "PeakBotMRM.Config.RTSLICES" in settings:
+            PeakBotMRM.Config.RTSLICES = settings["PeakBotMRM.Config.RTSLICES"]
+        if "PeakBotMRM.Config.UPDATEPEAKBORDERSTOMIN" in settings:
+            PeakBotMRM.Config.UPDATEPEAKBORDERSTOMIN = settings["PeakBotMRM.Config.UPDATEPEAKBORDERSTOMIN"]
+        if "PeakBotMRM.Config.INTEGRATIONMETHOD" in settings:
+            PeakBotMRM.Config.INTEGRATIONMETHOD = settings["PeakBotMRM.Config.INTEGRATIONMETHOD"]
+        if "PeakBotMRM.Config.CALIBRATIONMETHOD" in settings:
+            PeakBotMRM.Config.CALIBRATIONMETHOD = settings["PeakBotMRM.Config.CALIBRATIONMETHOD"]
+        if "PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT" in settings:
+            PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT = settings["PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT"]
+        if "PeakBotMRM.Config.MRMHEADER" in settings:
+            PeakBotMRM.Config.MRMHEADER = settings["PeakBotMRM.Config.MRMHEADER"]
+        if "PeakBotMRM.Config.INTEGRATENOISE" in settings:
+            PeakBotMRM.Config.INTEGRATENOISE = settings["PeakBotMRM.Config.INTEGRATENOISE"]
+        if "PeakBotMRM.Config.INTEGRATENOISE_StartQuantile" in settings:
+            PeakBotMRM.Config.INTEGRATENOISE_StartQuantile = settings["PeakBotMRM.Config.INTEGRATENOISE_StartQuantile"]
+        if "PeakBotMRM.Config.INTEGRATENOISE_EndQuantile" in settings:
+            PeakBotMRM.Config.INTEGRATENOISE_EndQuantile = settings["PeakBotMRM.Config.INTEGRATENOISE_EndQuantile"]
         
-        self.__sampleNameReplacements = settings["GUI/__sampleNameReplacements"]
-        self.__leftPeakDefault = settings["GUI/__leftPeakDefault"]
-        self.__rightPeakDefault = settings["GUI/__rightPeakDefault"]
-        self.__defaultSampleOrder = settings["GUI/__defaultSampleConfig"]
-        self.__normalColor = settings["GUI/__normalColor"]
-        self.__highlightColor1 = settings["GUI/__highlightColor1"]
-        self.__highlightColor2 = settings["GUI/__highlightColor2"]
-        self.__calibrationFunctionstep = settings["GUI/__calibrationFunctionstep"]
-        self.__exportSeparator = settings["GUI/__exportSeparator"].replace("TAB", "\t")
-        self.sortOrder.setCurrentIndex([i for i in range(self.sortOrder.count()) if self.sortOrder.itemText(i) == settings["GUI/__sortOrder"]][0])
-        self.__defaultJumpWidth = settings["GUI/__defaultJumpWidth"]
-        self.peakStart.setSingleStep(self.__defaultJumpWidth)
-        self.peakEnd.setSingleStep(self.__defaultJumpWidth)
-        self.istdpeakStart.setSingleStep(self.__defaultJumpWidth)
-        self.istdpeakEnd.setSingleStep(self.__defaultJumpWidth)
-        self.__areaFormatter = settings["GUI/__areaFormatter"]
+        if "GUI/__sampleNameReplacements" in settings:
+            self.__sampleNameReplacements = settings["GUI/__sampleNameReplacements"]
+        if "GUI/__leftPeakDefault" in settings:
+            self.__leftPeakDefault = settings["GUI/__leftPeakDefault"]
+        if "GUI/__rightPeakDefault" in settings:
+            self.__rightPeakDefault = settings["GUI/__rightPeakDefault"]
+        if "GUI/__defaultSampleConfig" in settings:
+            self.__defaultSampleOrder = settings["GUI/__defaultSampleConfig"]
+        if "GUI/__normalColor" in settings:
+            self.__normalColor = settings["GUI/__normalColor"]
+        if "GUI/__highlightColor1" in settings:
+            self.__highlightColor1 = settings["GUI/__highlightColor1"]
+        if "GUI/__highlightColor2" in settings:
+            self.__highlightColor2 = settings["GUI/__highlightColor2"]
+        if "GUI/__calibrationFunctionstep" in settings:
+            self.__calibrationFunctionstep = settings["GUI/__calibrationFunctionstep"]
+        if "GUI/__exportSeparator" in settings:
+            self.__exportSeparator = settings["GUI/__exportSeparator"].replace("TAB", "\t")
+        if "GUI/__msConvertPath" in settings:
+            self.__msConvertPath = settings["GUI/__msConvertPath"]
+        if "GUI/__sortOrder" in settings:
+            self.sortOrder.setCurrentIndex([i for i in range(self.sortOrder.count()) if self.sortOrder.itemText(i) == settings["GUI/__sortOrder"]][0])
+        if "GUI/__defaultJumpWidth" in settings:
+            self.__defaultJumpWidth = settings["GUI/__defaultJumpWidth"]
+            self.peakStart.setSingleStep(self.__defaultJumpWidth)
+            self.peakEnd.setSingleStep(self.__defaultJumpWidth)
+            self.istdpeakStart.setSingleStep(self.__defaultJumpWidth)
+            self.istdpeakEnd.setSingleStep(self.__defaultJumpWidth)
+        if "GUI/__areaFormatter" in settings:
+            self.__areaFormatter = settings["GUI/__areaFormatter"]
         
         #self.dockArea.restoreState(settings["GUI/DockAreaState"])
 
@@ -1346,6 +1372,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                             dat["sample"].append(samp)
                             groups[samp] = self.loadedExperiments[selExp].sampleInfo[samp]["Group"]
                             colors[self.loadedExperiments[selExp].sampleInfo[samp]["Group"]] = self.loadedExperiments[selExp].sampleInfo[samp]["Color"]
+                            if colors[self.loadedExperiments[selExp].sampleInfo[samp]["Group"]] in [None, "None", ""]:
+                                colors[self.loadedExperiments[selExp].sampleInfo[samp]["Group"]] = "Black"
                             inte = ints[sub][samp]
                             dat["peak"].append(inte.foundPeak)
                             if inte.foundPeak % 128 == 1:
@@ -1403,6 +1431,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         dat["sample"].append(samp)
                         groups[samp] = self.loadedExperiments[selExp].sampleInfo[samp]["Group"]
                         colors[self.loadedExperiments[selExp].sampleInfo[samp]["Group"]] = self.loadedExperiments[selExp].sampleInfo[samp]["Color"]
+                        if colors[self.loadedExperiments[selExp].sampleInfo[samp]["Group"]] in [None, "None", ""]:
+                            colors[self.loadedExperiments[selExp].sampleInfo[samp]["Group"]] = "Black"
                         inte = ints[sub][samp]
                         dat["peak"].append({0: "Nothing", 1: "Peak", 2: "Noise integration", 128: "Nothing - manual", 129: "Peak - manual", 130: "Noise integration - manual"}[inte.foundPeak])
                         if inte.foundPeak % 128:
@@ -1982,9 +2012,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             i = i + 1
             
             if "Group" not in self.loadedExperiments[expName].sampleInfo[k]:
-                self.loadedExperiments[expName].sampleInfo[k]["Group"]     = ""
+                self.loadedExperiments[expName].sampleInfo[k]["Group"]     = "Unknown"
             if "Color" not in self.loadedExperiments[expName].sampleInfo[k]:
-                self.loadedExperiments[expName].sampleInfo[k]["Color"]     = ""
+                self.loadedExperiments[expName].sampleInfo[k]["Color"]     = "Black"
             if "use4Stats" not in self.loadedExperiments[expName].sampleInfo[k]:
                 self.loadedExperiments[expName].sampleInfo[k]["use4Stats"] = False
             if "Dilution" not in self.loadedExperiments[expName].sampleInfo[k]:
@@ -2002,7 +2032,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             if "Sample volume" not in self.loadedExperiments[expName].sampleInfo[k]:
                 self.loadedExperiments[expName].sampleInfo[k]["Sample volume"] = ""
             if "Report calculation" not in self.loadedExperiments[expName].sampleInfo[k]:
-                self.loadedExperiments[expName].sampleInfo[k]["Report calculation"] = "val"
+                self.loadedExperiments[expName].sampleInfo[k]["Report calculation"] = "val, \"NA\""
                        
         for k, v in self.loadedExperiments[expName].sampleInfo.items():
             self.loadedExperiments[expName].sampleInfo[k]["Name"] = Path(self.loadedExperiments[expName].sampleInfo[k]["path"]).stem
