@@ -1341,7 +1341,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 for sub in ints:
                     refRT = self.loadedExperiments[selExp].substances[sub].refRT
                     for samp in ints[sub]:
-                        if str(self.loadedExperiments[selExp].sampleInfo[samp]["use4Stats"]).lower() in ["t", "true", "1"]:
+                        if str(self.loadedExperiments[selExp].sampleInfo[samp]["use4Stats"]).lower() in ["t", "true", "y", "yes", "1", "1.0"]:
                             dat["substance"].append(sub)
                             dat["sample"].append(samp)
                             groups[samp] = self.loadedExperiments[selExp].sampleInfo[samp]["Group"]
