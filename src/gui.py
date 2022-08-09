@@ -1844,7 +1844,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                 
                                 sampleID = self.loadedExperiments[selExp].sampleInfo[samp]["Sample ID"]
                                 if sampleID == "":
-                                    raise Exception("Unknown sample type for sample '%s'"%(samp))
+                                    sampleID = "Name %s"%(self.loadedExperiments[selExp].sampleInfo[samp]["Name"])
                                 
                                 reportDescription = self.loadedExperiments[selExp].sampleInfo[samp]["Report type"]
                                 reportCalculation = self.loadedExperiments[selExp].sampleInfo[samp]["Report calculation"]
@@ -2050,6 +2050,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 self.loadedExperiments[expName].sampleInfo[k]["Dilution"] = ""
             if "Inj. volume" not in self.loadedExperiments[expName].sampleInfo[k]:
                 self.loadedExperiments[expName].sampleInfo[k]["Inj. volume"] = ""
+            if "Type" not in self.loadedExperiments[expName].sampleInfo[k]:
+                self.loadedExperiments[expName].sampleInfo[k]["Type"] = "Bio"
             if "Sample ID" not in self.loadedExperiments[expName].sampleInfo[k]:
                 self.loadedExperiments[expName].sampleInfo[k]["Sample ID"] = ""
             if "Report type" not in self.loadedExperiments[expName].sampleInfo[k]:
@@ -2133,10 +2135,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     selSub = it.substance if "substance" in it.__dict__ else None
                     selSam = it.sample if "sample" in it.__dict__ else None
                     selIST = self.loadedExperiments[selExp].substances[selSub].internalStandard if selExp is not None and selSub is not None and self.loadedExperiments[selExp].substances[selSub].internalStandard is not None and self.loadedExperiments[selExp].substances[selSub].internalStandard != "" else None
-                    
-                    #if selExp is not None and selSub is not None:
-                    #    self.calibrationMethod.setCurrentIndex(self.calibrationMethod.findText(self.loadedExperiments[selExp].substances[selSub].calibrationMethod))
-                    
+                                        
                     if "_CAL" in selSam:
                         m = re.search("(_CAL[0-9]+_)", selSam)
                         x = m.group(0)
@@ -2430,9 +2429,13 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         self.polyROI = None
                         self.plotPaCMAP(selSub, selSam)
                                         
-                    if selExp == self.lastExp and selSub != self.lastSub:
-                        for i, plot in enumerate(self._plots):
+                    
+                    for i, plot in enumerate(self._plots):
+                        if (selExp == self.lastExp and selSub != self.lastSub) or selExp != self.lastExp or i in [0, 3]:
                             plot.autoRange()
+                    
+                    if self.lastExp != selExp:
+                        self._plots[9].autoRange()
                     
                     self.lastExp = selExp
                     self.lastSub = selSub
