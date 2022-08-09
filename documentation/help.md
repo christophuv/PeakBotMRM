@@ -73,7 +73,7 @@ A dialog will appear.
 
 The following information has to be provided in this dialog: 
 * Experiment name: The name of the experiment. It is recommended to use a short, yet descriptive name and include some sort of ID. Underscores should be used instead of spaces or tabs. 
-* Transition file: The transition file specifying the target compounds to be detected. A template is provided [here](./transitions.tsv).
+* Transition file: The transition file specifying the target compounds to be detected. A template (adapted to METAB02) is provided (For measurements until R100269) [here](./transitions_UntilR100269.tsv) and (for measurements after and including R100269) [here](./transitions_AfterInclR100269.tsv).
 * Raw LCMS data: The folder of where the raw LC-MS data is saved. 
 * Processed results: Optional
 * Delimiter character: The character used for separating the cells in the transition file. Tabulator is the default character and also used in the above example transition file. 

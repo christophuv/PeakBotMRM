@@ -618,32 +618,32 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         
         layout.addWidget(PyQt6.QtWidgets.QLabel("Substance:"))
         layout.addWidget(self.hasPeak)
-        self.hasPeak.currentIndexChanged.connect(self.featurePropertiesChanged)
+        self.hasPeak.currentIndexChanged.connect(functools.partial(self.featurePropertiesChanged, cmpChanged = True, istdChanged = False))
         layout.addWidget(PyQt6.QtWidgets.QLabel("start (min)"))
         layout.addWidget(self.peakStart)
-        self.peakStart.valueChanged.connect(self.featurePropertiesChanged)
+        self.peakStart.valueChanged.connect(functools.partial(self.featurePropertiesChanged, cmpChanged = True, istdChanged = False))
         layout.addWidget(PyQt6.QtWidgets.QLabel("end (min)"))
         layout.addWidget(self.peakEnd)
-        self.peakEnd.valueChanged.connect(self.featurePropertiesChanged)
+        self.peakEnd.valueChanged.connect(functools.partial(self.featurePropertiesChanged, cmpChanged = True, istdChanged = False))
         layout.addStretch()
         
         layout.addWidget(PyQt6.QtWidgets.QLabel("ISTD:"))
         layout.addWidget(self.istdhasPeak)
-        self.istdhasPeak.currentIndexChanged.connect(self.featurePropertiesChanged)
+        self.istdhasPeak.currentIndexChanged.connect(functools.partial(self.featurePropertiesChanged, cmpChanged = False, istdChanged = True))
         layout.addWidget(PyQt6.QtWidgets.QLabel("start (min)"))
         layout.addWidget(self.istdpeakStart)
-        self.istdpeakStart.valueChanged.connect(self.featurePropertiesChanged)
+        self.istdpeakStart.valueChanged.connect(functools.partial(self.featurePropertiesChanged, cmpChanged = False, istdChanged = True))
         layout.addWidget(PyQt6.QtWidgets.QLabel("end (min)"))
         layout.addWidget(self.istdpeakEnd)
-        self.istdpeakEnd.valueChanged.connect(self.featurePropertiesChanged)
+        self.istdpeakEnd.valueChanged.connect(functools.partial(self.featurePropertiesChanged, cmpChanged = False, istdChanged = True))
         layout.addStretch()
         
         layout.addWidget(PyQt6.QtWidgets.QLabel("Use for calibration"))
         layout.addWidget(self.useForCalibration)
-        self.useForCalibration.stateChanged.connect(self.featurePropertiesChanged)
+        self.useForCalibration.stateChanged.connect(functools.partial(self.curInterpolationFunctionChanged))
         layout.addWidget(PyQt6.QtWidgets.QLabel("Method"))
         layout.addWidget(self.calibrationMethod)
-        self.calibrationMethod.currentIndexChanged.connect(self.curInterpolationFunctionChanged)
+        self.calibrationMethod.currentIndexChanged.connect(functools.partial(self.curInterpolationFunctionChanged))
         
         grid.addLayout(layout, 1, 0)
         helper = PyQt6.QtWidgets.QWidget()
@@ -869,6 +869,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         if 32 <= event.key() <= 126:
             modifiers = PyQt6.QtWidgets.QApplication.keyboardModifiers()
             
+            ## TODO: optimize keys here
             if chr(event.key()) in ["Q"]:
                 self.hasPeak.setCurrentIndex({0:0, 1:1, 2:2, 128:3, 129:4, 130:5}[((self.hasPeak.currentIndex() % 128 + 1) % 3) + 128])
             elif chr(event.key()) in ["W"]:
@@ -1962,6 +1963,16 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         with open(fromFile, "rb") as fin:
             expName, substances, integrations, sampleInfo, additionalData = pickle.load(fin)
             
+            if False:
+                with open("C:/Users/cbueschl/Desktop/R100287_newCompounds.pbexp", "rb") as fin2:
+                    expName2, substances2, integrations2, sampleInfo2, additionalData2 = pickle.load(fin2)
+                    
+                    for sub in substances2:
+                        if sub not in substances:
+                            print(sub)
+                            substances[sub] = substances2[sub]
+                            integrations[sub] = integrations2[sub]
+            
             i = 1
             while expName in self.loadedExperiments:
                 expName = expName + "_" + str(i)
@@ -1992,6 +2003,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                                                     delimiter = delimChar, 
                                                                     logPrefix = "  | ..")
                 integrationsLoaded = True
+            allAre = []
+            for substance in substances:
+                allAre.append(substance)
             
             substances, integrations, sampleInfo = PeakBotMRM.loadChromatograms(substances, integrations, 
                                                                                 rawDataPath, 
@@ -1999,7 +2013,6 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                                                                 maxValCallback = procDiag.setMaximum, curValCallback = procDiag.setValue, 
                                                                                 logPrefix = "  | ..",
                                                                                 errorCallback = functools.partial(TimerMessageBox, self, "File failed", timeout = 10))
-        
         for substance in substances:
             if substances[substance].type.lower() not in ["target", "istd"]:
                 PyQt6.QtWidgets.QMessageBox.ciritical(self, "Error with substance type", "Error<br><br>Substance type '%s' for '%s' not valid.<br>Must be  'Target' or 'ISTD.<br><br>Import will be aborted"%(substance.type, substance.name))
@@ -2053,7 +2066,6 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         for k, v in self.loadedExperiments[expName].sampleInfo.items():
             self.loadedExperiments[expName].sampleInfo[k]["Name"] = Path(self.loadedExperiments[expName].sampleInfo[k]["path"]).stem
             self.loadedExperiments[expName].sampleInfo[k]["Data File"] = os.path.basename(self.loadedExperiments[expName].sampleInfo[k]["path"])
-            ## TODO add other info here
         
         rootItem = PyQt6.QtWidgets.QTreeWidgetItem(self.tree)
         rootItem.setText(0, expName)
@@ -2111,7 +2123,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         
         self.tree.blockSignals(False); self.hasPeak.blockSignals(False); self.peakStart.blockSignals(False); self.peakEnd.blockSignals(False); self.istdhasPeak.blockSignals(False); self.istdpeakStart.blockSignals(False); self.istdpeakEnd.blockSignals(False); self.useForCalibration.blockSignals(False); self.calibrationMethod.blockSignals(False);
     
-    def featurePropertiesChanged(self):
+    def featurePropertiesChanged(self, cmpChanged = False, istdChanged = False):
         with pyqtgraph.BusyCursor():
             self.tree.blockSignals(True); self.hasPeak.blockSignals(True); self.peakStart.blockSignals(True); self.peakEnd.blockSignals(True); self.istdhasPeak.blockSignals(True); self.istdpeakStart.blockSignals(True); self.istdpeakEnd.blockSignals(True); self.useForCalibration.blockSignals(True); self.calibrationMethod.blockSignals(True);
             its = list(self.tree.selectedItems())
@@ -2122,75 +2134,33 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     selSam = it.sample if "sample" in it.__dict__ else None
                     selIST = self.loadedExperiments[selExp].substances[selSub].internalStandard if selExp is not None and selSub is not None and self.loadedExperiments[selExp].substances[selSub].internalStandard is not None and self.loadedExperiments[selExp].substances[selSub].internalStandard != "" else None
                     
-                    if selExp is not None and selSub is not None:
-                        self.calibrationMethod.setCurrentIndex(self.calibrationMethod.findText(self.loadedExperiments[selExp].substances[selSub].calibrationMethod))
+                    #if selExp is not None and selSub is not None:
+                    #    self.calibrationMethod.setCurrentIndex(self.calibrationMethod.findText(self.loadedExperiments[selExp].substances[selSub].calibrationMethod))
                     
                     if "_CAL" in selSam:
                         m = re.search("(_CAL[0-9]+_)", selSam)
                         x = m.group(0)
                         if x in self.loadedExperiments[selExp].substances[selSub].calSamples:
                             self.loadedExperiments[selExp].substances[selSub].calSamples[x] = abs(self.loadedExperiments[selExp].substances[selSub].calSamples[x]) * (1 if self.useForCalibration.isChecked() else -1)
-                    ## TODO peak
-                    inte = self.loadedExperiments[selExp].integrations[selSub][selSam]
-                    old = inte.foundPeak
-                    inte.foundPeak = {0:0, 1:1, 2:2, 3:128, 4:129, 5:130}[self.hasPeak.currentIndex()] % 128 + 128
-                    peakSwitched = old%128 == 0 and inte.foundPeak%128 > 0
-                    it.setIcon(0, {0: self.__icons["res/PB/nothing"], 1: self.__icons["res/PB/peak"], 2: self.__icons["res/PB/noise"], 128: self.__icons["res/manual/nothing"], 129: self.__icons["res/manual/peak"], 130: self.__icons["res/manual/noise"]}[inte.foundPeak])
                     
-                    if inte.foundPeak % 128:
-                        eic = inte.chromatogram["eic"]
-                        rts = inte.chromatogram["rts"]
-                        
-                        if peakSwitched:
-                            self.peakStart.setValue(self.loadedExperiments[selExp].substances[selSub].refRT + self.__leftPeakDefault)
-                            self.peakEnd.setValue(self.loadedExperiments[selExp].substances[selSub].refRT + self.__rightPeakDefault)
-                        
-                        inte.rtStart = self.peakStart.value()
-                        inte.rtEnd = self.peakEnd.value()
-                        
-                        if PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT and peakSwitched:
-                            startInd = PeakBotMRM.core.arg_find_nearest(rts, inte.rtStart)
-                            endInd   = PeakBotMRM.core.arg_find_nearest(rts, inte.rtEnd)
-                            while startInd + 1 < eic.shape[0] and eic[startInd + 1] >= eic[startInd]:
-                                startInd = startInd + 1
-                            while startInd - 1 >= 0 and eic[startInd - 1] <= eic[startInd]:
-                                startInd = startInd - 1
-                            while endInd + 1 < eic.shape[0] and eic[endInd + 1] <= eic[endInd]:
-                                endInd = endInd + 1
-                            
-                            inte.rtStart = rts[startInd]
-                            inte.rtEnd = rts[endInd]
-                            self.peakStart.setValue(inte.rtStart)
-                            self.peakEnd.setValue(inte.rtEnd)
-                        
-                        inte.area = PeakBotMRM.integrateArea(inte.chromatogram["eic"], inte.chromatogram["rts"], inte.rtStart, inte.rtEnd)
-                        it.setText(1, self.__areaFormatter%(inte.area))
-                        it.setText(2, "%.2f - %.2f"%(inte.rtStart, inte.rtEnd) if inte.foundPeak else "")
-                    else:
-                        it.setText(1, "")
-                        it.setText(2, "")
-                    inte.type = "Manual integration"
-                    inte.comment = ""
-                    inte.other["GUIElement"].setBackground(0, PyQt6.QtGui.QColor.fromRgb(int(self.__highlightColor1[0]), int(self.__highlightColor1[1]), int(self.__highlightColor1[2]), int(255 * 0.2)))
-                        
-                    if selIST is not None and selIST in self.loadedExperiments[selExp].substances and selIST in self.loadedExperiments[selExp].integrations and selSam in self.loadedExperiments[selExp].integrations[selIST]:
-                        inte = self.loadedExperiments[selExp].integrations[selIST][selSam]
+                    if cmpChanged: 
+                        inte = self.loadedExperiments[selExp].integrations[selSub][selSam]
                         old = inte.foundPeak
-                        inte.foundPeak = {0:0, 1:1, 2:2, 3:128, 4:129, 5:130}[self.istdhasPeak.currentIndex()] % 128 + 128
+                        inte.foundPeak = {0:0, 1:1, 2:2, 3:128, 4:129, 5:130}[self.hasPeak.currentIndex()] % 128 + 128
                         peakSwitched = old%128 == 0 and inte.foundPeak%128 > 0
-                        inte.other["GUIElement"].setIcon(0, {0: self.__icons["res/PB/nothing"], 1: self.__icons["res/PB/peak"], 2: self.__icons["res/PB/noise"], 128: self.__icons["res/manual/nothing"], 129: self.__icons["res/manual/peak"], 130: self.__icons["res/manual/noise"]}[inte.foundPeak])
-
-                        if inte.foundPeak:
+                        it.setIcon(0, {0: self.__icons["res/PB/nothing"], 1: self.__icons["res/PB/peak"], 2: self.__icons["res/PB/noise"], 128: self.__icons["res/manual/nothing"], 129: self.__icons["res/manual/peak"], 130: self.__icons["res/manual/noise"]}[inte.foundPeak])
+                        
+                        if inte.foundPeak % 128:
                             eic = inte.chromatogram["eic"]
                             rts = inte.chromatogram["rts"]
                             
                             if peakSwitched:
-                                self.istdpeakStart.setValue(self.loadedExperiments[selExp].substances[selIST].refRT - 0.25)
-                                self.istdpeakEnd.setValue(self.loadedExperiments[selExp].substances[selIST].refRT + 0.25)
-                                
-                            inte.rtStart = self.istdpeakStart.value()
-                            inte.rtEnd = self.istdpeakEnd.value()
-                        
+                                self.peakStart.setValue(self.loadedExperiments[selExp].substances[selSub].refRT + self.__leftPeakDefault)
+                                self.peakEnd.setValue(self.loadedExperiments[selExp].substances[selSub].refRT + self.__rightPeakDefault)
+                            
+                            inte.rtStart = self.peakStart.value()
+                            inte.rtEnd = self.peakEnd.value()
+                            
                             if PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT and peakSwitched:
                                 startInd = PeakBotMRM.core.arg_find_nearest(rts, inte.rtStart)
                                 endInd   = PeakBotMRM.core.arg_find_nearest(rts, inte.rtEnd)
@@ -2203,19 +2173,65 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                 
                                 inte.rtStart = rts[startInd]
                                 inte.rtEnd = rts[endInd]
-                                self.istdpeakStart.setValue(inte.rtStart)
-                                self.istdpeakEnd.setValue(inte.rtEnd)
-                                
-                            inte.area = PeakBotMRM.integrateArea(inte.chromatogram["eic"], inte.chromatogram["rts"], inte.rtStart, inte.rtEnd)
-                            inte.other["GUIElement"].setText(1, self.__areaFormatter%(inte.area))
-                            inte.other["GUIElement"].setText(2, "%.2f - %.2f"%(inte.rtStart, inte.rtEnd) if inte.foundPeak else "")
-                        else:
-                            inte.other["GUIElement"].setText(1, "")
-                            inte.other["GUIElement"].setText(2, "")
+                                self.peakStart.setValue(inte.rtStart)
+                                self.peakEnd.setValue(inte.rtEnd)
                             
+                            inte.area = PeakBotMRM.integrateArea(inte.chromatogram["eic"], inte.chromatogram["rts"], inte.rtStart, inte.rtEnd)
+                            it.setText(1, self.__areaFormatter%(inte.area))
+                            it.setText(2, "%.2f - %.2f"%(inte.rtStart, inte.rtEnd) if inte.foundPeak else "")
+                        else:
+                            inte.area = 0
+                            it.setText(1, "")
+                            it.setText(2, "")
                         inte.type = "Manual integration"
-                        inte.comment = ""            
+                        inte.comment = ""
                         inte.other["GUIElement"].setBackground(0, PyQt6.QtGui.QColor.fromRgb(int(self.__highlightColor1[0]), int(self.__highlightColor1[1]), int(self.__highlightColor1[2]), int(255 * 0.2)))
+                    
+                    if istdChanged: 
+                        if selIST is not None and selIST in self.loadedExperiments[selExp].substances and selIST in self.loadedExperiments[selExp].integrations and selSam in self.loadedExperiments[selExp].integrations[selIST]:
+                            inte = self.loadedExperiments[selExp].integrations[selIST][selSam]
+                            old = inte.foundPeak
+                            inte.foundPeak = {0:0, 1:1, 2:2, 3:128, 4:129, 5:130}[self.istdhasPeak.currentIndex()] % 128 + 128
+                            peakSwitched = old%128 == 0 and inte.foundPeak%128 > 0
+                            inte.other["GUIElement"].setIcon(0, {0: self.__icons["res/PB/nothing"], 1: self.__icons["res/PB/peak"], 2: self.__icons["res/PB/noise"], 128: self.__icons["res/manual/nothing"], 129: self.__icons["res/manual/peak"], 130: self.__icons["res/manual/noise"]}[inte.foundPeak])
+
+                            if inte.foundPeak:
+                                eic = inte.chromatogram["eic"]
+                                rts = inte.chromatogram["rts"]
+                                
+                                if peakSwitched:
+                                    self.istdpeakStart.setValue(self.loadedExperiments[selExp].substances[selIST].refRT + self.__leftPeakDefault)
+                                    self.istdpeakEnd.setValue(self.loadedExperiments[selExp].substances[selIST].refRT + self.__rightPeakDefault)
+                                    
+                                inte.rtStart = self.istdpeakStart.value()
+                                inte.rtEnd = self.istdpeakEnd.value()
+                            
+                                if PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT and peakSwitched:
+                                    startInd = PeakBotMRM.core.arg_find_nearest(rts, inte.rtStart)
+                                    endInd   = PeakBotMRM.core.arg_find_nearest(rts, inte.rtEnd)
+                                    while startInd + 1 < eic.shape[0] and eic[startInd + 1] >= eic[startInd]:
+                                        startInd = startInd + 1
+                                    while startInd - 1 >= 0 and eic[startInd - 1] <= eic[startInd]:
+                                        startInd = startInd - 1
+                                    while endInd + 1 < eic.shape[0] and eic[endInd + 1] <= eic[endInd]:
+                                        endInd = endInd + 1
+                                    
+                                    inte.rtStart = rts[startInd]
+                                    inte.rtEnd = rts[endInd]
+                                    self.istdpeakStart.setValue(inte.rtStart)
+                                    self.istdpeakEnd.setValue(inte.rtEnd)
+                                    
+                                inte.area = PeakBotMRM.integrateArea(inte.chromatogram["eic"], inte.chromatogram["rts"], inte.rtStart, inte.rtEnd)
+                                inte.other["GUIElement"].setText(1, self.__areaFormatter%(inte.area))
+                                inte.other["GUIElement"].setText(2, "%.2f - %.2f"%(inte.rtStart, inte.rtEnd) if inte.foundPeak else "")
+                            else:
+                                inte.area = 0
+                                inte.other["GUIElement"].setText(1, "")
+                                inte.other["GUIElement"].setText(2, "")
+                                
+                            inte.type = "Manual integration"
+                            inte.comment = ""            
+                            inte.other["GUIElement"].setBackground(0, PyQt6.QtGui.QColor.fromRgb(int(self.__highlightColor1[0]), int(self.__highlightColor1[1]), int(self.__highlightColor1[2]), int(255 * 0.2)))
                 
             self.treeSelectionChanged()
             self.tree.blockSignals(False); self.hasPeak.blockSignals(False); self.peakStart.blockSignals(False); self.peakEnd.blockSignals(False); self.istdhasPeak.blockSignals(False); self.istdpeakStart.blockSignals(False); self.istdpeakEnd.blockSignals(False);  self.useForCalibration.blockSignals(False); self.calibrationMethod.blockSignals(False);
@@ -2254,12 +2270,13 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 if len(selExps) > 1 or len(selSubs) > 1 or len(selISTs) > 1 or (len(selSams)>1 and None in selSams):
                     PyQt6.QtWidgets.QMessageBox.warning(self, "PeakBotMRM", "<b>Warning</b><br><br>Selecting several different experiments or substances is not supported at this time.<br>Please only select different samples if necessary!")
                 
-                else:                
+                else:
                     if selExp == self.lastExp and selSub != self.lastSub:
                         for plot in self._plots:
                             plot.enableAutoRange()
                     
                     for i, plot in enumerate(self._plots):
+                        plot.disableAutoRange()
                         if i in [1,2,4,5,9] and selExp == self.lastExp and selSub == self.lastSub:
                             pass
                         else:
@@ -2275,6 +2292,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     ))
                     it = None
                     for it in its:
+                        
                         if "userType" in it.__dict__:
                             if it.userType == "Single peak":
                                 selSam = it.sample if "sample" in it.__dict__ else None
@@ -2411,11 +2429,15 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     if self.paCMAP is not None and (selExp != self.lastExp or selSam != self.lastSam or selSub != self.lastSub):            
                         self.polyROI = None
                         self.plotPaCMAP(selSub, selSam)
+                                        
+                    if selExp == self.lastExp and selSub != self.lastSub:
+                        for i, plot in enumerate(self._plots):
+                            plot.autoRange()
                     
                     self.lastExp = selExp
                     self.lastSub = selSub
                     self.lastSam = selSam
-            
+                        
             self.tree.blockSignals(False); self.hasPeak.blockSignals(False); self.peakStart.blockSignals(False); self.peakEnd.blockSignals(False); self.istdhasPeak.blockSignals(False); self.istdpeakStart.blockSignals(False); self.istdpeakEnd.blockSignals(False); self.useForCalibration.blockSignals(False); self.calibrationMethod.blockSignals(False);
 
     def plotPaCMAP(self, selSub, selSam, addROI = False):
@@ -2521,7 +2543,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self._plots[plotInd].setLabel('left', "Intensity")
         self._plots[plotInd].setLabel('bottom', "Retention time (min)")
         
-    def plotIntegrations(self, intes, colors, title, refRT = None, plotInds = [1,2], makeUniformRT = False, scaleEIC = False):
+    def plotIntegrations(self, intes, colors, title, refRT = None, plotInds = [1,2], makeUniformRT = False, scaleEIC = False, transp = 0.4):
         
         for ind in range(len(intes)):
             inte = intes[ind]
@@ -2533,13 +2555,13 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 y = y - np.min(y)
                 y = y / np.max(y)
             col = PyQt6.QtGui.QColor.fromRgb(self.__normalColor[0], self.__normalColor[1], self.__normalColor[2]) # PyQt6.QtGui.QColor(colors[ind])
-            self._plots[plotInds[0]].plot(x,y, pen = (col.red(), col.green(), col.blue(), 255*0.33))
+            self._plots[plotInds[0]].plot(x,y, pen = (col.red(), col.green(), col.blue(), 255*transp))
             if inte.foundPeak is not None and inte.foundPeak % 128:
                 x = x[np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
                 y = y[np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
-                col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2]) # PyQt6.QtGui.QColor(colors[ind])
+                col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2], 255*transp) # PyQt6.QtGui.QColor(colors[ind])
                 if inte.foundPeak is not None and inte.foundPeak % 128 == 2:
-                    col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor2[0], self.__highlightColor2[1], self.__highlightColor2[2])
+                    col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor2[0], self.__highlightColor2[1], self.__highlightColor2[2], 255*transp)
                 self._plots[plotInds[0]].plot(x, y, pen = (col.red(), col.green(), col.blue(), 255))
         if refRT is not None:
             infLine = pyqtgraph.InfiniteLine(pos = [refRT, 0], movable=False, angle=90, label='', pen=self.__normalColor)
@@ -2560,12 +2582,12 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     maxVal = np.max(temp - minVal)
                     peakApexRT = tempRT[np.argmax(temp)]
 
-                    col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2]) # PyQt6.QtGui.QColor(colors[ind])PyQt6.QtGui.QColor(colors[ind])
+                    col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2], 255*transp) # PyQt6.QtGui.QColor(colors[ind])PyQt6.QtGui.QColor(colors[ind])
                     if inte.foundPeak is not None and inte.foundPeak % 128 == 2:
-                        col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor2[0], self.__highlightColor2[1], self.__highlightColor2[2])
+                        col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor2[0], self.__highlightColor2[1], self.__highlightColor2[2], 255*transp)
                     self._plots[plotInds[1]].plot(tempRT - peakApexRT, 
                                                 (temp - minVal) / maxVal,
-                                                pen = (col.red(), col.green(), col.blue(), 255*0.3))
+                                                pen = (col.red(), col.green(), col.blue(), 255*transp))
                 except Exception as ex:
                     logging.exception("Error in plotting integration")
 
@@ -2739,36 +2761,37 @@ try:
                 ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100221_METAB02_MCC025_20210430",           "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
                 ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100225_METAB02_MCC025_20210521",           "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
                 ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/validation/R100236_METAB02_MCC025_LYSO_GABA_20210903", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"),           
-                
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100246_METAB02_MCC025_20210924", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100248_METAB02_MCC025_20211007", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100249_METAB02_MCC025_20211012", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100251_METAB02_MCC025_20211021", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100252_METAB02_MCC025_20211028", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100254_METAB02_MCC025_20211105", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100256_METAB02_MCC025_20211203", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100258_METAB02_MCC025_20211210", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100260_METAB02_MCC025_20211217", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100261_METAB02_MCC025_20220131", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100262_METAB02_MCC025_20220209", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100238_METAB02_MCC025_20210730", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100239_METAB02_MCC025_20210806", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100240_METAB02_MCC025_20210819", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100245_METAB02_MCC025_20210915", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100266_METAB02_MCC025_20220218", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100267_METAB02_MCC025_20220225", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100268_METAB02_MCC025_20220304", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100269_METAB02_MCC025_20220311", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100270_METAB02_MCC025_20220325", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100272_METAB02_MCC025_20220401", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100275_METAB02_MCC025_20220421", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100276_METAB02_MCC025_20220427", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100277_METAB02_MCC025_20220505", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100278_METAB02_MCC025_20220512", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100284_METAB02_MCC025_20220519", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100285_METAB02_MCC025_20220610", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
+        ]
+        exps = [
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100246_METAB02_MCC025_20210924", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100248_METAB02_MCC025_20211007", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100249_METAB02_MCC025_20211012", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100251_METAB02_MCC025_20211021", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100252_METAB02_MCC025_20211028", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100254_METAB02_MCC025_20211105", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100256_METAB02_MCC025_20211203", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100258_METAB02_MCC025_20211210", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100260_METAB02_MCC025_20211217", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100261_METAB02_MCC025_20220131", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100262_METAB02_MCC025_20220209", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100238_METAB02_MCC025_20210730", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100239_METAB02_MCC025_20210806", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100240_METAB02_MCC025_20210819", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100245_METAB02_MCC025_20210915", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100266_METAB02_MCC025_20220218", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100267_METAB02_MCC025_20220225", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100268_METAB02_MCC025_20220304", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_UntilR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100269_METAB02_MCC025_20220311", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100270_METAB02_MCC025_20220325", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100272_METAB02_MCC025_20220401", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100275_METAB02_MCC025_20220421", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100276_METAB02_MCC025_20220427", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100277_METAB02_MCC025_20220505", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100278_METAB02_MCC025_20220512", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100284_METAB02_MCC025_20220519", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100285_METAB02_MCC025_20220610", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
                 ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100286_METAB02_MCC025_20220615", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
-                ("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100287_METAB02_MCC025_20220622", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
+                #("C:/Projects/PeakBot_MRM/PeakBotMRM_examples/machine_learning_datasets_peakbot/unprocessed/R100287_METAB02_MCC025_20220622", "C:/Projects/PeakBot_MRM/PeakBotMRM_examples/Reference/transitions_AfterInclR100269.tsv"), 
                 ]
         for exp in exps:
             expName = os.path.basename(exp[0])

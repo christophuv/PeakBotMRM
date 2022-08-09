@@ -37,7 +37,7 @@ class Config(object):
     """Base configuration class"""
 
     NAME    = "PeakBotMRM"
-    VERSION = "0.9.25"
+    VERSION = "0.9.31"
 
     RTSLICES       = 255   ## should be of 2^n-1
     NUMCLASSES     =   2   ## [Peak, noPeak]
@@ -1588,6 +1588,13 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                                 foundTargets.append([substance, entry, integrations[substance.name][sampleName]])
                                 usedChannel.append(substance)
                                 integrations[substance.name][sampleName].chromatogram.append(chrom)
+                                if verbose: 
+                                    logging.info("%s       Channel will be used for '%s': * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, substance.name, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
+                  
+                elif verbose: 
+                    logging.info("%s       Channel will not be used: * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
+                    
+                    
 
         with open(os.path.join(samplesPath, "integrations.pickle"), "wb") as fout:
             pickle.dump((integrations, usedSamples), fout)
@@ -1660,6 +1667,11 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
         if useSub:
             useSubstances.append(substance)
     
+    if verbose:
+        for substance in substances:
+            if substance not in useSubstances:
+                logging.info("%s\033[91m  | .. Substance '%s' not found as any channel and will not be used\033[0m. "%(logPrefix, substance))
+            
     substances = dict((k, v) for k, v in substances.items() if k in useSubstances)
     integrations = dict((k, v) for k, v in integrations.items() if k in useSubstances)
     
