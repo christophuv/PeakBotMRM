@@ -253,6 +253,10 @@ img {
 <p>Note: It is not possible to select several substances at once, but several samples of a substance in the same experiment can be selected. Use the Ctrl and/or shift key to select several samples at once.</p>
 <p>In the following figure the sample 'CAL8_20220628' with the substance '13C5 15N1 Proline' of the experiment 'R100289' is loaded. The plot 'Sub EIC' shows the EIC in the sample 'CAL8_20220628' while the plot 'Sub EICs' shows all EICs of the subtance in the experiment overlaid.</p>
 <p><img src="gui_loadedExperiment_singleEIC.png" alt="Example results"></p>
+<h4 id="select-samples-from-the-eic-plots">Select samples from the EIC plots</h4>
+<p>Samples can be selected based on a rectangular selection in the EIC plots. Press and hold the Control key and draw a rectangular selection in the respective plot. All samples that have at least a part of their EIC within that area will be selected in the tree view.</p>
+<p>Note: This selection is not supported in the aligned EIC plot
+Note: Selection is based upon scans, not interpolated EIC lines between scans. The latter would involve many calculations and drastically slow down the graphical user interface and the selection itself.</p>
 <h4 id="zoom-into-eics">Zoom into EICs</h4>
 <p>The plot to illustrate several chromatographic peaks at once is handy to quickly review several samples at once. However, the more peaks are depicted at the same time, the more crowded the area is. To zoom into certain areas of the plot use the mouse.</p>
 <p>To simply move the plot area, click and hold the left mouse button and move the mouse into the desired direction. The plot will update instantaneously.</p>
@@ -355,23 +359,23 @@ img {
 <td>Note: This shortcuts require the shift key to be pressed.</td>
 </tr>
 <tr>
-<td>A</td>
+<td>Q</td>
 <td>Change the results type of the substance. This will cycle through 'Manual - nothing', 'Manual - peak', and 'Manual - noise'</td>
 </tr>
 <tr>
-<td>S</td>
+<td>W</td>
 <td>Extend the start of the chromatographic peak or noise area towards an earlier retention time</td>
 </tr>
 <tr>
-<td>D</td>
+<td>E</td>
 <td>Reduce the start of the chromatographic peak or noise area towards a later retention time</td>
 </tr>
 <tr>
-<td>F</td>
+<td>R</td>
 <td>Reduce the end of the chromatographic peak or noise area towards an earlier retention time</td>
 </tr>
 <tr>
-<td>G</td>
+<td>T</td>
 <td>Extend the end of the chromatographic peak or noise area towards a later retention time</td>
 </tr>
 </tbody>

@@ -155,6 +155,13 @@ In the following figure the sample 'CAL8_20220628' with the substance '13C5 15N1
 
 ![Example results](gui_loadedExperiment_singleEIC.png)
 
+#### Select samples from the EIC plots
+
+Samples can be selected based on a rectangular selection in the EIC plots. Press and hold the Control key and draw a rectangular selection in the respective plot. All samples that have at least a part of their EIC within that area will be selected in the tree view. 
+
+Note: This selection is not supported in the aligned EIC plot
+Note: Selection is based upon scans, not interpolated EIC lines between scans. The latter would involve many calculations and drastically slow down the graphical user interface and the selection itself. 
+
 #### Zoom into EICs
 
 The plot to illustrate several chromatographic peaks at once is handy to quickly review several samples at once. However, the more peaks are depicted at the same time, the more crowded the area is. To zoom into certain areas of the plot use the mouse. 
@@ -166,6 +173,7 @@ To zoom in or out of the plot, click and hold the right mouse button and move th
 To reset the default zoom, click the little icon that appears in the left bottom corner. A switch to a different substance will automatically reset the zoom on any plot. 
 
 The following gif shows the move and zoom feature in action. A red circle means that the right mouse button has been clicked and held, while a yellow circle indicates that the left mouse button has been clicked and held. 
+
 
 ![Move and zoom illustration](./gui_navigationEIC.gif)
 
@@ -213,11 +221,11 @@ Additionally to changing a results type via the info-box, the user can also use 
 | r | Reduce the end of the chromatographic peak or noise area towards an earlier retention time |
 | t | Extend the end of the chromatographic peak or noise area towards a later retention time |
 | Actions for the internal standard | Note: This shortcuts require the shift key to be pressed.  |
-| A | Change the results type of the substance. This will cycle through 'Manual - nothing', 'Manual - peak', and 'Manual - noise' |
-| S | Extend the start of the chromatographic peak or noise area towards an earlier retention time |
-| D | Reduce the start of the chromatographic peak or noise area towards a later retention time | 
-| F | Reduce the end of the chromatographic peak or noise area towards an earlier retention time |
-| G | Extend the end of the chromatographic peak or noise area towards a later retention time |
+| Q | Change the results type of the substance. This will cycle through 'Manual - nothing', 'Manual - peak', and 'Manual - noise' |
+| W | Extend the start of the chromatographic peak or noise area towards an earlier retention time |
+| E | Reduce the start of the chromatographic peak or noise area towards a later retention time | 
+| R | Reduce the end of the chromatographic peak or noise area towards an earlier retention time |
+| T | Extend the end of the chromatographic peak or noise area towards a later retention time |
 
 
 #### Change calibration curve options

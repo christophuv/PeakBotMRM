@@ -290,6 +290,8 @@ class EditTableDialog(PyQt6.QtWidgets.QDialog):
         if name[1] and name[0] is not None and name[0] != "":
             self.table.insertColumn(self.table.columnCount())
             self.table.setHorizontalHeaderItem(self.table.columnCount() - 1, PyQt6.QtWidgets.QTableWidgetItem(name[0]))
+            ## TODO cell values are not populated.. exception in base classes
+        PyQt6.QtWidgets.QMessageBox.information(self, "PeakBotMRM", "<b>Bug</b><br><br>Unfortunately, there is a bug. You cannot directly edit the contents of the new column. Please close the metadata dialog and open it again. Then you should be able to edit the new column. <br>Apologies for this inconveniecne. The bug will be resolved in a later version of the software!")
     
     def removeColum(self):
         print("TODO implement")
@@ -556,13 +558,13 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.__exportSeparator = "\t"
         self.__defaultJumpWidth = 0.005
         self.__areaFormatter = "%6.4e"
-        self.__icons = {"res/PB/peak": PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "res_PB_peak.png")),
-                        "res/PB/noise": PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "res_PB_noise.png")),
-                        "res/PB/nothing": PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "res_PB_nothing.png")),
+        self.__icons = {"res/PB/peak": PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "feature_peak.png")),
+                        "res/PB/noise": PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "feature_noise.png")),
+                        "res/PB/nothing": PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "feature_nothing.png")),
                         
-                        "res/manual/peak": PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "res_manual_peak.png")),
-                        "res/manual/noise": PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "res_manual_noise.png")),
-                        "res/manual/nothing": PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "res_manual_nothing.png")),
+                        "res/manual/peak": PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "feature_peak_manual.png")),
+                        "res/manual/noise": PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "feature_noise_manual.png")),
+                        "res/manual/nothing": PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "feature_nothing_manual.png")),
                         
                         "other": PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "other.png")),
                         None: PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "error.png"))
@@ -581,7 +583,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.dockArea = DockArea()
         self.docks = []
         for i in range(9):
-            plot = self.genPlot()
+            plot = self.genPlot(None if i not in [0,1, 3,4] else self.selectSamples)
             dock = Dock(["Sub EIC", "Sub EICs", "Sub peaks", "ISTD EIC", "ISTD EICs", "ISTD peaks", "Sub calibration", "ISTD calibration", "Sub / ISTD calibration"][i], autoOrientation=False)
             dock.setOrientation('vertical', force=True)
             self.docks.append(dock)
@@ -870,28 +872,35 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             modifiers = PyQt6.QtWidgets.QApplication.keyboardModifiers()
             
             ## TODO: optimize keys here
-            if chr(event.key()) in ["Q"]:
-                self.hasPeak.setCurrentIndex({0:0, 1:1, 2:2, 128:3, 129:4, 130:5}[((self.hasPeak.currentIndex() % 128 + 1) % 3) + 128])
-            elif chr(event.key()) in ["W"]:
-                self.peakStart.setValue(self.peakStart.value() - self.__defaultJumpWidth)
-            elif chr(event.key()) in ["E"]:
-                self.peakStart.setValue(self.peakStart.value() + self.__defaultJumpWidth)
-            elif chr(event.key()) in ["R"]:
-                self.peakEnd.setValue(self.peakEnd.value() - self.__defaultJumpWidth)
-            elif chr(event.key()) in ["T"]:
-                self.peakEnd.setValue(self.peakEnd.value() + self.__defaultJumpWidth)
-            
-            if modifiers == PyQt6.QtCore.Qt.KeyboardModifier.ShiftModifier:
-                if chr(event.key()) in ["A"]:
+            if chr(event.key()) == "Q":
+                if modifiers == PyQt6.QtCore.Qt.KeyboardModifier.ShiftModifier:
                     self.istdhasPeak.setCurrentIndex({0:0, 1:1, 2:2, 128:3, 129:4, 130:5}[((self.istdhasPeak.currentIndex() % 128 + 1) % 3) + 128])
-                elif chr(event.key()) in ["S"]:
+                else: 
+                    self.hasPeak.setCurrentIndex({0:0, 1:1, 2:2, 128:3, 129:4, 130:5}[((self.hasPeak.currentIndex() % 128 + 1) % 3) + 128])
+            elif chr(event.key()) == "W":
+                if modifiers == PyQt6.QtCore.Qt.KeyboardModifier.ShiftModifier:
                     self.istdpeakStart.setValue(self.istdpeakStart.value() - self.__defaultJumpWidth)
-                elif chr(event.key()) in ["D"]:
+                else: 
+                    self.peakStart.setValue(self.peakStart.value() - self.__defaultJumpWidth)
+            elif chr(event.key()) == "E":
+                if modifiers == PyQt6.QtCore.Qt.KeyboardModifier.ShiftModifier:
                     self.istdpeakStart.setValue(self.istdpeakStart.value() + self.__defaultJumpWidth)
-                elif chr(event.key()) in ["F"]:
+                else: 
+                    self.peakStart.setValue(self.peakStart.value() + self.__defaultJumpWidth)
+            elif chr(event.key()) == "R":
+                if modifiers == PyQt6.QtCore.Qt.KeyboardModifier.ShiftModifier:
                     self.istdpeakEnd.setValue(self.istdpeakEnd.value() - self.__defaultJumpWidth)
-                elif chr(event.key()) in ["G"]:
+                else: 
+                    self.peakEnd.setValue(self.peakEnd.value() - self.__defaultJumpWidth)
+            elif chr(event.key()) == "T":
+                if modifiers == PyQt6.QtCore.Qt.KeyboardModifier.ShiftModifier:
                     self.istdpeakEnd.setValue(self.istdpeakEnd.value() + self.__defaultJumpWidth)
+                else: 
+                    self.peakEnd.setValue(self.peakEnd.value() + self.__defaultJumpWidth)
+                    
+            elif chr(event.key()) == "A":
+                self.refreshViews(autoRange = False, reset = False)
+                    
         
     def _getSaveSettingsObject(self):
         settings = {
@@ -1230,13 +1239,13 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 for sub in self.loadedExperiments[selExp].integrations:
                     for samp in self.loadedExperiments[selExp].integrations[sub]:
                         if (button == PyQt6.QtWidgets.QMessageBox.StandardButton.Yes and self.loadedExperiments[selExp].integrations[sub][samp].type != "Manual integration") or button == PyQt6.QtWidgets.QMessageBox.StandardButton.No:
-                            self.loadedExperiments[selExp].integrations[sub][samp].type = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.type"]
-                            self.loadedExperiments[selExp].integrations[sub][samp].comment = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.comment"]
+                            self.loadedExperiments[selExp].integrations[sub][samp].type      = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.type"]
+                            self.loadedExperiments[selExp].integrations[sub][samp].comment   = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.comment"]
                             
                             self.loadedExperiments[selExp].integrations[sub][samp].foundPeak = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.foundPeak"]
-                            self.loadedExperiments[selExp].integrations[sub][samp].rtStart = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.rtstart"]
-                            self.loadedExperiments[selExp].integrations[sub][samp].rtEnd = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.rtend"]
-                            self.loadedExperiments[selExp].integrations[sub][samp].area = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.areaPB"]
+                            self.loadedExperiments[selExp].integrations[sub][samp].rtStart   = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.rtstart"]
+                            self.loadedExperiments[selExp].integrations[sub][samp].rtEnd     = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.rtend"]
+                            self.loadedExperiments[selExp].integrations[sub][samp].area      = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.areaPB"]
             
                 for tlItemInd in range(self.tree.topLevelItemCount()):
                     treeItem = self.tree.topLevelItem(tlItemInd)
@@ -1301,8 +1310,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         if not k in ["File name", "path", "converted", "Acq. Date-Time", "Method", "Name", "Data File"]:
                             if not k in self.loadedExperiments[selExp].sampleInfo[samp]:
                                 self.loadedExperiments[selExp].sampleInfo[samp][k] = ""
-                            if k in temp and self.loadedExperiments[selExp].sampleInfo[samp][k] != temp[k]:
-                                
+                            if k in temp and self.loadedExperiments[selExp].sampleInfo[samp][k] != temp[k]:                                
                                 self.loadedExperiments[selExp].sampleInfo[samp][k] = temp[k]
             
     
@@ -1840,7 +1848,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                 
                         for samp in samples:
                             sampleType = self.loadedExperiments[selExp].sampleInfo[samp]["Type"]
-                            if sampleType.lower() == "bio":
+                            if sampleType is not None and sampleType.lower() == "bio":
                                 
                                 sampleID = self.loadedExperiments[selExp].sampleInfo[samp]["Sample ID"]
                                 if sampleID == "":
@@ -1899,8 +1907,39 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     
                     PyQt6.QtWidgets.QMessageBox.information(self, "Closed experiment", "Experiment '%s' has been closed."%(selExp))
         
-    def genPlot(self):
-        plot = pyqtgraph.PlotWidget()
+    def genPlot(self, selectionCallBack = None):
+        class CustomViewBox(pyqtgraph.ViewBox):
+            def __init__(self, selectionCallBack = None, *args, **kwds):
+                pyqtgraph.ViewBox.__init__(self, *args, **kwds)
+                self.setMouseMode(self.PanMode)
+                self.selectionCallBack = selectionCallBack
+            
+            ## reimplement mouseDragEvent to disable continuous axis zoom
+            def mouseDragEvent(self, ev, axis=None):
+                ev.accept()
+                modifiers = PyQt6.QtWidgets.QApplication.keyboardModifiers()
+                if modifiers != PyQt6.QtCore.Qt.KeyboardModifier.ControlModifier:
+                    self.setMouseMode(self.PanMode)
+                    pyqtgraph.ViewBox.mouseDragEvent(self, ev, axis=axis)
+                else:
+
+                    if ev.button() == PyQt6.QtCore.Qt.MouseButton.LeftButton:
+                        p1 = ev.buttonDownPos()
+                        p2 = ev.pos()
+                        r = PyQt6.QtCore.QRectF(p1, p2)
+                        r = self.childGroup.mapRectFromParent(r)
+                        self.rbScaleBox.setPos(r.topLeft())
+                        tr = PyQt6.QtGui.QTransform.fromScale(r.width(), r.height())
+                        self.rbScaleBox.setTransform(tr)
+                        self.rbScaleBox.show()
+                    
+                        if ev.isFinish():  ## This is the final move in the drag; change the view scale now
+                            #print(self.rbScaleBox.x(), self.rbScaleBox.y(), self.rbScaleBox.x() + r.width(), self.rbScaleBox.y() + r.height())
+                            self.rbScaleBox.hide()
+                            if self.selectionCallBack is not None:
+                                self.selectionCallBack(self.rbScaleBox.x(), self.rbScaleBox.y(), self.rbScaleBox.x() + r.width(), self.rbScaleBox.y() + r.height())
+            
+        plot = pyqtgraph.PlotWidget(viewBox = CustomViewBox(selectionCallBack = selectionCallBack))
         self._plots.append(plot)
         return plot
     
@@ -2112,17 +2151,56 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             procDiag.close()        
         self.tree.blockSignals(False)
         
+    def selectSamples(self, rtEarly, abundanceLower, rtLast, abundanceUpper):
+        ls = list(self.tree.selectedItems())
+        exps = set()
+        subs = set()
+        for it in ls:
+            if "userType" in it.__dict__:
+                selExp = it.experiment if "experiment" in it.__dict__ else None
+                selSub = it.substance if "substance" in it.__dict__ else None
+                
+                if selExp is not None:
+                    exps.add(selExp)
+                if selSub is not None:
+                    subs.add(selSub)
+        
+        self.tree.blockSignals(True)
+        if len(exps) == 1 and len(subs) == 1:
+            for iti in range(self.tree.topLevelItemCount()):
+                    it = self.tree.topLevelItem(iti)
+                    if it.experiment == selExp:
+                        for subi in range(it.childCount()):
+                            subit = it.child(subi)
+                            if subit.substance == selSub:
+                                for sampi in range(subit.childCount()):
+                                    sampit = subit.child(sampi)
+                                    isWithinSelection = False
+                                    for i in range(self.loadedExperiments[selExp].integrations[selSub][sampit.sample].chromatogram["eic"].shape[0]):
+                                        rt = self.loadedExperiments[selExp].integrations[selSub][sampit.sample].chromatogram["rts"][i]
+                                        abundance = self.loadedExperiments[selExp].integrations[selSub][sampit.sample].chromatogram["eic"][i]
+                                        if rtEarly <= rt <= rtLast and abundanceLower <= abundance <= abundanceUpper:
+                                            isWithinSelection = True
+                                            break
+                                        if rtLast < rt:
+                                            break
+                                    sampit.setSelected(isWithinSelection)
+                                    if isWithinSelection:
+                                        self.tree.scrollToItem(sampit)
+        self.tree.blockSignals(False)
+        self.treeSelectionChanged(autoRange = False)
+        
     def curInterpolationFunctionChanged(self):
         self.tree.blockSignals(True); self.hasPeak.blockSignals(True); self.peakStart.blockSignals(True); self.peakEnd.blockSignals(True); self.istdhasPeak.blockSignals(True); self.istdpeakStart.blockSignals(True); self.istdpeakEnd.blockSignals(True); self.useForCalibration.blockSignals(True); self.calibrationMethod.blockSignals(True);
-        l = list(self.tree.selectedItems())
-        if len(l) == 1 and "userType" in l[0].__dict__:
-            it = l[0]
-            selExp = it.experiment if "experiment" in it.__dict__ else None
-            selSub = it.substance if "substance" in it.__dict__ else None
-            if selExp is not None and selSub is not None:
-                self.loadedExperiments[selExp].substances[selSub].calibrationMethod = self.calibrationMethod.currentText()
-                self.featurePropertiesChanged()
+        ls = list(self.tree.selectedItems())
+        for it in ls:
+            if "userType" in it.__dict__:
+                selExp = it.experiment if "experiment" in it.__dict__ else None
+                selSub = it.substance if "substance" in it.__dict__ else None
+                if selExp is not None and selSub is not None:
+                    self.loadedExperiments[selExp].substances[selSub].calibrationMethod = self.calibrationMethod.currentText()
         
+        self.featurePropertiesChanged()        
         self.tree.blockSignals(False); self.hasPeak.blockSignals(False); self.peakStart.blockSignals(False); self.peakEnd.blockSignals(False); self.istdhasPeak.blockSignals(False); self.istdpeakStart.blockSignals(False); self.istdpeakEnd.blockSignals(False); self.useForCalibration.blockSignals(False); self.calibrationMethod.blockSignals(False);
     
     def featurePropertiesChanged(self, cmpChanged = False, istdChanged = False):
@@ -2232,21 +2310,24 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                             inte.comment = ""            
                             inte.other["GUIElement"].setBackground(0, PyQt6.QtGui.QColor.fromRgb(int(self.__highlightColor1[0]), int(self.__highlightColor1[1]), int(self.__highlightColor1[2]), int(255 * 0.2)))
                 
-            self.treeSelectionChanged()
+            self.treeSelectionChanged(updateIndividualFilesPlot = False)
             self.tree.blockSignals(False); self.hasPeak.blockSignals(False); self.peakStart.blockSignals(False); self.peakEnd.blockSignals(False); self.istdhasPeak.blockSignals(False); self.istdpeakStart.blockSignals(False); self.istdpeakEnd.blockSignals(False);  self.useForCalibration.blockSignals(False); self.calibrationMethod.blockSignals(False);
     
-    def refreshViews(self, autoRange = True):
-        self.lastExp = None
+    def refreshViews(self, autoRange = True, refresh = "All", reset = True):
+        if reset:
+            self.lastExp = None
         self.lastSam = None
         self.lastSub = None
         
         if autoRange:
-            for plot in self._plots:
-                plot.enableAutoRange()
+            for ploti in range(len(self._plots)):
+                if type is not None and ((type(refresh) == str and refresh == "All") or (type(refresh) == list and ploti in refresh)):
+                    plot = self._plots[ploti]
+                    plot.enableAutoRange()
+        self.treeSelectionChanged(autoRange = autoRange)
         
-        self.featurePropertiesChanged()
     
-    def treeSelectionChanged(self):
+    def treeSelectionChanged(self, updateIndividualFilesPlot = True, autoRange = True):
         with pyqtgraph.BusyCursor():
             its = list(self.tree.selectedItems())
             self.tree.blockSignals(True); self.hasPeak.blockSignals(True); self.peakStart.blockSignals(True); self.peakEnd.blockSignals(True); self.istdhasPeak.blockSignals(True); self.istdpeakStart.blockSignals(True); self.istdpeakEnd.blockSignals(True); self.useForCalibration.blockSignals(True); self.calibrationMethod.blockSignals(True);
@@ -2261,16 +2342,21 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     selSub = it.substance if "substance" in it.__dict__ else None
                     selSam = it.sample if "sample" in it.__dict__ else None
                     selIST = self.loadedExperiments[selExp].substances[selSub].internalStandard if selExp is not None and selSub is not None and self.loadedExperiments[selExp].substances[selSub].internalStandard is not None and self.loadedExperiments[selExp].substances[selSub].internalStandard != "" else None
-                    selExps.add(selExp)
-                    selSubs.add(selSub)
-                    selSams.add(selSam)
-                    selISTs.add(selIST)
+                    
+                    if selExp is not None:
+                        selExps.add(selExp)
+                    if selSub is not None:
+                        selSubs.add(selSub)
+                    if selSam is not None:
+                        selSams.add(selSam)
+                    if selIST is not None:
+                        selISTs.add(selIST)
                 
                 if len(selExps) > 1 or len(selSubs) > 1 or len(selISTs) > 1 or (len(selSams)>1 and None in selSams):
                     PyQt6.QtWidgets.QMessageBox.warning(self, "PeakBotMRM", "<b>Warning</b><br><br>Selecting several different experiments or substances is not supported at this time.<br>Please only select different samples if necessary!")
                 
                 else:
-                    if selExp == self.lastExp and selSub != self.lastSub:
+                    if autoRange and selExp == self.lastExp and selSub != self.lastSub:
                         for plot in self._plots:
                             plot.enableAutoRange()
                     
@@ -2429,10 +2515,10 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         self.polyROI = None
                         self.plotPaCMAP(selSub, selSam)
                                         
-                    
-                    for i, plot in enumerate(self._plots):
-                        if (selExp == self.lastExp and selSub != self.lastSub) or selExp != self.lastExp or i in [0, 3]:
-                            plot.autoRange()
+                    if autoRange: 
+                        for i, plot in enumerate(self._plots):
+                            if (selExp == self.lastExp and selSub != self.lastSub) or selExp != self.lastExp or (i in [0, 3] and updateIndividualFilesPlot):
+                                plot.autoRange()
                     
                     if self.lastExp != selExp:
                         self._plots[9].autoRange()
