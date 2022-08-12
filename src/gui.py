@@ -569,6 +569,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         "other": PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "other.png")),
                         None: PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "error.png"))
                         }
+        self.__saveBackup = True
         
         if not os.path.exists(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM")):
             os.mkdir(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM"))
@@ -929,6 +930,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     "GUI/__areaFormatter": self.__areaFormatter, 
                     
                     "GUI/DockAreaState": self.dockArea.saveState(),
+                    
+                    "GUI/__saveBackup": self.__saveBackup,
                 }
         return settings
     
@@ -984,6 +987,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             self.__areaFormatter = settings["GUI/__areaFormatter"]
         
         #self.dockArea.restoreState(settings["GUI/DockAreaState"])
+        
+        if "GUI/__saveBackup" in settings:
+            self.__saveBackup = settings["GUI/__saveBackup"]
 
     def saveSettingsToFile(self, settingsFile = None):
         if settingsFile is None:
@@ -1048,7 +1054,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 {'name': 'Export delimiter', 'type': 'list', 'value': self.__exportSeparator, 'values': ["TAB", ",", ";", "$"]},
                 {'name': 'Sort order', 'type': 'list', 'value': self.sortOrder.itemText(self.sortOrder.currentIndex()), 'values': [self.sortOrder.itemText(i) for i in range(self.sortOrder.count())]},
                 {'name': 'Default jump width', 'type': 'float', 'value': self.__defaultJumpWidth, 'limits': [0.001, 0.2], 'suffix': 'min'},
-                {'name': 'Area formatter', 'type': 'str', 'value': self.__areaFormatter, 'tip': 'Use Python string format options. Available at: <a href="https://docs.python.org/2/library/stdtypes.html#string-formatting-operations">https://docs.python.org/2/library/stdtypes.html#string-formatting-operations</a>'}
+                {'name': 'Area formatter', 'type': 'str', 'value': self.__areaFormatter, 'tip': 'Use Python string format options. Available at: <a href="https://docs.python.org/2/library/stdtypes.html#string-formatting-operations">https://docs.python.org/2/library/stdtypes.html#string-formatting-operations</a>'},
+                {'name': 'Auto backup', 'type': 'bool', 'value': self.__saveBackup}
             ]},
             #{'name': 'Save/restore gui layout', 'type': 'group', 'children': [
             #    {'name': 'Save to file', 'type': 'action'},
@@ -1100,6 +1107,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             self.sortOrder.setCurrentIndex([i for i in range(self.sortOrder.count()) if self.sortOrder.itemText(i) == p.param("Other", "Sort order").value()][0])
             self.__defaultJumpWidth = p.param("Other", "Default jump width").value()
             self.__areaFormatter = p.param("Other", "Area formatter").value()
+            self.__saveBackup = p.param("Other", "Auto backup").value()
                         
         t = ParameterTree()
         t.setParameters(p, showTop=False)
@@ -2522,6 +2530,14 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     
                     if self.lastExp != selExp:
                         self._plots[9].autoRange()
+                        
+                    if self.lastSub != selSub and self.__saveBackup:
+                        try:
+                            self.loadedExperiments[selExp].saveToFile(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", selExp+"_backup.pbexp"), additionalData = {"settings": copy.deepcopy(self._getSaveSettingsObject())})
+                            logging.info("Saved auto backup to '%s'"%(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", selExp+"_backup.pbexp")))
+                        except:
+                            PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "<b>Error</b><br><br>Could not save backup file to '%s'. <br>Please save your work to avoid loss of data"%(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", selExp+"_backup.pbexp")))
+                            logging.exception("Could not save auto backup to '%s'"%(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", selExp+"_backup.pbexp")))
                     
                     self.lastExp = selExp
                     self.lastSub = selSub

@@ -155,6 +155,8 @@ In the following figure the sample 'CAL8_20220628' with the substance '13C5 15N1
 
 ![Example results](gui_loadedExperiment_singleEIC.png)
 
+Note: A backup of the currently selected experiment will always be saved when the selected substance is saved. This step can be deactivated in the settings. The path of this backup file is '%%LOCALAPPDATA%/PeakBotMRM/ExperimentName_backup.pbexp'. In case of a crash of the GUI or any other problem, this backup can easily be restored by just opening it as a binary experiment. 
+
 #### Select samples from the EIC plots
 
 Samples can be selected based on a rectangular selection in the EIC plots. Press and hold the Control key and draw a rectangular selection in the respective plot. All samples that have at least a part of their EIC within that area will be selected in the tree view. 
