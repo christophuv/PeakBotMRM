@@ -159,9 +159,11 @@ Note: A backup of the currently selected experiment will always be saved when th
 
 #### Select samples from the EIC plots
 
-Samples can be selected based on a rectangular selection in the EIC plots. Press and hold the Control key and draw a rectangular selection in the respective plot. All samples that have at least a part of their EIC within that area will be selected in the tree view. 
+Samples can be selected based on a rectangular selection in the EIC plots. 
 
-Note: This selection is not supported in the aligned EIC plot
+Press and hold the Control key and draw a rectangular selection in the respective plot. All samples that have at least a part of their EIC within that area will be selected in the tree view. 
+
+Note: This selection is not supported in the aligned EIC plot.
 Note: Selection is based upon scans, not interpolated EIC lines between scans. The latter would involve many calculations and drastically slow down the graphical user interface and the selection itself. 
 
 #### Zoom into EICs
@@ -199,6 +201,8 @@ Thehe integration type of a particular EIC (only if a single sample is selected)
 | <img alt="Noise has been curated" src="./../src/gui-resources/res_manual_noise.png" style="width:100px;"/> | Noise has been curated by the user. | Manual - Noise |
 
 Note: Chromatographic peaks will be illustrated with the HighlightColor 1 (default red) and noise areas will be illustrated with the HighlightColor 2 (default orange). Both can be changed in the settings dialog. Any area of an EIC that is not part of a chromagraphic peak or a noise area will be shown in the NormalColor (default grey). 
+
+Note: To modify all EICs for a substance, press and hold the ALT-key and draw a selection. All EICs will be assigned a (manual) chromatographic peak with the start- and end-retention time of the selection. This is helpful for area-based integrations rather than peak-based integrations or to quickly change the integration. 
 
 #### Change result types or integration area. 
 

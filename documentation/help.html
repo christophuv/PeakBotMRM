@@ -253,9 +253,11 @@ img {
 <p>Note: It is not possible to select several substances at once, but several samples of a substance in the same experiment can be selected. Use the Ctrl and/or shift key to select several samples at once.</p>
 <p>In the following figure the sample 'CAL8_20220628' with the substance '13C5 15N1 Proline' of the experiment 'R100289' is loaded. The plot 'Sub EIC' shows the EIC in the sample 'CAL8_20220628' while the plot 'Sub EICs' shows all EICs of the subtance in the experiment overlaid.</p>
 <p><img src="gui_loadedExperiment_singleEIC.png" alt="Example results"></p>
+<p>Note: A backup of the currently selected experiment will always be saved when the selected substance is saved. This step can be deactivated in the settings. The path of this backup file is '%%LOCALAPPDATA%/PeakBotMRM/ExperimentName_backup.pbexp'. In case of a crash of the GUI or any other problem, this backup can easily be restored by just opening it as a binary experiment.</p>
 <h4 id="select-samples-from-the-eic-plots">Select samples from the EIC plots</h4>
-<p>Samples can be selected based on a rectangular selection in the EIC plots. Press and hold the Control key and draw a rectangular selection in the respective plot. All samples that have at least a part of their EIC within that area will be selected in the tree view.</p>
-<p>Note: This selection is not supported in the aligned EIC plot
+<p>Samples can be selected based on a rectangular selection in the EIC plots.</p>
+<p>Press and hold the Control key and draw a rectangular selection in the respective plot. All samples that have at least a part of their EIC within that area will be selected in the tree view.</p>
+<p>Note: This selection is not supported in the aligned EIC plot.
 Note: Selection is based upon scans, not interpolated EIC lines between scans. The latter would involve many calculations and drastically slow down the graphical user interface and the selection itself.</p>
 <h4 id="zoom-into-eics">Zoom into EICs</h4>
 <p>The plot to illustrate several chromatographic peaks at once is handy to quickly review several samples at once. However, the more peaks are depicted at the same time, the more crowded the area is. To zoom into certain areas of the plot use the mouse.</p>
@@ -315,6 +317,7 @@ Note: Selection is based upon scans, not interpolated EIC lines between scans. T
 </tbody>
 </table>
 <p>Note: Chromatographic peaks will be illustrated with the HighlightColor 1 (default red) and noise areas will be illustrated with the HighlightColor 2 (default orange). Both can be changed in the settings dialog. Any area of an EIC that is not part of a chromagraphic peak or a noise area will be shown in the NormalColor (default grey).</p>
+<p>Note: To modify all EICs for a substance, press and hold the ALT-key and draw a selection. All EICs will be assigned a (manual) chromatographic peak with the start- and end-retention time of the selection. This is helpful for area-based integrations rather than peak-based integrations or to quickly change the integration.</p>
 <h4 id="change-result-types-or-integration-area">Change result types or integration area.</h4>
 <p>Caution: Changing any of the result types or their associated information cannot be undone! Use with caution.</p>
 <p>The user can at any time change the prediciton or manual integration via the controls in the info-box on top of the EIC depictions. For both the substance and the respective internal standard the user can change their attributes quickly there.</p>

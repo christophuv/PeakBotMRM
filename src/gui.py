@@ -570,6 +570,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         None: PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "error.png"))
                         }
         self.__saveBackup = True
+        self.__autoCollapseTree = True
         
         if not os.path.exists(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM")):
             os.mkdir(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM"))
@@ -584,7 +585,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.dockArea = DockArea()
         self.docks = []
         for i in range(9):
-            plot = self.genPlot(None if i not in [0,1, 3,4] else self.selectSamples)
+            plot = self.genPlot(None if i not in [0,1, 3,4] else {"CTRL": self.selectSamples, "ALT": self.setSamples})
             dock = Dock(["Sub EIC", "Sub EICs", "Sub peaks", "ISTD EIC", "ISTD EICs", "ISTD peaks", "Sub calibration", "ISTD calibration", "Sub / ISTD calibration"][i], autoOrientation=False)
             dock.setOrientation('vertical', force=True)
             self.docks.append(dock)
@@ -932,6 +933,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     "GUI/DockAreaState": self.dockArea.saveState(),
                     
                     "GUI/__saveBackup": self.__saveBackup,
+                    "GUI/__autoCollapseTree": self.__autoCollapseTree,
                 }
         return settings
     
@@ -990,6 +992,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         
         if "GUI/__saveBackup" in settings:
             self.__saveBackup = settings["GUI/__saveBackup"]
+        if "GUI/__autoCollapseTree" in settings:
+            self.__autoCollapseTree = settings["GUI/__autoCollapseTree"]
 
     def saveSettingsToFile(self, settingsFile = None):
         if settingsFile is None:
@@ -1055,7 +1059,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 {'name': 'Sort order', 'type': 'list', 'value': self.sortOrder.itemText(self.sortOrder.currentIndex()), 'values': [self.sortOrder.itemText(i) for i in range(self.sortOrder.count())]},
                 {'name': 'Default jump width', 'type': 'float', 'value': self.__defaultJumpWidth, 'limits': [0.001, 0.2], 'suffix': 'min'},
                 {'name': 'Area formatter', 'type': 'str', 'value': self.__areaFormatter, 'tip': 'Use Python string format options. Available at: <a href="https://docs.python.org/2/library/stdtypes.html#string-formatting-operations">https://docs.python.org/2/library/stdtypes.html#string-formatting-operations</a>'},
-                {'name': 'Auto backup', 'type': 'bool', 'value': self.__saveBackup}
+                {'name': 'Auto backup', 'type': 'bool', 'value': self.__saveBackup},
+                {'name': 'Auto collapse tree', 'type': 'bool', 'value': self.__autoCollapseTree},
             ]},
             #{'name': 'Save/restore gui layout', 'type': 'group', 'children': [
             #    {'name': 'Save to file', 'type': 'action'},
@@ -1108,6 +1113,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             self.__defaultJumpWidth = p.param("Other", "Default jump width").value()
             self.__areaFormatter = p.param("Other", "Area formatter").value()
             self.__saveBackup = p.param("Other", "Auto backup").value()
+            self.__autoCollapseTree = p.param("Other", "Auto collapse tree").value()
                         
         t = ParameterTree()
         t.setParameters(p, showTop=False)
@@ -1926,26 +1932,26 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             def mouseDragEvent(self, ev, axis=None):
                 ev.accept()
                 modifiers = PyQt6.QtWidgets.QApplication.keyboardModifiers()
-                if modifiers != PyQt6.QtCore.Qt.KeyboardModifier.ControlModifier:
+                if modifiers in [PyQt6.QtCore.Qt.KeyboardModifier.ControlModifier, PyQt6.QtCore.Qt.KeyboardModifier.AltModifier] and ev.button() == PyQt6.QtCore.Qt.MouseButton.LeftButton:
+                    p1 = ev.buttonDownPos()
+                    p2 = ev.pos()
+                    r = PyQt6.QtCore.QRectF(p1, p2)
+                    r = self.childGroup.mapRectFromParent(r)
+                    self.rbScaleBox.setPos(r.topLeft())
+                    tr = PyQt6.QtGui.QTransform.fromScale(r.width(), r.height())
+                    self.rbScaleBox.setTransform(tr)
+                    self.rbScaleBox.show()
+                
+                    if ev.isFinish():  ## This is the final move in the drag; change the view scale now
+                        #print(self.rbScaleBox.x(), self.rbScaleBox.y(), self.rbScaleBox.x() + r.width(), self.rbScaleBox.y() + r.height())
+                        self.rbScaleBox.hide()
+                        if self.selectionCallBack is not None and modifiers == PyQt6.QtCore.Qt.KeyboardModifier.ControlModifier:
+                            self.selectionCallBack["CTRL"](self.rbScaleBox.x(), self.rbScaleBox.y(), self.rbScaleBox.x() + r.width(), self.rbScaleBox.y() + r.height())
+                        elif self.selectionCallBack is not None and modifiers == PyQt6.QtCore.Qt.KeyboardModifier.AltModifier:
+                            self.selectionCallBack["ALT"](self.rbScaleBox.x(), self.rbScaleBox.y(), self.rbScaleBox.x() + r.width(), self.rbScaleBox.y() + r.height())
+                else:
                     self.setMouseMode(self.PanMode)
                     pyqtgraph.ViewBox.mouseDragEvent(self, ev, axis=axis)
-                else:
-
-                    if ev.button() == PyQt6.QtCore.Qt.MouseButton.LeftButton:
-                        p1 = ev.buttonDownPos()
-                        p2 = ev.pos()
-                        r = PyQt6.QtCore.QRectF(p1, p2)
-                        r = self.childGroup.mapRectFromParent(r)
-                        self.rbScaleBox.setPos(r.topLeft())
-                        tr = PyQt6.QtGui.QTransform.fromScale(r.width(), r.height())
-                        self.rbScaleBox.setTransform(tr)
-                        self.rbScaleBox.show()
-                    
-                        if ev.isFinish():  ## This is the final move in the drag; change the view scale now
-                            #print(self.rbScaleBox.x(), self.rbScaleBox.y(), self.rbScaleBox.x() + r.width(), self.rbScaleBox.y() + r.height())
-                            self.rbScaleBox.hide()
-                            if self.selectionCallBack is not None:
-                                self.selectionCallBack(self.rbScaleBox.x(), self.rbScaleBox.y(), self.rbScaleBox.x() + r.width(), self.rbScaleBox.y() + r.height())
             
         plot = pyqtgraph.PlotWidget(viewBox = CustomViewBox(selectionCallBack = selectionCallBack))
         self._plots.append(plot)
@@ -2197,6 +2203,44 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                         self.tree.scrollToItem(sampit)
         self.tree.blockSignals(False)
         self.treeSelectionChanged(autoRange = False)
+    
+    def setSamples(self, rtEarly, abundanceLower, rtLast, abundanceUpper):
+        ls = list(self.tree.selectedItems())
+        exps = set()
+        subs = set()
+        for it in ls:
+            if "userType" in it.__dict__:
+                selExp = it.experiment if "experiment" in it.__dict__ else None
+                selSub = it.substance if "substance" in it.__dict__ else None
+                
+                if selExp is not None:
+                    exps.add(selExp)
+                if selSub is not None:
+                    subs.add(selSub)
+        
+        self.tree.blockSignals(True)
+        if len(exps) == 1 and len(subs) == 1:
+            for iti in range(self.tree.topLevelItemCount()):
+                    it = self.tree.topLevelItem(iti)
+                    if it.experiment == selExp:
+                        for subi in range(it.childCount()):
+                            subit = it.child(subi)
+                            if subit.substance == selSub:
+                                for sampi in range(subit.childCount()):
+                                    sampit = subit.child(sampi)
+                                    inte = self.loadedExperiments[selExp].integrations[selSub][sampit.sample]                                    
+                                    inte.foundPeak = 129
+                                    inte.rtStart = rtEarly
+                                    inte.rtEnd = rtLast
+                                    sampit.setIcon(0, {0: self.__icons["res/PB/nothing"], 1: self.__icons["res/PB/peak"], 2: self.__icons["res/PB/noise"], 128: self.__icons["res/manual/nothing"], 129: self.__icons["res/manual/peak"], 130: self.__icons["res/manual/noise"]}[inte.foundPeak])
+                                    
+                                    sampit.setSelected(True)
+                                    self.tree.scrollToItem(sampit)
+                                    
+        self.tree.blockSignals(False)
+        self.treeSelectionChanged(autoRange = False)
+        self.refreshViews(autoRange = False, reset = False)
+        
         
     def curInterpolationFunctionChanged(self):
         self.tree.blockSignals(True); self.hasPeak.blockSignals(True); self.peakStart.blockSignals(True); self.peakEnd.blockSignals(True); self.istdhasPeak.blockSignals(True); self.istdpeakStart.blockSignals(True); self.istdpeakEnd.blockSignals(True); self.useForCalibration.blockSignals(True); self.calibrationMethod.blockSignals(True);
@@ -2531,13 +2575,24 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     if self.lastExp != selExp:
                         self._plots[9].autoRange()
                         
-                    if self.lastSub != selSub and self.__saveBackup:
-                        try:
-                            self.loadedExperiments[selExp].saveToFile(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", selExp+"_backup.pbexp"), additionalData = {"settings": copy.deepcopy(self._getSaveSettingsObject())})
-                            logging.info("Saved auto backup to '%s'"%(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", selExp+"_backup.pbexp")))
-                        except:
-                            PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "<b>Error</b><br><br>Could not save backup file to '%s'. <br>Please save your work to avoid loss of data"%(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", selExp+"_backup.pbexp")))
-                            logging.exception("Could not save auto backup to '%s'"%(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", selExp+"_backup.pbexp")))
+                    if self.lastSub != selSub:
+                        if self.__autoCollapseTree:
+                            for iti in range(self.tree.topLevelItemCount()):
+                                    it = self.tree.topLevelItem(iti)
+                                    if it.experiment == selExp:
+                                        it.setExpanded(True)
+                                        for subi in range(it.childCount()):
+                                            subit = it.child(subi)
+                                            subit.setExpanded(subit.substance == selSub)
+                                    else:
+                                        it.setExpanded(False)
+                        if self.__saveBackup:
+                            try:
+                                self.loadedExperiments[selExp].saveToFile(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", selExp+"_backup.pbexp"), additionalData = {"settings": copy.deepcopy(self._getSaveSettingsObject())})
+                                logging.info("Saved auto backup to '%s'"%(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", selExp+"_backup.pbexp")))
+                            except:
+                                PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "<b>Error</b><br><br>Could not save backup file to '%s'. <br>Please save your work to avoid loss of data"%(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", selExp+"_backup.pbexp")))
+                                logging.exception("Could not save auto backup to '%s'"%(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", selExp+"_backup.pbexp")))
                     
                     self.lastExp = selExp
                     self.lastSub = selSub
