@@ -443,7 +443,8 @@ def calibrateIntegrations(substances, integrations):
     for substanceName in integrations:
         for sample in integrations[substanceName]:
             inte = integrations[substanceName][sample]
-            inte.area = PeakBotMRM.integrateArea(inte.chromatogram["eic"], inte.chromatogram["rts"], inte.rtStart, inte.rtEnd)
+            if inte.foundPeak is not None and inte.foundPeak % 128 > 0:
+                inte.area = PeakBotMRM.integrateArea(inte.chromatogram["eic"], inte.chromatogram["rts"], inte.rtStart, inte.rtEnd)
     
     for substanceName in integrations:
         if substanceName not in substancesComments:

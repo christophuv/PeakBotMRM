@@ -2458,7 +2458,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                             sampit = subit.child(sampi)
                             if selSub is None or subit.substance == selSub:
                                 inte = self.loadedExperiments[selExp].integrations[subit.substance][sampit.sample]
-                                if inte.foundPeak % 128:
+                                if inte.foundPeak is not None and inte.foundPeak % 128 > 0:
                                     inte.area = PeakBotMRM.integrateArea(inte.chromatogram["eic"], inte.chromatogram["rts"], inte.rtStart, inte.rtEnd)
                                     sampit.setText(1, self.__areaFormatter%(inte.area))
                                     sampit.setText(2, "%.2f - %.2f"%(inte.rtStart, inte.rtEnd) if inte.foundPeak else "")
