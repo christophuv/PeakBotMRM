@@ -152,7 +152,7 @@ img {
 <p>A previously saved experiment can be loaded via the second open button in the menu on the left side. It and all associated settings will be resored into the current workspace.</p>
 <p><img src="./gui_loadBinary.gif" alt="Load binary experiment"></p>
 <h2 id="set-meta-data-for-files">Set meta-data for files</h2>
-<p>It is important to specify some meta-information for the samples. This includes whether a sample is a technical necessity or a biological samples. To start the meta-data annotation, click on the Edit button in the menu on the left side. A dialog will open showing a table.</p>
+<p>It is important to specify some meta-information for the samples. This includes whether a sample is a technical necessity or a biological samples. To start the meta-data annotation, click on the first button in the Edit menu on the left side. A dialog will open showing a table.</p>
 <p>Some columns necessary will be provided per default. Please fill as many as possible with the respective meta-data of the samples (if applicable). To edit a cell, double-click on it and edit its contents. To copy the values of one cell to its bottom cells (similar to Excel), select the first cell and the bottom cells. Then click on the button 'Fill with first cells' to copy the information of the first cell to its bottom cells. To clear the contents of several cells at once, select the cells and then click on 'Rest selected cells'.</p>
 <p><img src="./gui_metainfo.gif" alt="Meta information edit dialog">
 <br><br></p>
@@ -236,6 +236,12 @@ img {
 </ul>
 <p>This calcualted new value will be reported in the report export of the experiment.</p>
 <p>Note: The field 'Report calculation' is the most generic form for any post-regression calculations. Thus, it needs to be individually for each sample (for sample-specific information such as tissue weight, cell count or sample volume) and sample preparartion step (for steps with the same numbers). Note: In future versions of the GUI it will be possible to access other meta-data information fields, however, currently this is not supported.</p>
+<p>Caution: There are no checks of the entered data involved. Please use with caution and double-check your work. Once accepted, the edits cannot be undone automatically.</p>
+<h2 id="edit-substances">Edit substances</h2>
+<p>To edit some properties of the target metabolites, click the second button in the Edit menu on the left side of the main window. A dialog will open showing the substance table.</p>
+<p>A couple of substance properties can be changed. If any of the provided information is incorrect, the data will not be saved.</p>
+<p>Note: Negative calibration levels indicate that the respective level will not be used for calibration. This is intended behaviour and negative values should not be made positive. Only change the actual value, but not the negative sign should you encounter one.</p>
+<p>Caution: There are no checks of the entered data involved. Please use with caution and double-check your work. Once accepted, the edits cannot be undone automatically.</p>
 <h3 id="process-dataset-with-a-peakbotmrm-model">Process dataset with a PeakBotMRM model</h3>
 <p>To predict if the EICs of an experiment contain chromatographic peaks, first select an experiment by clicking on its name in the experiment list. Then click on the PeakBotMRM button in the menu on the left side of the window.</p>
 <p>A small pop-up will appear showing a list of default models and the option to load other models. Click on a default model's name or select to option to load another model. When loading another model is selected, a file dialog will appear. Select the model to be used there. A dialog will ask if this model should be added to the list of default models. If yes is selected, the model will be copied and next time appear in the list of default models when a new dataset is to be processed.</p>

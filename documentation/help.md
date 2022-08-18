@@ -92,7 +92,7 @@ A previously saved experiment can be loaded via the second open button in the me
 
 ## Set meta-data for files
 
-It is important to specify some meta-information for the samples. This includes whether a sample is a technical necessity or a biological samples. To start the meta-data annotation, click on the Edit button in the menu on the left side. A dialog will open showing a table. 
+It is important to specify some meta-information for the samples. This includes whether a sample is a technical necessity or a biological samples. To start the meta-data annotation, click on the first button in the Edit menu on the left side. A dialog will open showing a table. 
 
 Some columns necessary will be provided per default. Please fill as many as possible with the respective meta-data of the samples (if applicable). To edit a cell, double-click on it and edit its contents. To copy the values of one cell to its bottom cells (similar to Excel), select the first cell and the bottom cells. Then click on the button 'Fill with first cells' to copy the information of the first cell to its bottom cells. To clear the contents of several cells at once, select the cells and then click on 'Rest selected cells'. 
 
@@ -127,6 +127,17 @@ This calcualted new value will be reported in the report export of the experimen
 
 Note: The field 'Report calculation' is the most generic form for any post-regression calculations. Thus, it needs to be individually for each sample (for sample-specific information such as tissue weight, cell count or sample volume) and sample preparartion step (for steps with the same numbers). Note: In future versions of the GUI it will be possible to access other meta-data information fields, however, currently this is not supported. 
 
+Caution: There are no checks of the entered data involved. Please use with caution and double-check your work. Once accepted, the edits cannot be undone automatically. 
+
+## Edit substances
+
+To edit some properties of the target metabolites, click the second button in the Edit menu on the left side of the main window. A dialog will open showing the substance table. 
+
+A couple of substance properties can be changed. If any of the provided information is incorrect, the data will not be saved. 
+
+Note: Negative calibration levels indicate that the respective level will not be used for calibration. This is intended behaviour and negative values should not be made positive. Only change the actual value, but not the negative sign should you encounter one. 
+
+Caution: There are no checks of the entered data involved. Please use with caution and double-check your work. Once accepted, the edits cannot be undone automatically. 
 
 ### Process dataset with a PeakBotMRM model
 

@@ -214,7 +214,7 @@ class TimerMessageBox(PyQt6.QtWidgets.QMessageBox):
 
 
 class EditTableDialog(PyQt6.QtWidgets.QDialog):
-    def __init__(self, parent=None, data = None):
+    def __init__(self, parent=None, data = None, addColumnOption = True, removeColumnOption = True):
         super(EditTableDialog, self).__init__(parent)
         
         self.setWindowTitle("Edit data")
@@ -236,9 +236,10 @@ class EditTableDialog(PyQt6.QtWidgets.QDialog):
         grid.addWidget(QHSeperationLine(), rowi, 0, 1, 3)
         
         rowi = rowi + 1
-        self.addCol = PyQt6.QtWidgets.QPushButton("Add column")
-        self.addCol.clicked.connect(self.addColumn)
-        grid.addWidget(self.addCol, rowi, 0, 1, 1)
+        if addColumnOption:
+            self.addCol = PyQt6.QtWidgets.QPushButton("Add column")
+            self.addCol.clicked.connect(self.addColumn)
+            grid.addWidget(self.addCol, rowi, 0, 1, 1)
         
         self.resetCells = PyQt6.QtWidgets.QPushButton("Reset selected cells")
         self.resetCells.clicked.connect(self.resetColumnValues)
@@ -249,10 +250,11 @@ class EditTableDialog(PyQt6.QtWidgets.QDialog):
         grid.addWidget(self.fillCells, rowi, 2, 1, 1)
         
         rowi = rowi + 1
-        self.rmCol = PyQt6.QtWidgets.QPushButton("Remove column")
-        self.rmCol.clicked.connect(self.removeColum)
-        self.rmCol.setVisible(False)
-        grid.addWidget(self.rmCol, rowi, 1, 1, 1)
+        if removeColumnOption:
+            self.rmCol = PyQt6.QtWidgets.QPushButton("Remove column")
+            self.rmCol.clicked.connect(self.removeColum)
+            self.rmCol.setVisible(False)
+            grid.addWidget(self.rmCol, rowi, 1, 1, 1)
         
         rowi = rowi + 1
         grid.addWidget(QHSeperationLine(), rowi, 0, 1, 3)
@@ -715,6 +717,10 @@ class Window(PyQt6.QtWidgets.QMainWindow):
 
         item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "create-outline.svg")), "Edit experiment meta data", self)
         item.triggered.connect(self.editExperimentMetaData)
+        toolbar.addAction(item)
+
+        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "shapes-outline.svg")), "Edit substances", self)
+        item.triggered.connect(self.editSubstancesInformation)
         toolbar.addAction(item)
 
         item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "thunderstorm-outline.svg")), "Reset instances", self)
@@ -1326,7 +1332,69 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                 self.loadedExperiments[selExp].sampleInfo[samp][k] = ""
                             if k in temp and self.loadedExperiments[selExp].sampleInfo[samp][k] != temp[k]:                                
                                 self.loadedExperiments[selExp].sampleInfo[samp][k] = temp[k]
+        
+        else:
+            PyQt6.QtWidgets.QMessageBox.warning(self, "PeakBotMRM", "<b>Warning</b><br><br>Select only a single experiment to edit its meta-data.")
+    
+    def editSubstancesInformation(self):
+        
+        l = list(self.tree.selectedItems())
+        if len(l) == 1 and "experiment" in l[0].__dict__:
+            it = l[0]
+            while it.parent() is not None:
+                it = it.parent()
             
+            selExp = it.experiment if "experiment" in it.__dict__ else None
+                    
+            order = ["name", "internalStandard", "refRT", "calLevel1Concentration", "calSamples", "cas", "inchiKey", "canSmiles"]
+            if selExp is not None:
+                data = []
+                for substanceName in self.loadedExperiments[selExp].substances:
+                    temp = OrderedDict()
+                    for k in order:
+                        temp[k] = self.loadedExperiments[selExp].substances[substanceName].__dict__[k]
+                    data.append(temp)
+                    
+                x = EditTableDialog(self, data = data, addColumnOption = False, removeColumnOption = False)
+                x.setModal(True)
+                x.exec()
+                
+                headers, dat = x.getUserData()
+                backup = copy.deepcopy(self.loadedExperiments[selExp].substances)
+                try:
+                    for substanceName in list(self.loadedExperiments[selExp].substances):
+                        temp = [x for x in dat if x["name"] == substanceName]
+                        assert len(temp) == 1
+                        temp = temp[0]
+                        
+                        if temp["internalStandard"] is not None and temp["internalStandard"] != "None" and temp["internalStandard"] != "":
+                            if temp["internalStandard"] in self.loadedExperiments[selExp].substances:
+                                self.loadedExperiments[selExp].substances[substanceName].internalStandard = temp["internalStandard"]
+                                for i in range(it.childCount()):
+                                    subIt = it.child(i)
+                                    if subIt.substance == substanceName:
+                                        subIt.setText(1, temp["internalStandard"])
+                            else:
+                                PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "<b>Internal standard not found</b><br><br>Error: the internal standard '%s' for substance '%s' is not available and this change will not be saved. Please correct it."%(temp["internalStandard"], substanceName))
+                        else:
+                            self.loadedExperiments[selExp].substances[substanceName].internalStandard = None
+                        
+                        self.loadedExperiments[selExp].substances[substanceName].refRT = float(temp["refRT"])
+                        self.loadedExperiments[selExp].substances[substanceName].calLevel1Concentration = float(temp["calLevel1Concentration"])
+                        self.loadedExperiments[selExp].substances[substanceName].calSamples = eval(temp["calSamples"])
+                        self.loadedExperiments[selExp].substances[substanceName].cas = temp["cas"]
+                        self.loadedExperiments[selExp].substances[substanceName].inchiKey = temp["inchiKey"]
+                        self.loadedExperiments[selExp].substances[substanceName].canSmiles = temp["canSmiles"]
+                        
+                        ## TODO implement name change
+                        
+                except Exception as ex: 
+                    logging.exception("Exception in the edit substances dialog occured")
+                    PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "<b>Error in new substance data</b><br><br>Some attributes could not be set/evaluated. No changes will be saved.<br>Details: '%s'."%(ex))
+                    self.loadedExperiments[selExp].substances = backup
+                    
+        else:
+            PyQt6.QtWidgets.QMessageBox.warning(self, "PeakBotMRM", "<b>Warning</b><br><br>Select only a single experiment to edit its substances.")
     
     def showSummary(self, processingInfo = None):
         top = """

@@ -1063,7 +1063,7 @@ def evaluatePeakBotMRM(instancesWithGT, modelPath = None, model = None, verbose 
 
 
 class Substance:
-    def __init__(self, name, Q1, Q3, CE, CEMethod, refRT, peakForm, rtShift, note, polarity, type, criteria, internalStandard, calLevel1Concentration, calLevel1ConcentrationUnit, calSamples, useCalSamples, calibrationMethod, calculateCalibration, cas = None, inchiKey = None, canSmiles = None):
+    def __init__(self, name, Q1, Q3, CE, CEMethod, refRT, peakForm, rtShift, note, polarity, type, criteria, internalStandard, calLevel1Concentration, calLevel1ConcentrationUnit, calSamples, calibrationMethod, calculateCalibration, cas = None, inchiKey = None, canSmiles = None):
         self.name = name
         self.Q1 = Q1
         self.Q3 = Q3
@@ -1080,7 +1080,6 @@ class Substance:
         self.calLevel1Concentration = calLevel1Concentration
         self.calLevel1ConcentrationUnit = calLevel1ConcentrationUnit
         self.calSamples = calSamples
-        self.useCalSamples = useCalSamples
         self.calibrationMethod = calibrationMethod
         self.calculateCalibration = calculateCalibration
         
@@ -1140,7 +1139,6 @@ def loadTargets(targetFile, excludeSubstances = None, includeSubstances = None, 
                                                 substance["Concentration"],
                                                 substance["Concentration Unit"],
                                                 inCalSamples,
-                                                inCalSamples if "UseCalSamples" not in substance or substance["UseCalSamples"] is None or substance["UseCalSamples"] == "" else eval(substance["UseCalSamples"]),
                                                 substance["CalibrationMethod"],
                                                 eval("'%s'.lower() == 'true'"%(substance["CalculateCalibration"])),
                                                 
