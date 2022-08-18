@@ -1908,6 +1908,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             
             fName = PyQt6.QtWidgets.QFileDialog.getSaveFileName(self, "Save results to file", directory = os.path.join(".", "%s_PBReport%s"%(selExp, preExt)), filter = ext, options = PyQt6.QtWidgets.QFileDialog.Option.DontUseNativeDialog)
             if fName[0]:
+                
+                includeNoiseAsNumeric = PyQt6.QtWidgets.QMessageBox.question(self, "PeakBotMRM", "Do you want noise values to be included as numeric values (Yes) or as '<LOD' indicators (No)", buttons = PyQt6.QtWidgets.QMessageBox.StandardButton.Yes | PyQt6.QtWidgets.QMessageBox.StandardButton.No) == PyQt6.QtWidgets.QMessageBox.StandardButton.Yes
+                
                 with pyqtgraph.BusyCursor():
                     outputFile = fName[0]
                 
@@ -1942,12 +1945,11 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                 units = set()
                                 out = [str(sampleID), reportDescription + " (val = %s)"%(reportCalculation.split(",")[0]), reportCalculation.split(",")[1]]
                                 for sub in substances:
-                                    if sub in self.loadedExperiments[selExp].integrations and samp in self.loadedExperiments[selExp].integrations[sub] and self.loadedExperiments[selExp].integrations[sub][samp].concentration is not None:
+                                    if sub in self.loadedExperiments[selExp].integrations and samp in self.loadedExperiments[selExp].integrations[sub] and self.loadedExperiments[selExp].integrations[sub][samp].concentration is not None and (includeNoiseAsNumeric or self.loadedExperiments[selExp].integrations[sub][samp].foundPeak % 128 == 1):
                                         val = self.loadedExperiments[selExp].integrations[sub][samp].concentration[0]
                                         
                                         val, unit = PeakBotMRM.predict.calcNormalizedValue(val, self.loadedExperiments[selExp].sampleInfo[samp])
-                                        units.add(unit)
-                                        
+                                        units.add(unit)                                        
                                         out.append(val)
                                     else:
                                         out.append("<LOQ")
@@ -2037,7 +2039,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         ls = [self.tree.topLevelItem(i) for i in range(self.tree.topLevelItemCount())]
         if len(ls) >= 1:
             
-            fDir = PyQt6.QtWidgets.QFileDialog.getExistingDirectory(self, "Open folder for model and log", options = PyQt6.QtWidgets.QFileDialog.Option.DontUseNativeDialog)
+            fDir = PyQt6.QtWidgets.QFileDialog.getExistingDirectory(self, "Select folder for binary experiment save", options = PyQt6.QtWidgets.QFileDialog.Option.DontUseNativeDialog)
             if fDir:
                 
                 procDiag = PyQt6.QtWidgets.QProgressDialog(self, labelText="Saving experiments")
@@ -2057,7 +2059,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                             procDiag.setLabelText("Saved experiment %s"%(l.experiment))
                         
                 procDiag.close()
-            PyQt6.QtWidgets.QMessageBox.information(self, "PeakBotMRM", "Experiment%s saved successfully"%("(s)" if len(ls) > 1 else "'%s'"%ls[0].experiment))    
+            PyQt6.QtWidgets.QMessageBox.information(self, "PeakBotMRM", "Experiment%s saved successfully to folder <br>'%s'"%("(s)" if len(ls) > 1 else "'%s'"%ls[0].experiment, fDir))
         else:
             PyQt6.QtWidgets.QMessageBox.warning(self, "PeakBotMRM", "Please select an experiment from the list first")        
         
@@ -2304,7 +2306,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                     
                                     sampit.setSelected(True)
                                     self.tree.scrollToItem(sampit)
-                                    
+        
         self.tree.blockSignals(False)
         self.treeSelectionChanged(autoRange = False)
         self.refreshViews(autoRange = False, reset = False)
@@ -2445,7 +2447,24 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     plot = self._plots[ploti]
                     plot.enableAutoRange()
         self.treeSelectionChanged(autoRange = autoRange)
-        
+    
+    def updateAllAreas(self, selExp = None, selSub = None):
+        for iti in range(self.tree.topLevelItemCount()):
+                it = self.tree.topLevelItem(iti)
+                if selExp is None or it.experiment == selExp:
+                    for subi in range(it.childCount()):
+                        subit = it.child(subi)
+                        for sampi in range(subit.childCount()):
+                            sampit = subit.child(sampi)
+                            if selSub is None or subit.substance == selSub:
+                                inte = self.loadedExperiments[selExp].integrations[subit.substance][sampit.sample]
+                                if inte.foundPeak % 128:
+                                    inte.area = PeakBotMRM.integrateArea(inte.chromatogram["eic"], inte.chromatogram["rts"], inte.rtStart, inte.rtEnd)
+                                    sampit.setText(1, self.__areaFormatter%(inte.area))
+                                    sampit.setText(2, "%.2f - %.2f"%(inte.rtStart, inte.rtEnd) if inte.foundPeak else "")
+                                else:
+                                    sampit.setText(1, "")
+                                    sampit.setText(2, "")
     
     def treeSelectionChanged(self, updateIndividualFilesPlot = True, autoRange = True):
         with pyqtgraph.BusyCursor():
@@ -2475,7 +2494,11 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 if len(selExps) > 1 or len(selSubs) > 1 or len(selISTs) > 1 or (len(selSams)>1 and None in selSams):
                     PyQt6.QtWidgets.QMessageBox.warning(self, "PeakBotMRM", "<b>Warning</b><br><br>Selecting several different experiments or substances is not supported at this time.<br>Please only select different samples if necessary!")
                 
-                else:
+                else:                    
+                    self.updateAllAreas(selExp, selSub)
+                    if selIST is not None:
+                        self.updateAllAreas(selExp, selIST)
+                    
                     if autoRange and selExp == self.lastExp and selSub != self.lastSub:
                         for plot in self._plots:
                             plot.enableAutoRange()
