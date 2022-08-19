@@ -21,6 +21,7 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score
+from scipy.optimize import curve_fit
 
 import tqdm
 import pymzml
@@ -61,6 +62,7 @@ class Config(object):
     EXTENDBORDERSUNTILINCREMENT = True
     INCLUDEMETAINFORMATION = False
     CALIBRATIONMETHOD = "linear, 1/expConc."
+    CALIBRATIONMETHODENFORCENONNEGATIVE = True
     INTEGRATENOISE = True
     INTEGRATENOISE_StartQuantile = 0.5
     INTEGRATENOISE_EndQuantile = 0.5
@@ -899,6 +901,10 @@ def calcR2(x, y, yhat):
     #return ssreg / sstot
 
 
+def polyFun(x, a, b, c):
+    return a*x**2 + b*x + c
+def polyFunNoIntercept(x, a, b):
+    return a*x**2 + b*x
 
 def calibrationRegression(x, y, type = None):
     try:
@@ -911,8 +917,12 @@ def calibrationRegression(x, y, type = None):
             
             model = LinearRegression(positive = True)
             model.fit(x, y)
-            yhat = model.predict(x)
             
+            if Config.CALIBRATIONMETHODENFORCENONNEGATIVE and model.intercept_ < 0:
+                model = LinearRegression(positive = True, fit_intercept = False)
+                model.fit(x, y)            
+            
+            yhat = model.predict(x)
             r2 = calcR2(x, y, yhat)
             
             return model.predict, r2, yhat, (model.intercept_, model.coef_), "y = %f * x + %f"%(model.coef_, model.intercept_)
@@ -923,8 +933,12 @@ def calibrationRegression(x, y, type = None):
             
             model = LinearRegression(positive = True)
             model.fit(x_, y_, np.ones(len(y))/np.array(y))
-            yhat = model.predict(x_)
             
+            if Config.CALIBRATIONMETHODENFORCENONNEGATIVE and model.intercept_ < 0:
+                model = LinearRegression(positive = True, fit_intercept = True)
+                model.fit(x_, y_, np.ones(len(y))/np.array(y))
+            
+            yhat = model.predict(x_)            
             r2 = calcR2(x, y, yhat)
             
             return model.predict, r2, yhat, (model.intercept_, model.coef_[0]), "y = %f * x + %f"%(model.coef_, model.intercept_)
@@ -933,25 +947,33 @@ def calibrationRegression(x, y, type = None):
             x_ = np.array(x)
             y_ = np.array(y)
             
-            coeffs = np.polyfit(x, y, 2)
-            model = np.poly1d(coeffs)
-            yhat = model(x)
+            popt, pcov = curve_fit(polyFun, x, y)
+            model = np.poly1d(popt)
             
+            if Config.CALIBRATIONMETHODENFORCENONNEGATIVE and popt[2] < 0:
+                popt, pcov = curve_fit(polyFunNoIntercept, x, y)
+                model = np.poly1d(popt)
+            
+            yhat = model(x)            
             r2 = calcR2(x, y, yhat)
             
-            return model, r2, yhat, coeffs, "y = %f * x**2 + %f * x + %f"%(coeffs[0], coeffs[1], coeffs[2])
+            return model, r2, yhat, popt, "y = %f * x**2 + %f * x + %f"%(popt[0], popt[1], popt[2])
 
         if type == "quadratic, 1/expConc.":
             x_ = np.array(x)
             y_ = np.array(y)
             
-            coeffs = np.polyfit(x, y, 2, w = np.ones(len(y))/np.array(y))
-            model = np.poly1d(coeffs)
-            yhat = model(x)
+            popt, pcov = curve_fit(polyFun, x, y, sigma = np.ones(len(y))/np.array(y))
+            model = np.poly1d(popt)
             
+            if Config.CALIBRATIONMETHODENFORCENONNEGATIVE and popt[2] < 0:
+                popt, pcov = curve_fit(polyFunNoIntercept, x, y, sigma = np.ones(len(y))/np.array(y))
+                model = np.poly1d(popt)
+            
+            yhat = model(x)            
             r2 = calcR2(x, y, yhat)
             
-            return model, r2, yhat, coeffs, "y = %f * x**2 + %f * x + %f"%(coeffs[0], coeffs[1], coeffs[2])
+            return model, r2, yhat, popt, "y = %f * x**2 + %f * x + %f"%(popt[0], popt[1], 0)
     
     except Exception as ex:
         logging.error("Exception in linear regression calibrationRegression(x, y, type) with x '%s', y '%s', type '%s'"%(str(x), str(y), str(type)))

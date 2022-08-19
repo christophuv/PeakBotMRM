@@ -916,6 +916,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     "PeakBotMRM.Config.UPDATEPEAKBORDERSTOMIN": PeakBotMRM.Config.UPDATEPEAKBORDERSTOMIN,
                     "PeakBotMRM.Config.INTEGRATIONMETHOD": PeakBotMRM.Config.INTEGRATIONMETHOD,
                     "PeakBotMRM.Config.CALIBRATIONMETHOD": PeakBotMRM.Config.CALIBRATIONMETHOD,
+                    "PeakBotMRM.Config.CALIBRATIONMETHODENFORCENONNEGATIVE": PeakBotMRM.Config.CALIBRATIONMETHODENFORCENONNEGATIVE, 
                     "PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT": PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT, 
                     "PeakBotMRM.Config.MRMHEADER": PeakBotMRM.Config.MRMHEADER,
                     "PeakBotMRM.Config.INTEGRATENOISE": PeakBotMRM.Config.INTEGRATENOISE,
@@ -952,6 +953,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             PeakBotMRM.Config.INTEGRATIONMETHOD = settings["PeakBotMRM.Config.INTEGRATIONMETHOD"]
         if "PeakBotMRM.Config.CALIBRATIONMETHOD" in settings:
             PeakBotMRM.Config.CALIBRATIONMETHOD = settings["PeakBotMRM.Config.CALIBRATIONMETHOD"]
+        if "PeakBotMRM.Config.CALIBRATIONMETHODENFORCENONNEGATIVE" in settings:
+            PeakBotMRM.Config.CALIBRATIONMETHODENFORCENONNEGATIVE = settings["PeakBotMRM.Config.CALIBRATIONMETHODENFORCENONNEGATIVE"]
         if "PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT" in settings:
             PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT = settings["PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT"]
         if "PeakBotMRM.Config.MRMHEADER" in settings:
@@ -1039,6 +1042,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 {'name': 'Update peak borders to min. value', 'type': 'bool', 'value': PeakBotMRM.Config.UPDATEPEAKBORDERSTOMIN},
                 {'name': 'Integration method', 'type': 'list', 'value': PeakBotMRM.Config.INTEGRATIONMETHOD, 'values': ['linear', 'linearbetweenborders', 'all', 'minbetweenborders']},
                 {'name': 'Calibration method', 'type': 'list', 'value': PeakBotMRM.Config.CALIBRATIONMETHOD, 'values': ["linear", "linear, 1/expConc.", "quadratic", "quadratic, 1/expConc."]},
+                {'name': 'Enforce non-negative calibration', 'type': 'bool', 'value': PeakBotMRM.Config.CALIBRATIONMETHODENFORCENONNEGATIVE},
                 {'name': 'Calibration extend borders', 'type': 'bool', 'value': PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT},
                 {'name': 'Calibration plot step size', 'type': 'int', 'value': self.__calibrationFunctionstep, 'step': 1, 'limits': [10, 1000]},
                 {'name': 'MRM header', 'type': 'str', 'value': PeakBotMRM.Config.MRMHEADER},
@@ -1083,6 +1087,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             PeakBotMRM.Config.UPDATEPEAKBORDERSTOMIN = p.param("PeakBotMRM Configuration", "Update peak borders to min. value").value()
             PeakBotMRM.Config.INTEGRATIONMETHOD = p.param("PeakBotMRM Configuration", "Integration method").value()
             PeakBotMRM.Config.CALIBRATIONMETHOD = p.param("PeakBotMRM Configuration", "Calibration method").value()
+            PeakBotMRM.Config.CALIBRATIONMETHODENFORCENONNEGATIVE = p.param("PeakBotMRM Configuration", "Enforce non-negative calibration")
             PeakBotMRM.Config.EXTENDBORDERSUNTILINCREMENT = p.param("PeakBotMRM Configuration", "Calibration extend borders").value()
             PeakBotMRM.Config.MRMHEADER = p.param("PeakBotMRM Configuration", "MRM header").value()
             PeakBotMRM.Config.INTEGRATENOISE = p.param("PeakBotMRM Configuration", "Integrate noise").value()
