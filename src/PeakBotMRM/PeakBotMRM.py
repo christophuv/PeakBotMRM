@@ -38,7 +38,7 @@ class Config(object):
     """Base configuration class"""
 
     NAME    = "PeakBotMRM"
-    VERSION = "0.9.37"
+    VERSION = "0.9.38"
 
     RTSLICES       = 255   ## should be of 2^n-1
     NUMCLASSES     =   2   ## [Peak, noPeak]
@@ -908,6 +908,18 @@ def polyFunNoIntercept(x, a, b):
 
 def calibrationRegression(x, y, type = None):
     try:
+        
+        use = []
+        for i in range(len(x)):
+            if not np.isnan(x[i]) and not np.isinf(x[i]) and not np.isnan(y[i]) and not np.isinf(y[i]):
+                use.append(i)
+                
+        if len(use) <2: 
+            return None
+        
+        x = [x[i] for i in range(len(x)) if i in use]
+        y = [y[i] for i in range(len(y)) if i in use]
+        
         if type is None:
             type = Config.CALIBRATIONMETHOD    
         
