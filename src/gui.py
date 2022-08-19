@@ -587,7 +587,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.dockArea = DockArea()
         self.docks = []
         for i in range(9):
-            plot = self.genPlot(None if i not in [0,1, 3,4] else {"CTRL": self.selectSamples, "ALT": self.setSamples})
+            plot = self.genPlot(None if i not in [0,1, 3,4] else {"CTRL": self.selectSamples, "ALT": self.setSamples, "SHIFT": self.updateSelectedSamplesRTs})
             dock = Dock(["Sub EIC", "Sub EICs", "Sub peaks", "ISTD EIC", "ISTD EICs", "ISTD peaks", "Sub calibration", "ISTD calibration", "Sub / ISTD calibration"][i], autoOrientation=False)
             dock.setOrientation('vertical', force=True)
             self.docks.append(dock)
@@ -606,15 +606,19 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         grid.addWidget(self.infoLabel, 0, 0)
         self.hasPeak = PyQt6.QtWidgets.QComboBox()
         self.hasPeak.addItems(["PB - Nothing", "PB - Peak", "PB - Noise", "Manual - Nothing", "Manual - Peak", "Manual - Noise"])
-        self.peakStart = PyQt6.QtWidgets.QDoubleSpinBox()
+        self.peakStart = pyqtgraph.SpinBox(suffix='min', siPrefix=False)
+        self.peakStart.setFixedWidth(80)
         self.peakStart.setDecimals(3); self.peakStart.setMaximum(100); self.peakStart.setMinimum(0); self.peakStart.setSingleStep(0.005)
-        self.peakEnd = PyQt6.QtWidgets.QDoubleSpinBox()
+        self.peakEnd = pyqtgraph.SpinBox(suffix='min', siPrefix=False)
+        self.peakEnd.setFixedWidth(80)
         self.peakEnd.setDecimals(3); self.peakEnd.setMaximum(100); self.peakEnd.setMinimum(0); self.peakEnd.setSingleStep(0.005)
         self.istdhasPeak = PyQt6.QtWidgets.QComboBox()
         self.istdhasPeak.addItems(["PB - Nothing", "PB - Peak", "PB - Noise", "Manual - Nothing", "Manual - Peak", "Manual - Noise"])
-        self.istdpeakStart = PyQt6.QtWidgets.QDoubleSpinBox()
+        self.istdpeakStart = pyqtgraph.SpinBox(suffix='min', siPrefix=False)
+        self.istdpeakStart.setFixedWidth(80)
         self.istdpeakStart.setDecimals(3); self.istdpeakStart.setMaximum(100); self.istdpeakStart.setMinimum(0); self.istdpeakStart.setSingleStep(0.005)
-        self.istdpeakEnd = PyQt6.QtWidgets.QDoubleSpinBox()
+        self.istdpeakEnd = pyqtgraph.SpinBox(suffix='min', siPrefix=False)
+        self.istdpeakEnd.setFixedWidth(80)
         self.istdpeakEnd.setDecimals(3); self.istdpeakEnd.setMaximum(100); self.istdpeakEnd.setMinimum(0); self.istdpeakEnd.setSingleStep(0.005)
         self.useForCalibration = PyQt6.QtWidgets.QCheckBox()
         self.calibrationMethod = PyQt6.QtWidgets.QComboBox()
@@ -627,10 +631,10 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.hasPeak.currentIndexChanged.connect(functools.partial(self.featurePropertiesChanged, cmpChanged = True, istdChanged = False))
         layout.addWidget(PyQt6.QtWidgets.QLabel("start (min)"))
         layout.addWidget(self.peakStart)
-        self.peakStart.valueChanged.connect(functools.partial(self.featurePropertiesChanged, cmpChanged = True, istdChanged = False))
+        self.peakStart.sigValueChanged.connect(functools.partial(self.featurePropertiesChanged, cmpChanged = True, istdChanged = False))
         layout.addWidget(PyQt6.QtWidgets.QLabel("end (min)"))
         layout.addWidget(self.peakEnd)
-        self.peakEnd.valueChanged.connect(functools.partial(self.featurePropertiesChanged, cmpChanged = True, istdChanged = False))
+        self.peakEnd.sigValueChanged.connect(functools.partial(self.featurePropertiesChanged, cmpChanged = True, istdChanged = False))
         layout.addStretch()
         
         layout.addWidget(PyQt6.QtWidgets.QLabel("ISTD:"))
@@ -638,10 +642,10 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.istdhasPeak.currentIndexChanged.connect(functools.partial(self.featurePropertiesChanged, cmpChanged = False, istdChanged = True))
         layout.addWidget(PyQt6.QtWidgets.QLabel("start (min)"))
         layout.addWidget(self.istdpeakStart)
-        self.istdpeakStart.valueChanged.connect(functools.partial(self.featurePropertiesChanged, cmpChanged = False, istdChanged = True))
+        self.istdpeakStart.sigValueChanged.connect(functools.partial(self.featurePropertiesChanged, cmpChanged = False, istdChanged = True))
         layout.addWidget(PyQt6.QtWidgets.QLabel("end (min)"))
         layout.addWidget(self.istdpeakEnd)
-        self.istdpeakEnd.valueChanged.connect(functools.partial(self.featurePropertiesChanged, cmpChanged = False, istdChanged = True))
+        self.istdpeakEnd.sigValueChanged.connect(functools.partial(self.featurePropertiesChanged, cmpChanged = False, istdChanged = True))
         layout.addStretch()
         
         layout.addWidget(PyQt6.QtWidgets.QLabel("Use for calibration"))
@@ -2007,7 +2011,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             def mouseDragEvent(self, ev, axis=None):
                 ev.accept()
                 modifiers = PyQt6.QtWidgets.QApplication.keyboardModifiers()
-                if modifiers in [PyQt6.QtCore.Qt.KeyboardModifier.ControlModifier, PyQt6.QtCore.Qt.KeyboardModifier.AltModifier] and ev.button() == PyQt6.QtCore.Qt.MouseButton.LeftButton:
+                if modifiers in [PyQt6.QtCore.Qt.KeyboardModifier.ControlModifier, PyQt6.QtCore.Qt.KeyboardModifier.AltModifier, PyQt6.QtCore.Qt.KeyboardModifier.ShiftModifier] and ev.button() == PyQt6.QtCore.Qt.MouseButton.LeftButton:
                     p1 = ev.buttonDownPos()
                     p2 = ev.pos()
                     r = PyQt6.QtCore.QRectF(p1, p2)
@@ -2024,6 +2028,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                             self.selectionCallBack["CTRL"](self.rbScaleBox.x(), self.rbScaleBox.y(), self.rbScaleBox.x() + r.width(), self.rbScaleBox.y() + r.height())
                         elif self.selectionCallBack is not None and modifiers == PyQt6.QtCore.Qt.KeyboardModifier.AltModifier:
                             self.selectionCallBack["ALT"](self.rbScaleBox.x(), self.rbScaleBox.y(), self.rbScaleBox.x() + r.width(), self.rbScaleBox.y() + r.height())
+                        elif self.selectionCallBack is not None and modifiers == PyQt6.QtCore.Qt.KeyboardModifier.ShiftModifier:
+                            self.selectionCallBack["SHIFT"](self.rbScaleBox.x(), self.rbScaleBox.y(), self.rbScaleBox.x() + r.width(), self.rbScaleBox.y() + r.height())
                 else:
                     self.setMouseMode(self.PanMode)
                     pyqtgraph.ViewBox.mouseDragEvent(self, ev, axis=axis)
@@ -2311,6 +2317,39 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                     
                                     sampit.setSelected(True)
                                     self.tree.scrollToItem(sampit)
+        
+        self.tree.blockSignals(False)
+        self.treeSelectionChanged(autoRange = False)
+        self.refreshViews(autoRange = False, reset = False)
+    
+    def updateSelectedSamplesRTs(self, rtEarly, abundanceLower, rtLast, abundanceUpper):
+        ls = list(self.tree.selectedItems())
+        exps = set()
+        subs = set()
+        for it in ls:
+            if "userType" in it.__dict__:
+                selExp = it.experiment if "experiment" in it.__dict__ else None
+                selSub = it.substance if "substance" in it.__dict__ else None
+                
+                if selExp is not None:
+                    exps.add(selExp)
+                if selSub is not None:
+                    subs.add(selSub)
+        
+        self.tree.blockSignals(True)
+        if len(exps) == 1 and len(subs) == 1:
+            for iti in range(self.tree.topLevelItemCount()):
+                    it = self.tree.topLevelItem(iti)
+                    if it.experiment == selExp:
+                        for subi in range(it.childCount()):
+                            subit = it.child(subi)
+                            if subit.substance == selSub:
+                                for sampi in range(subit.childCount()):
+                                    sampit = subit.child(sampi)
+                                    if sampit.isSelected():
+                                        inte = self.loadedExperiments[selExp].integrations[selSub][sampit.sample]                                    
+                                        inte.rtStart = rtEarly
+                                        inte.rtEnd = rtLast
         
         self.tree.blockSignals(False)
         self.treeSelectionChanged(autoRange = False)
