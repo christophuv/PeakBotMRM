@@ -99,7 +99,7 @@ def predictExperiment(expName, predDSs, modelFile,
     
     logging.info("All calculations took %.1f seconds"%(toc("Overall process")))
 
-def predictDataset(modelFile, substances, integrations, callBackFunction = None, showConsoleProgress = True):
+def predictDataset(modelFile, substances, integrations, specificSubstances = None, callBackFunctionValue = None, callBackFunctionText = None, showConsoleProgress = True):
     logging.info("  | .. using model from '%s'"%(modelFile))
     pbModelPred = PeakBotMRM.loadModel(modelFile, mode="predict" , verbose = False)
     allSubstances = set()
@@ -142,9 +142,11 @@ def predictDataset(modelFile, substances, integrations, callBackFunction = None,
     #    logging.info("  | .. Found all %d calibration levels"%(len(calSamplesAndLevels)))
             
     for substanceI, sub in tqdm.tqdm(enumerate(natsort.natsorted(integrations)), total = len(integrations), desc="  | .. predicting", disable = not showConsoleProgress):
-        if callBackFunction is not None:
-            callBackFunction(substanceI)
-        if sub in integrations and len(integrations[sub]) > 0:
+        if callBackFunctionValue is not None:
+            callBackFunctionValue(substanceI)
+        if callBackFunctionText is not None:
+            callBackFunctionText("Predicting '%s'"%(sub))
+        if (specificSubstances is None or sub in specificSubstances) and sub in integrations and len(integrations[sub]) > 0:
             allSubstances.add(sub)
 
             temp = {"channel.int"  : np.zeros((len(integrations[sub]), PeakBotMRM.Config.RTSLICES), dtype=float),
@@ -484,7 +486,7 @@ def calibrateIntegrations(substances, integrations):
                         if substances[substanceName].internalStandard is not None and substances[substanceName].internalStandard in integrations:
                             inteIST = integrations[substances[substanceName].internalStandard][sample]
                             if inteSub is not None and inteSub.chromatogram is not None and inteIST is not None and inteIST.chromatogram is not None:
-                                if inteSub.foundPeak % 128 == 1 and not np.isnan(inteSub.area) and inteIST.foundPeak % 128 == 1 and not np.isnan(inteIST.area) and inteIST.area > 0:
+                                if inteSub.foundPeak is not None and inteSub.foundPeak % 128 == 1 and not np.isnan(inteSub.area) and inteIST.foundPeak is not None and inteIST.foundPeak % 128 == 1 and not np.isnan(inteIST.area) and inteIST.area > 0:
                                     ratio = inteSub.area / inteIST.area
                                     inteSub.istdRatio = ratio
                                             

@@ -1,4 +1,5 @@
 import logging
+from xml.dom.expatbuilder import FragmentBuilderNS
 logging.root.setLevel(logging.NOTSET)
 logFormatter = logging.Formatter("%(asctime)s [%(levelname)-5.5s]  %(message)s")
 rootLogger = logging.getLogger()
@@ -678,6 +679,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.tree = PyQt6.QtWidgets.QTreeWidget()
         self.tree.setSelectionMode(PyQt6.QtWidgets.QTreeWidget.SelectionMode.ExtendedSelection)
         self.tree.itemSelectionChanged.connect(self.treeSelectionChanged)
+        self.tree.setContextMenuPolicy(PyQt6.QtCore.Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self.showTreeContextMenu)
         self.tree.setColumnCount(3)
         self.tree.setHeaderLabels(["Generic", "Area", "PeakWidth"])
         self.tree.setMinimumWidth(300)
@@ -1189,25 +1192,73 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         PyQt6.QtWidgets.QMessageBox.information(self, "PeakBotMRM", "<b>Train a new model</b><br><br>This function is not yet implemented...")
         
     def processExperimentSHelper(self, all = False):
-        menu = PyQt6.QtWidgets.QMenu(self)
-        
-        addSep = False
-        for mf in natsort.natsorted(list(os.listdir(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models"))), key = lambda x: x.lower()):
-            if mf.endswith(".h5"):
-                acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "robot.png")), mf, self)
-                acc.triggered.connect(functools.partial(self.processExperimentS, os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models", mf), all = all))
-                menu.addAction(acc)
-                addSep = True
-        
-        if addSep: 
-            menu.addSeparator()
-        acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "folder-open-outline.svg")), "Open other model", self)
-        acc.triggered.connect(functools.partial(self.processExperimentS, None, all = all))
-        menu.addAction(acc)
+        its = list(self.tree.selectedItems())
+        self.tree.blockSignals(True); self.hasPeak.blockSignals(True); self.peakStart.blockSignals(True); self.peakEnd.blockSignals(True); self.istdhasPeak.blockSignals(True); self.istdpeakStart.blockSignals(True); self.istdpeakEnd.blockSignals(True); self.useForCalibration.blockSignals(True); self.calibrationMethod.blockSignals(True);
+        if len(its) > 0:
+            selExps = set()
+            selSubs = set()
+            selSams = set()
+            selISTs = set()
             
-        menu.exec(PyQt6.QtGui.QCursor.pos())
+            for it in its:
+                selExp = it.experiment if "experiment" in it.__dict__ else None
+                selSub = it.substance if "substance" in it.__dict__ else None
+                selSam = it.sample if "sample" in it.__dict__ else None
+                selIST = self.loadedExperiments[selExp].substances[selSub].internalStandard if selExp is not None and selSub is not None and self.loadedExperiments[selExp].substances[selSub].internalStandard is not None and self.loadedExperiments[selExp].substances[selSub].internalStandard != "" else None
+                
+                if selExp is not None:
+                    selExps.add(selExp)
+                if selSub is not None:
+                    selSubs.add(selSub)
+                if selSam is not None:
+                    selSams.add(selSam)
+                if selIST is not None:
+                    selISTs.add(selIST)
+            
+            if len(selExps) > 1 or len(selSubs) > 1 or len(selISTs) > 1 or (len(selSams)>1 and None in selSams):
+                PyQt6.QtWidgets.QMessageBox.warning(self, "PeakBotMRM", "<b>Warning</b><br><br>Selecting several different experiments or substances is not supported at this time.<br>Please only select different samples if necessary!")
+            
+            else:
+                        
+                menu = PyQt6.QtWidgets.QMenu(self)
+                        
+                if True:
+                    procMenu = PyQt6.QtWidgets.QMenu(parent = menu, title = "Process experiment (%s)"%(selExp))
+                    addSep = False
+                    for mf in natsort.natsorted(list(os.listdir(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models"))), key = lambda x: x.lower()):
+                        if mf.endswith(".h5"):
+                            acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "robot.png")), mf, self)
+                            acc.triggered.connect(functools.partial(self.processExperimentS, os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models", mf), all = False))
+                            procMenu.addAction(acc)
+                            addSep = True
+                    
+                    if addSep: 
+                        menu.addSeparator()
+                    acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "folder-open-outline.svg")), "Open other model", self)
+                    acc.triggered.connect(functools.partial(self.processExperimentS, None, all = False))
+                    procMenu.addAction(acc)
+                    menu.addMenu(procMenu)
+                
+                if len(selExps) == 1:
+                    procMenu = PyQt6.QtWidgets.QMenu(parent = menu, title = "Process substance (%s)"%(selSub))
+                    addSep = False
+                    for mf in natsort.natsorted(list(os.listdir(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models"))), key = lambda x: x.lower()):
+                        if mf.endswith(".h5"):
+                            acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "robot.png")), mf, self)
+                            acc.triggered.connect(functools.partial(self.processExperimentS, os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models", mf), all = False, specificSubstances = selSubs))
+                            procMenu.addAction(acc)
+                            addSep = True
+                    
+                    if addSep: 
+                        menu.addSeparator()
+                    acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "folder-open-outline.svg")), "Open other model", self)
+                    acc.triggered.connect(functools.partial(self.processExperimentS, None, all = False, specificSubstances = selSubs))
+                    procMenu.addAction(acc)
+                    menu.addMenu(procMenu)
+                    
+                menu.exec(PyQt6.QtGui.QCursor.pos())
     
-    def processExperimentS(self, peakBotMRMModelFile = None, all = False, keepManualIntegrations = None):
+    def processExperimentS(self, peakBotMRMModelFile = None, all = False, specificSubstances = None, keepManualIntegrations = None):
                 
         if peakBotMRMModelFile is None:
             peakBotMRMModelFile = PyQt6.QtWidgets.QFileDialog.getOpenFileName(self, "Open PeakBotMRM model file", filter="PeakBotMRM models (*.h5)", directory=os.path.join(self._pyFilePath, "models"), options = PyQt6.QtWidgets.QFileDialog.Option.DontUseNativeDialog)
@@ -1261,20 +1312,21 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 logging.info("")
                 logging.info("")
                 logging.info("Processing dataset '%s'"%(selExp))
-                PeakBotMRM.predict.predictDataset(peakBotMRMModelFile, self.loadedExperiments[selExp].substances, self.loadedExperiments[selExp].integrations, callBackFunction = prDiag.setValue, showConsoleProgress = False)
+                PeakBotMRM.predict.predictDataset(peakBotMRMModelFile, self.loadedExperiments[selExp].substances, self.loadedExperiments[selExp].integrations, specificSubstances = specificSubstances, callBackFunctionValue = prDiag.setValue, callBackFunctionText = prDiag.setLabelText, showConsoleProgress = False)
                 
                 prDiag.hide()
                 
                 for sub in self.loadedExperiments[selExp].integrations:
-                    for samp in self.loadedExperiments[selExp].integrations[sub]:
-                        if (button == PyQt6.QtWidgets.QMessageBox.StandardButton.Yes and self.loadedExperiments[selExp].integrations[sub][samp].type != "Manual integration") or button == PyQt6.QtWidgets.QMessageBox.StandardButton.No:
-                            self.loadedExperiments[selExp].integrations[sub][samp].type      = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.type"]
-                            self.loadedExperiments[selExp].integrations[sub][samp].comment   = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.comment"]
-                            
-                            self.loadedExperiments[selExp].integrations[sub][samp].foundPeak = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.foundPeak"]
-                            self.loadedExperiments[selExp].integrations[sub][samp].rtStart   = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.rtstart"]
-                            self.loadedExperiments[selExp].integrations[sub][samp].rtEnd     = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.rtend"]
-                            self.loadedExperiments[selExp].integrations[sub][samp].area      = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.areaPB"]
+                    if specificSubstances is None or sub in specificSubstances:
+                        for samp in self.loadedExperiments[selExp].integrations[sub]:
+                            if (button == PyQt6.QtWidgets.QMessageBox.StandardButton.Yes and self.loadedExperiments[selExp].integrations[sub][samp].type != "Manual integration") or button == PyQt6.QtWidgets.QMessageBox.StandardButton.No:
+                                self.loadedExperiments[selExp].integrations[sub][samp].type      = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.type"]
+                                self.loadedExperiments[selExp].integrations[sub][samp].comment   = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.comment"]
+                                
+                                self.loadedExperiments[selExp].integrations[sub][samp].foundPeak = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.foundPeak"]
+                                self.loadedExperiments[selExp].integrations[sub][samp].rtStart   = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.rtstart"]
+                                self.loadedExperiments[selExp].integrations[sub][samp].rtEnd     = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.rtend"]
+                                self.loadedExperiments[selExp].integrations[sub][samp].area      = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.areaPB"]
             
                 for tlItemInd in range(self.tree.topLevelItemCount()):
                     treeItem = self.tree.topLevelItem(tlItemInd)
@@ -1283,14 +1335,15 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         treeItem.setBackground(0, PyQt6.QtGui.QColor.fromRgb(255,255,255))
                         for subNodeInd in range(treeItem.childCount()):
                             subNode = treeItem.child(subNodeInd)
-                            for sampNodeInd in range(subNode.childCount()):
-                                sampleItem = subNode.child(sampNodeInd)
-                                inte = self.loadedExperiments[selExp].integrations[sampleItem.substance][sampleItem.sample]
-                                sampleItem.setIcon(0, {0: self.__icons["res/PB/nothing"], 1: self.__icons["res/PB/peak"], 2: self.__icons["res/PB/noise"], 128: self.__icons["res/manual/nothing"], 129: self.__icons["res/manual/peak"], 130: self.__icons["res/manual/noise"]}[inte.foundPeak])
-                                sampleItem.setText(1, self.__areaFormatter%(inte.area) if inte.foundPeak else "")
-                                sampleItem.setText(2, "%.2f - %.2f"%(inte.rtStart, inte.rtEnd) if inte.foundPeak else "")
+                            if specificSubstances is None or subNode.substance in specificSubstances:
+                                for sampNodeInd in range(subNode.childCount()):
+                                    sampleItem = subNode.child(sampNodeInd)
+                                    inte = self.loadedExperiments[selExp].integrations[sampleItem.substance][sampleItem.sample]
+                                    sampleItem.setIcon(0, {0: self.__icons["res/PB/nothing"], 1: self.__icons["res/PB/peak"], 2: self.__icons["res/PB/noise"], 128: self.__icons["res/manual/nothing"], 129: self.__icons["res/manual/peak"], 130: self.__icons["res/manual/noise"]}[inte.foundPeak])
+                                    sampleItem.setText(1, self.__areaFormatter%(inte.area) if inte.foundPeak else "")
+                                    sampleItem.setText(2, "%.2f - %.2f"%(inte.rtStart, inte.rtEnd) if inte.foundPeak else "")
             
-            if len(expToProcess) == 1:
+            if len(expToProcess) == 1 and specificSubstances is None:
                 if PyQt6.QtWidgets.QMessageBox.question(self, "Generate summary", "Do you want to generate a summary of the processed results and detected chromatographic peaks?") == PyQt6.QtWidgets.QMessageBox.StandardButton.Yes:
                     processingInfo = ["PeakBotMRM model file: %s"%(peakBotMRMModelFile)]
                     processingInfo.extend(PeakBotMRM.Config.getAsStringFancy().split("\n"))
@@ -2287,6 +2340,201 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                         self.tree.scrollToItem(sampit)
         self.tree.blockSignals(False)
         self.treeSelectionChanged(autoRange = False)
+        
+    def renameExperiment(self):
+        its = list(self.tree.selectedItems())
+        if len(its) > 0:
+            selExps = set()            
+            for it in its:
+                selExp = it.experiment if "experiment" in it.__dict__ else None
+                if selExp is not None:
+                    selExps.add(selExp)        
+            
+            if len(selExps) != 1:
+                PyQt6.QtWidgets.QMessageBox.warning(self, "PeakBotMRM", "<b>Warning</b><br><br>Selecting several different experiments or substances is not supported at this time.<br>Please only select different samples if necessary!")
+            
+            else:
+                while True:
+                    newName, ok = PyQt6.QtWidgets.QInputDialog.getText(self, "PeakBotMRM", "Enter the experiment's new name<br>Do not use any special characters and spaces (recommended: A-Za-z0-9_)", text = selExp)
+                    if ok and newName is not None and newName != "":
+                        for exp in list(self.loadedExperiments):
+                            if exp != selExp and newName == exp:
+                                PyQt6.QtWidgets.QMessageBox.warning(self, "PeakBotMRM", "<p>New experiment name already exists</b><br><br>Please specify another name or cancel the rename operation")
+                                continue
+                        
+                        temp = self.loadedExperiments[selExp]
+                        del self.loadedExperiments[selExp]
+                        self.loadedExperiments[newName] = temp
+                        self.loadedExperiments[newName].expName = newName
+                        
+                        for iti in range(self.tree.topLevelItemCount()):                        
+                            it = self.tree.topLevelItem(iti)
+                            if it.experiment == selExp:
+                                it.experiment = newName
+                                it.setText(0, newName)
+                                for subi in range(it.childCount()):
+                                    subit = it.child(subi)
+                                    subit.experiment = newName
+                                    for sampi in range(subit.childCount()):
+                                        sampit = subit.child(sampi)
+                                        sampit.experiment = newName
+                        
+                        break
+                        
+                    else:
+                        break
+            
+    def removeSubstanceFromActiveExperiment(self):
+        its = list(self.tree.selectedItems())
+        if len(its) > 0:
+            selExps = set()
+            selSubs = set()
+            selSams = set()
+            selISTs = set()
+            
+            for it in its:
+                selExp = it.experiment if "experiment" in it.__dict__ else None
+                selSub = it.substance if "substance" in it.__dict__ else None
+                selSam = it.sample if "sample" in it.__dict__ else None
+                selIST = self.loadedExperiments[selExp].substances[selSub].internalStandard if selExp is not None and selSub is not None and self.loadedExperiments[selExp].substances[selSub].internalStandard is not None and self.loadedExperiments[selExp].substances[selSub].internalStandard != "" else None
+                
+                if selExp is not None:
+                    selExps.add(selExp)
+                if selSub is not None:
+                    selSubs.add(selSub)
+                if selSam is not None:
+                    selSams.add(selSam)
+                if selIST is not None:
+                    selISTs.add(selIST)
+            
+            if len(selExps) != 1 or len(selSubs) != 1:
+                PyQt6.QtWidgets.QMessageBox.warning(self, "PeakBotMRM", "<b>Warning</b><br><br>Selecting several different experiments or substances is not supported at this time.<br>Please only select different samples if necessary!")
+            
+            else:
+                choice = PyQt6.QtWidgets.QMessageBox.question(self,
+                                                "PeakBotMRM",
+                                                "Are you sure want to delete '%s' in experiment '%s'?"%(selSub, selExp),
+                                                PyQt6.QtWidgets.QMessageBox.StandardButton.Yes | PyQt6.QtWidgets.QMessageBox.StandardButton.No)
+                if choice == PyQt6.QtWidgets.QMessageBox.StandardButton.Yes:
+                    rootItem = None
+                    for c in range(self.tree.topLevelItemCount()):
+                        it = self.tree.topLevelItem(c)
+                        if it.experiment == selExp:
+                            rootItem = it
+                    for subi in range(rootItem.childCount()):
+                        subIt = rootItem.child(subi)
+                        if subIt.substance == selSub:
+                            rootItem.removeChild(subIt)
+                            del self.loadedExperiments[selExp].substances[selSub]
+                            del self.loadedExperiments[selExp].integrations[selSub]
+                            return 
+                        
+                PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "<b>Error</b><br><br>Substance '%s' could not be removed from the experiment '%s"%(selSub, selExp))
+            
+        
+    def addSubstancesToActiveExperiment(self):
+        its = list(self.tree.selectedItems())
+        if len(its) > 0:
+            selExps = set()
+            selSubs = set()
+            selSams = set()
+            selISTs = set()
+            
+            for it in its:
+                selExp = it.experiment if "experiment" in it.__dict__ else None
+                selSub = it.substance if "substance" in it.__dict__ else None
+                selSam = it.sample if "sample" in it.__dict__ else None
+                selIST = self.loadedExperiments[selExp].substances[selSub].internalStandard if selExp is not None and selSub is not None and self.loadedExperiments[selExp].substances[selSub].internalStandard is not None and self.loadedExperiments[selExp].substances[selSub].internalStandard != "" else None
+                
+                if selExp is not None:
+                    selExps.add(selExp)
+                if selSub is not None:
+                    selSubs.add(selSub)
+                if selSam is not None:
+                    selSams.add(selSam)
+                if selIST is not None:
+                    selISTs.add(selIST)
+            
+            if len(selExps) > 1 or len(selSubs) > 1 or len(selISTs) > 1 or (len(selSams)>1 and None in selSams):
+                PyQt6.QtWidgets.QMessageBox.warning(self, "PeakBotMRM", "<b>Warning</b><br><br>Selecting several different experiments or substances is not supported at this time.<br>Please only select different samples if necessary!")
+            
+            else:
+                
+                fName = PyQt6.QtWidgets.QFileDialog.getOpenFileName(self, "Open transitions file", filter="Tab separated values files (*.tsv);;Comma separated values files (*.csv);;All files (*.*)", options = PyQt6.QtWidgets.QFileDialog.Option.DontUseNativeDialog)
+                if fName[0]:
+                    transitionFile = fName[0]
+                    
+                    rawDataPath = PyQt6.QtWidgets.QFileDialog.getExistingDirectory(self, "Open folder with raw LCMS data", options = PyQt6.QtWidgets.QFileDialog.Option.DontUseNativeDialog)
+                    if rawDataPath:
+                        with pyqtgraph.BusyCursor():
+                        
+                            procDiag = PyQt6.QtWidgets.QProgressDialog(self, labelText="Adding substances to '%s'"%(selExp))
+                            procDiag.setWindowIcon(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "robot.png")))
+                            procDiag.setWindowTitle("PeakBotMRM")
+                            procDiag.setModal(True)
+                            procDiag.show()
+                            
+                            notImported = []
+                            substances = PeakBotMRM.loadTargets(transitionFile, 
+                                                                logPrefix = "  | ..")
+                            for substance in list(substances):
+                                if substance not in self.loadedExperiments[selExp].substances:
+                                    self.loadedExperiments[selExp].substances[substance] = substances[substance]
+                                else:
+                                    del substances[substance]
+                                    notImported.append(substance)
+                            
+                            substances, integrations, sampleInfo = PeakBotMRM.loadChromatograms(substances, None, 
+                                                                                                rawDataPath, 
+                                                                                                pathToMSConvert = self.__msConvertPath, 
+                                                                                                maxValCallback = procDiag.setMaximum, curValCallback = procDiag.setValue, 
+                                                                                                logPrefix = "  | ..",
+                                                                                                errorCallback = functools.partial(TimerMessageBox, self, "File failed", timeout = 10))
+                            rootItem = None
+                            for c in range(self.tree.topLevelItemCount()):
+                                it = self.tree.topLevelItem(c)
+                                if it.experiment == selExp:
+                                    rootItem = it
+                                
+                            addTreeForSubstances = []
+                            for sub in integrations:
+                                if sub not in self.loadedExperiments[selExp].integrations:
+                                    self.loadedExperiments[selExp].integrations[sub] = integrations[sub]
+                                    addTreeForSubstances.append(sub)
+                            
+                            for substance in addTreeForSubstances:
+                                substanceItem = PyQt6.QtWidgets.QTreeWidgetItem(rootItem)
+                                substanceItem.experiment = selExp; substanceItem.substance = substance; substanceItem.sample = None; substanceItem.userType = "All samples"
+                                substanceItem.setText(0, substance)
+                                if substance in self.loadedExperiments[selExp].substances:
+                                    s = self.loadedExperiments[selExp].substances[substance].internalStandard
+                                    if s is not None and s != "":
+                                        substanceItem.setText(1, s)
+                                else:
+                                    substanceItem.setText(1, "not found in transition list")
+                                
+                                for sample in sortSamples(integrations[substance], self.__defaultSampleOrder):
+                                    inte = integrations[substance][sample]
+                                    sampleItem = PyQt6.QtWidgets.QTreeWidgetItem(substanceItem)
+                                    sampleItem.experiment = selExp; sampleItem.substance = substance; sampleItem.sample = sample; sampleItem.userType = "Single peak"
+                                    showName = sample
+                                    for temp, rep in self.__sampleNameReplacements.items():
+                                        showName = showName.replace(temp, rep)
+                                    sampleItem.setText(0, showName)
+                                    if inte.foundPeak != None:
+                                        sampleItem.setIcon(0, {0: self.__icons["res/PB/nothing"], 1: self.__icons["res/PB/peak"], 2: self.__icons["res/PB/noise"], 128: self.__icons["res/manual/nothing"], 129: self.__icons["res/manual/peak"], 130: self.__icons["res/manual/noise"]}[inte.foundPeak])
+                                        sampleItem.setText(1, self.__areaFormatter%(inte.area) if inte.foundPeak % 128 else "")
+                                        sampleItem.setText(2, "%.2f - %.2f"%(inte.rtStart, inte.rtEnd) if inte.foundPeak % 128 != 0 else "")
+                                    inte.other["GUIElement"] = sampleItem
+                                    
+                            
+                            for substance in substances:
+                                if substances[substance].type.lower() not in ["target", "istd"]:
+                                    PyQt6.QtWidgets.QMessageBox.ciritical(self, "Error with substance type", "Error<br><br>Substance type '%s' for '%s' not valid.<br>Must be  'Target' or 'ISTD."%(substance.type, substance.name))
+                                    
+                            procDiag.close()    
+                            PyQt6.QtWidgets.QMessageBox.information(self, "PeakBotMRM", "Added %d compounds (they have been added to the end of the tree.)<br><br>%d substances have not been added as these have already been present (equal name). If you want to re-import these compounds, please first delete the already existing ones and repeat the step. "%(len(addTreeForSubstances), len(notImported)))
+                    
     
     def setSamples(self, rtEarly, abundanceLower, rtLast, abundanceUpper):
         ls = list(self.tree.selectedItems())
@@ -2512,6 +2760,101 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                 else:
                                     sampit.setText(1, "")
                                     sampit.setText(2, "")
+                                    
+    def showTreeContextMenu(self, position):
+        its = list(self.tree.selectedItems())
+        self.tree.blockSignals(True); self.hasPeak.blockSignals(True); self.peakStart.blockSignals(True); self.peakEnd.blockSignals(True); self.istdhasPeak.blockSignals(True); self.istdpeakStart.blockSignals(True); self.istdpeakEnd.blockSignals(True); self.useForCalibration.blockSignals(True); self.calibrationMethod.blockSignals(True);
+        if len(its) > 0:
+            selExps = set()
+            selSubs = set()
+            selSams = set()
+            selISTs = set()
+            
+            for it in its:
+                selExp = it.experiment if "experiment" in it.__dict__ else None
+                selSub = it.substance if "substance" in it.__dict__ else None
+                selSam = it.sample if "sample" in it.__dict__ else None
+                selIST = self.loadedExperiments[selExp].substances[selSub].internalStandard if selExp is not None and selSub is not None and self.loadedExperiments[selExp].substances[selSub].internalStandard is not None and self.loadedExperiments[selExp].substances[selSub].internalStandard != "" else None
+                
+                if selExp is not None:
+                    selExps.add(selExp)
+                if selSub is not None:
+                    selSubs.add(selSub)
+                if selSam is not None:
+                    selSams.add(selSam)
+                if selIST is not None:
+                    selISTs.add(selIST)
+            
+            if len(selExps) > 1 or len(selSubs) > 1 or len(selISTs) > 1 or (len(selSams)>1 and None in selSams):
+                PyQt6.QtWidgets.QMessageBox.warning(self, "PeakBotMRM", "<b>Warning</b><br><br>Selecting several different experiments or substances is not supported at this time.<br>Please only select different samples if necessary!")
+            
+            else:
+                
+                menu = PyQt6.QtWidgets.QMenu(parent = self)
+                
+                if len(selExps) == 1: 
+                    acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "chatbox-ellipses-outline.svg")), "Rename experiment", self)
+                    acc.triggered.connect(self.renameExperiment)
+                    menu.addAction(acc)          
+                    menu.addSeparator()                    
+                
+                if True:
+                    procMenu = PyQt6.QtWidgets.QMenu(parent = menu, title = "Process experiment (%s)"%(selExp))
+                    addSep = False
+                    for mf in natsort.natsorted(list(os.listdir(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models"))), key = lambda x: x.lower()):
+                        if mf.endswith(".h5"):
+                            acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "robot.png")), mf, self)
+                            acc.triggered.connect(functools.partial(self.processExperimentS, os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models", mf), all = False))
+                            procMenu.addAction(acc)
+                            addSep = True
+                    
+                    if addSep: 
+                        menu.addSeparator()
+                    acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "folder-open-outline.svg")), "Open other model", self)
+                    acc.triggered.connect(functools.partial(self.processExperimentS, None, all = False))
+                    procMenu.addAction(acc)
+                    menu.addMenu(procMenu)
+                
+                if len(selSubs) == 1:
+                    procMenu = PyQt6.QtWidgets.QMenu(parent = menu, title = "Process '%s'"%(selSub))
+                    addSep = False
+                    for mf in natsort.natsorted(list(os.listdir(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models"))), key = lambda x: x.lower()):
+                        if mf.endswith(".h5"):
+                            acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "robot.png")), mf, self)
+                            acc.triggered.connect(functools.partial(self.processExperimentS, os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models", mf), all = False, specificSubstances = [selSub]))
+                            procMenu.addAction(acc)
+                            addSep = True
+                    
+                    if addSep: 
+                        procMenu.addSeparator()
+                    acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "folder-open-outline.svg")), "Open other model", self)
+                    acc.triggered.connect(functools.partial(self.processExperimentS, None, all = False, specificSubstances = [selSub]))
+                    procMenu.addAction(acc)
+                    menu.addMenu(procMenu)
+                    
+                menu.addSeparator()
+                    
+                if True:
+                    acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "bag-add-outline.svg")), "Add substances", self)
+                    acc.triggered.connect(self.addSubstancesToActiveExperiment)
+                    menu.addAction(acc)          
+                    menu.addSeparator()
+                    
+                if len(selSubs) == 1:
+                    acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "close-circle-outline.svg")), "Remove '%s'"%(selSub), self)
+                    acc.triggered.connect(self.removeSubstanceFromActiveExperiment)
+                    menu.addAction(acc)
+                    menu.addSeparator()
+                
+                if True:
+                    acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "close-circle-outline.svg")), "Close experiment", self)
+                    acc.triggered.connect(self.closeExperiment)
+                    menu.addAction(acc)
+                    
+                menu.exec(PyQt6.QtGui.QCursor.pos())
+        
+        self.tree.blockSignals(False); self.hasPeak.blockSignals(False); self.peakStart.blockSignals(False); self.peakEnd.blockSignals(False); self.istdhasPeak.blockSignals(False); self.istdpeakStart.blockSignals(False); self.istdpeakEnd.blockSignals(False); self.useForCalibration.blockSignals(False); self.calibrationMethod.blockSignals(False);
+        
     
     def treeSelectionChanged(self, updateIndividualFilesPlot = True, autoRange = True):
         with pyqtgraph.BusyCursor():
@@ -2647,7 +2990,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                                 isArea.append((self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area, level * istd.calLevel1Concentration))
                                                 if oit.sample == selSam:
                                                     highlightLevelIS = level
-                                                if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1 and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1: 
+                                                if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1 and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1: 
                                                     subRatio.append((self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].area / self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area, level * substance.calLevel1Concentration))
                                                     if oit.sample == selSam:
                                                         highlightLevelRatio = level * substance.calLevel1Concentration
