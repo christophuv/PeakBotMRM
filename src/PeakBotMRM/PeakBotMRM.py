@@ -1372,267 +1372,248 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
 
     samples = [os.path.join(samplesPath, f) for f in os.listdir(samplesPath) if os.path.isfile(os.path.join(samplesPath, f)) and f.lower().endswith(".mzml")]
     usedSamples = set()
-    if os.path.isfile(os.path.join(samplesPath, "integrations.pickle")) and loadFromPickleIfPossible and False:
-        with open(os.path.join(samplesPath, "integrations.pickle"), "rb") as fin:
-            temp, usedSamples = pickle.load(fin)
-            if integrations is None or len(integrations) == 0:
-                integrations = temp
-            else:
-                for sub in integrations:
-                    for samp in integrations[sub]:
-                        if sub in integrations and samp in integrations[sub] and sub in temp and samp in temp[sub]:
-                            integrations[sub][samp].chromatogram = temp[sub][samp].chromatogram
-            if verbose:
-                logging.info("%s  | .. Imported integrations from pickle file '%s'"%(logPrefix, os.path.join(samplesPath, "integrations.pickle")))
-    else:
-        if verbose:
-            logging.info("%s  | .. This might take a couple of minutes as all samples/integrations/channels/etc. need to be compared and the current implementation are 4 sub-for-loops"%(logPrefix))
-        
-        if maxValCallback is not None:
-            maxValCallback(len(samples))
-        if curValCallback is not None:
-            curValCallback(0)
-        samplei = 0
-        for sample in tqdm.tqdm(samples, desc="  | .. importing"):
-            if curValCallback is not None:
-                curValCallback(samplei)
-            samplei = samplei + 1
-            sampleName = os.path.basename(sample)
-            sampleName = sampleName[:sampleName.rfind(".")]
-            usedSamples.add(sampleName)
-
-            foundTargets = []
-            unusedChannels = []
-            run = pymzml.run.Reader(sample, skip_chromatogram = False)
-            
-            ## get channels from the chromatogram
-            allChannels = []
-            for i, entry in enumerate(run):
-                if isinstance(entry, pymzml.spec.Chromatogram) and entry.ID.startswith("- SRM"):
-                    m = re.match(MRMHeader, entry.ID)
-                    Q1, Q3, rtstart, rtend = float(m.group(1)), float(m.group(2)), float(m.group(3)), float(m.group(4))
-
-                    assert rtstart < rtend, "Error: start of XIC is not before its end"
-
-                    polarity = None
-                    if entry.get_element_by_name("negative scan") is not None:
-                        polarity = "negative"
-                    elif entry.get_element_by_name("positive scan") is not None:
-                        polarity = "positive"
-
-                    collisionEnergy = None
-                    if entry.get_element_by_name("collision energy") is not None:
-                        collisionEnergy = entry.get_element_by_name("collision energy").get("value", default=None)
-                        if collisionEnergy is not None:
-                            collisionEnergy = float(collisionEnergy)
-
-                    collisionMethod = None
-                    if entry.get_element_by_name("collision-induced dissociation") is not None:
-                        collisionMethod = "collision-induced dissociation"
-                    if collisionMethod == "collision-induced dissociation":
-                        collisionMethod = "CID"
-
-                    rts = np.array([time for time, intensity in entry.peaks()])
-                    eic = np.array([intensity for time, intensity in entry.peaks()])
-                    chrom = {"rts": rts, "eic": eic}
-
-                    allChannels.append([Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entry.ID, chrom])
-
-            ## merge channels with integration results for this sample
-            alreadyProcessed = []
-            for i, (Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID, chrom) in enumerate(allChannels):
-                ## test if channel is unique
-                for bi, (bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID, bchrom) in enumerate(allChannels):
-                    if i != bi:  ## correct, cannot be optimized as both channels (earlier and later) shall not be used in case of a collision
-                        if abs(Q1 - bq1) <= allowedMZOffset and abs(Q3 - bq3) <= allowedMZOffset and \
-                                    ((rtstart <= brtstart <= rtend) or (rtstart <= brtend <= rtend)) and \
-                                    polarity == bpolarity and \
-                                    collisionEnergy == bcollisionEnergy and \
-                                    collisionMethod == bcollisionMethod and \
-                                    "%d - %d"%(i, bi) not in alreadyProcessed:
-                                        
-                            reqForA = []
-                            for substance in substances.values():
-                                if abs(substance.Q1 - Q1) < allowedMZOffset and abs(substance.Q3 - Q3) <= allowedMZOffset and \
-                                    substance.CE == collisionEnergy and substance.CEMethod == collisionMethod and \
-                                    rtstart <= substance.refRT <= rtend:
-                                        reqForA.append(substance)
-                            reqForB = []
-                            for substance in substances.values():
-                                if abs(substance.Q1 - bq1) < allowedMZOffset and abs(substance.Q3 - bq3) <= allowedMZOffset and \
-                                    substance.CE == bcollisionEnergy and substance.CEMethod == bcollisionMethod and \
-                                    brtstart <= substance.refRT <= brtend:
-                                        reqForB.append(substance)
-                            
-                            if rtstart < brtstart and rtend > brtend:
-                                if verbose: 
-                                    logging.info("%s    \033[91mProblematic channel combination found in sample '%s'.\033[0m"%(logPrefix, sampleName))
-                                    logging.info("%s       A * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
-                                    logging.info("%s       B * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID))
-
-                                if verbose:
-                                    logging.info("%s   --> Channel A encapsulates Channel B. Channel A will be used and Channel B will be removed"%(logPrefix))
-                                unusedChannels.append(bentryID)
-                                if verbose:
-                                    logging.info(logPrefix)
-                            
-                            elif brtstart < rtstart and brtend > rtend:
-                                if verbose: 
-                                    logging.info("%s    \033[91mProblematic channel combination found in sample '%s'.\033[0m"%(logPrefix, sampleName))
-                                    logging.info("%s       A * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
-                                    logging.info("%s       B * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID))
-
-                                if verbose:
-                                    logging.info("%s   --> Channel B encapsulates Channel A. Channel B will be used and Channel A will be removed"%(logPrefix))
-                                unusedChannels.append(entryID)
-                                if verbose:
-                                    logging.info(logPrefix)
-                            
-                            elif len(reqForA) == 0 and len(reqForB) == 0:
-                                if verbose: 
-                                    logging.info("%s    \033[91mProblematic channel combination found in sample '%s'.\033[0m"%(logPrefix, sampleName))
-                                    logging.info("%s       A * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
-                                    logging.info("%s       B * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID))
-
-                                if verbose: 
-                                    logging.info("%s   --> Channel A is not required for any substance. It will be removed."%(logPrefix))
-                                    logging.info("%s   --> Channel B is not required for any substance. It will be removed."%(logPrefix))
-                                unusedChannels.append(entryID)
-                                unusedChannels.append(bentryID)
-                                if verbose:
-                                    logging.info(logPrefix)
-                                
-                            elif len(reqForA) == 1 and len(reqForB) == 0:
-                                if verbose: 
-                                    logging.info("%s    \033[91mProblematic channel combination found in sample '%s'.\033[0m"%(logPrefix, sampleName))
-                                    logging.info("%s       A * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
-                                    logging.info("%s       B * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID))
-
-                                if verbose: 
-                                    logging.info("%s   --> Channel A is required for '%s' at %.2f min. It will be kept."%(logPrefix, reqForA[0].name, reqForA[0].refRT))
-                                    logging.info("%s   --> Channel B is unsused. It will be removed."%(logPrefix))
-                                unusedChannels.append(bentryID)
-                                if verbose:
-                                    logging.info(logPrefix)
-                                
-                            elif len(reqForA) == 0 and len(reqForB) == 1:
-                                if verbose: 
-                                    logging.info("%s    \033[91mProblematic channel combination found in sample '%s'.\033[0m"%(logPrefix, sampleName))
-                                    logging.info("%s       A * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
-                                    logging.info("%s       B * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID))
-
-                                if verbose: 
-                                    logging.info("%s   --> Channel A is unused. It will be removed."%(logPrefix))
-                                    logging.info("%s   --> Channel B is required for '%s' at %.2f min. It will be kept"%(logPrefix, reqForB[0].name, reqForB[0].refRT))
-                                unusedChannels.append(entryID)
-                                if verbose:
-                                    logging.info(logPrefix)
-                            
-                            elif len(reqForA) == 1 and len(reqForB) == 1 and reqForA[0].name == reqForB[0].name and _getRTOverlap(rtstart, rtend, brtstart, brtend) > 0.95:
-                                if verbose: 
-                                    logging.info("%s    \033[91mProblematic channel combination found in sample '%s'.\033[0m"%(logPrefix, sampleName))
-                                    logging.info("%s       A * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
-                                    logging.info("%s       B * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID))
-
-                                used = "A" if rtstart < brtstart else "B"
-                                unused = "B" if used == "A" else "A"
-                                if verbose:
-                                    logging.info("%s   --> The two channels are used for the same substance and their RT starts/ends are virtually identical. Channel %s will be used and Channel %s will be removed"%(logPrefix, used, unused))
-                                unusedChannels.append(bentryID if unused == "B" else entryID)
-                                if verbose:
-                                    logging.info(logPrefix)
-                            
-                            elif len(reqForA) == 1 and len(reqForB) == 1 and reqForA[0].name == reqForB[0].name and _getRTOverlap(rtstart, rtend, brtstart, brtend) <= 0.95:
-                                if verbose: 
-                                    logging.info("%s    \033[91mProblematic channel combination found in sample '%s'.\033[0m"%(logPrefix, sampleName))
-                                    logging.info("%s       A * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
-                                    logging.info("%s       B * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID))
-
-                                midA = (rtstart + rtend) / 2
-                                midB = (brtstart + brtend) / 2
-                                used = "A" if abs(midA - reqForA[0].refRT) < abs(midB - reqForA[0].refRT) else "B"
-                                unused = "B" if used == "A" else "A"
-                                
-                                if verbose:
-                                    logging.info("%s   --> The two channels are used for the same substance and their RT starts/ends are similar. Channel %s fits the refernce rt of the substance better will be used and Channel %s will be removed"%(logPrefix, used, unused))
-                                unusedChannels.append(bentryID if unused == "B" else entryID)
-                                if verbose:
-                                    logging.info(logPrefix)
-                                
-                            elif len(reqForA) == len(reqForB) and all([i.name in [j.name for j in reqForB] for i in reqForA]):
-                                if verbose: 
-                                    logging.info("%s    \033[91mProblematic channel combination found in sample '%s'.\033[0m"%(logPrefix, sampleName))
-                                    logging.info("%s       A * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
-                                    logging.info("%s       B * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID))
-
-                                    logging.info("%s   --> Channel A is used for %d substances"%(logPrefix, len(reqForA)))
-                                    for sub in reqForA:
-                                        logging.info("%s      * %s at %.2f min"%(logPrefix, sub.name, sub.refRT))
-                                    logging.info("%s   --> Channel B is used for %d substances"%(logPrefix, len(reqForB)))
-                                    for sub in reqForB:
-                                        logging.info("%s      * %s at %.2f min"%(logPrefix, sub.name, sub.refRT))
-                                        
-                                used = "A" if rtstart < brtstart else "B"
-                                unused = "B" if used == "A" else "B"
-                                
-                                if verbose: 
-                                    logging.info("%s   --> Channel %s will be used as it starts a bit earlier. Channel %s will removed"%(logPrefix, used, unused))
-                                unusedChannels.append(bentryID if unused == "B" else entryID)
-                                
-                                if verbose: 
-                                    logging.info(logPrefix)
-
-                            else:
-                                if verbose: 
-                                    logging.warning("%s    \033[91mProblematic channel combination found in sample '%s'. Both will be skipped\033[0m"%(logPrefix, sampleName))
-                                    logging.warning("%s       A * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
-                                    logging.warning("%s       B * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID))
-                                    
-                                    logging.warning("%s   --> Channel A is used for %d substances"%(logPrefix, len(reqForA)))
-                                    for sub in reqForA:
-                                        logging.warning("%s      * %s at %.2f min"%(logPrefix, sub.name, sub.refRT))
-                                    logging.warning("%s   --> Channel B is used for %d substances"%(logPrefix, len(reqForB)))
-                                    for sub in reqForB:
-                                        logging.warning("%s      * %s at %.2f min"%(logPrefix, sub.name, sub.refRT))
-                                        
-                                    logging.warning("%s       TODO: Problematic. Both channels will be removed for now"%(logPrefix))
-                                    
-                                unusedChannels.append(entryID)
-                                unusedChannels.append(bentryID)
-                            
-                            alreadyProcessed.append("%d - %d"%(i, bi))
-                            alreadyProcessed.append("%d - %d"%(bi, i))       
-                
-            usedChannel = []
-            for i, (Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID, chrom) in enumerate(allChannels):
-                if entryID not in unusedChannels:
-                    ## use channel if it is unique and find the integrated substance(s) for it
-                    for substance in substances.values():
-                        if abs(substance.Q1 - Q1) < allowedMZOffset and abs(substance.Q3 - Q3) <= allowedMZOffset and \
-                            substance.CE == collisionEnergy and substance.CEMethod == collisionMethod and \
-                            rtstart <= substance.refRT <= rtend:
-                            if createNewIntegrations and substance.name not in integrations:
-                                integrations[substance.name] = {}
-                            if createNewIntegrations and sampleName not in integrations[substance.name]:
-                                integrations[substance.name][sampleName] = Integration(foundPeak = None, rtStart = None, rtEnd = None, area = None, type = "None", comment = "None", chromatogram = [])
-                            
-                            if substance.name in integrations and sampleName in integrations[substance.name]:
-                                foundTargets.append([substance, entry, integrations[substance.name][sampleName]])
-                                usedChannel.append(substance)
-                                integrations[substance.name][sampleName].chromatogram.append(chrom)
-                                if verbose: 
-                                    logging.info("%s       Channel will be used for '%s': * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, substance.name, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
-                  
-                elif verbose: 
-                    logging.info("%s       Channel will not be used: * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
-                    
-                    
-
-        with open(os.path.join(samplesPath, "integrations.pickle"), "wb") as fout:
-            pickle.dump((integrations, usedSamples), fout)
-            if verbose:
-                logging.info("%s  | .. Stored integrations to '%s/integrations.pickle'"%(logPrefix, os.path.join(samplesPath, "integrations.pickle")))
     
+    if verbose:
+        logging.info("%s  | .. This might take a couple of minutes as all samples/integrations/channels/etc. need to be compared and the current implementation are 4 sub-for-loops"%(logPrefix))
+    
+    if maxValCallback is not None:
+        maxValCallback(len(samples))
+    if curValCallback is not None:
+        curValCallback(0)
+    samplei = 0
+    for sample in tqdm.tqdm(samples, desc="  | .. importing"):
+        if curValCallback is not None:
+            curValCallback(samplei)
+        samplei = samplei + 1
+        sampleName = os.path.basename(sample)
+        sampleName = sampleName[:sampleName.rfind(".")]
+        usedSamples.add(sampleName)
+
+        foundTargets = []
+        unusedChannels = []
+        run = pymzml.run.Reader(sample, skip_chromatogram = False)
+        
+        ## get channels from the chromatogram
+        allChannels = []
+        for i, entry in enumerate(run):
+            if isinstance(entry, pymzml.spec.Chromatogram) and entry.ID.startswith("- SRM"):
+                m = re.match(MRMHeader, entry.ID)
+                Q1, Q3, rtstart, rtend = float(m.group(1)), float(m.group(2)), float(m.group(3)), float(m.group(4))
+
+                assert rtstart < rtend, "Error: start of XIC is not before its end"
+
+                polarity = None
+                if entry.get_element_by_name("negative scan") is not None:
+                    polarity = "negative"
+                elif entry.get_element_by_name("positive scan") is not None:
+                    polarity = "positive"
+
+                collisionEnergy = None
+                if entry.get_element_by_name("collision energy") is not None:
+                    collisionEnergy = entry.get_element_by_name("collision energy").get("value", default=None)
+                    if collisionEnergy is not None:
+                        collisionEnergy = float(collisionEnergy)
+
+                collisionMethod = None
+                if entry.get_element_by_name("collision-induced dissociation") is not None:
+                    collisionMethod = "collision-induced dissociation"
+                if collisionMethod == "collision-induced dissociation":
+                    collisionMethod = "CID"
+
+                rts = np.array([time for time, intensity in entry.peaks()])
+                eic = np.array([intensity for time, intensity in entry.peaks()])
+                chrom = {"rts": rts, "eic": eic}
+
+                allChannels.append([Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entry.ID, chrom])
+
+        ## merge channels with integration results for this sample
+        alreadyProcessed = []
+        for i, (Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID, chrom) in enumerate(allChannels):
+            ## test if channel is unique
+            for bi, (bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID, bchrom) in enumerate(allChannels):
+                if i != bi:  ## correct, cannot be optimized as both channels (earlier and later) shall not be used in case of a collision
+                    if abs(Q1 - bq1) <= allowedMZOffset and abs(Q3 - bq3) <= allowedMZOffset and \
+                                ((rtstart <= brtstart <= rtend) or (rtstart <= brtend <= rtend)) and \
+                                polarity == bpolarity and \
+                                collisionEnergy == bcollisionEnergy and \
+                                collisionMethod == bcollisionMethod and \
+                                "%d - %d"%(i, bi) not in alreadyProcessed:
+                                    
+                        reqForA = []
+                        for substance in substances.values():
+                            if abs(substance.Q1 - Q1) < allowedMZOffset and abs(substance.Q3 - Q3) <= allowedMZOffset and \
+                                substance.CE == collisionEnergy and substance.CEMethod == collisionMethod and \
+                                rtstart <= substance.refRT <= rtend:
+                                    reqForA.append(substance)
+                        reqForB = []
+                        for substance in substances.values():
+                            if abs(substance.Q1 - bq1) < allowedMZOffset and abs(substance.Q3 - bq3) <= allowedMZOffset and \
+                                substance.CE == bcollisionEnergy and substance.CEMethod == bcollisionMethod and \
+                                brtstart <= substance.refRT <= brtend:
+                                    reqForB.append(substance)
+                        
+                        if rtstart < brtstart and rtend > brtend:
+                            if verbose: 
+                                logging.info("%s    \033[91mProblematic channel combination found in sample '%s'.\033[0m"%(logPrefix, sampleName))
+                                logging.info("%s       A * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
+                                logging.info("%s       B * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID))
+
+                            if verbose:
+                                logging.info("%s   --> Channel A encapsulates Channel B. Channel A will be used and Channel B will be removed"%(logPrefix))
+                            unusedChannels.append(bentryID)
+                            if verbose:
+                                logging.info(logPrefix)
+                        
+                        elif brtstart < rtstart and brtend > rtend:
+                            if verbose: 
+                                logging.info("%s    \033[91mProblematic channel combination found in sample '%s'.\033[0m"%(logPrefix, sampleName))
+                                logging.info("%s       A * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
+                                logging.info("%s       B * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID))
+
+                            if verbose:
+                                logging.info("%s   --> Channel B encapsulates Channel A. Channel B will be used and Channel A will be removed"%(logPrefix))
+                            unusedChannels.append(entryID)
+                            if verbose:
+                                logging.info(logPrefix)
+                        
+                        elif len(reqForA) == 0 and len(reqForB) == 0:
+                            if verbose: 
+                                logging.info("%s    \033[91mProblematic channel combination found in sample '%s'.\033[0m"%(logPrefix, sampleName))
+                                logging.info("%s       A * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
+                                logging.info("%s       B * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID))
+
+                            if verbose: 
+                                logging.info("%s   --> Channel A is not required for any substance. It will be removed."%(logPrefix))
+                                logging.info("%s   --> Channel B is not required for any substance. It will be removed."%(logPrefix))
+                            unusedChannels.append(entryID)
+                            unusedChannels.append(bentryID)
+                            if verbose:
+                                logging.info(logPrefix)
+                            
+                        elif len(reqForA) == 1 and len(reqForB) == 0:
+                            if verbose: 
+                                logging.info("%s    \033[91mProblematic channel combination found in sample '%s'.\033[0m"%(logPrefix, sampleName))
+                                logging.info("%s       A * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
+                                logging.info("%s       B * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID))
+
+                            if verbose: 
+                                logging.info("%s   --> Channel A is required for '%s' at %.2f min. It will be kept."%(logPrefix, reqForA[0].name, reqForA[0].refRT))
+                                logging.info("%s   --> Channel B is unsused. It will be removed."%(logPrefix))
+                            unusedChannels.append(bentryID)
+                            if verbose:
+                                logging.info(logPrefix)
+                            
+                        elif len(reqForA) == 0 and len(reqForB) == 1:
+                            if verbose: 
+                                logging.info("%s    \033[91mProblematic channel combination found in sample '%s'.\033[0m"%(logPrefix, sampleName))
+                                logging.info("%s       A * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
+                                logging.info("%s       B * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID))
+
+                            if verbose: 
+                                logging.info("%s   --> Channel A is unused. It will be removed."%(logPrefix))
+                                logging.info("%s   --> Channel B is required for '%s' at %.2f min. It will be kept"%(logPrefix, reqForB[0].name, reqForB[0].refRT))
+                            unusedChannels.append(entryID)
+                            if verbose:
+                                logging.info(logPrefix)
+                        
+                        elif len(reqForA) == 1 and len(reqForB) == 1 and reqForA[0].name == reqForB[0].name and _getRTOverlap(rtstart, rtend, brtstart, brtend) > 0.95:
+                            if verbose: 
+                                logging.info("%s    \033[91mProblematic channel combination found in sample '%s'.\033[0m"%(logPrefix, sampleName))
+                                logging.info("%s       A * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
+                                logging.info("%s       B * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID))
+
+                            used = "A" if rtstart < brtstart else "B"
+                            unused = "B" if used == "A" else "A"
+                            if verbose:
+                                logging.info("%s   --> The two channels are used for the same substance and their RT starts/ends are virtually identical. Channel %s will be used and Channel %s will be removed"%(logPrefix, used, unused))
+                            unusedChannels.append(bentryID if unused == "B" else entryID)
+                            if verbose:
+                                logging.info(logPrefix)
+                        
+                        elif len(reqForA) == 1 and len(reqForB) == 1 and reqForA[0].name == reqForB[0].name and _getRTOverlap(rtstart, rtend, brtstart, brtend) <= 0.95:
+                            if verbose: 
+                                logging.info("%s    \033[91mProblematic channel combination found in sample '%s'.\033[0m"%(logPrefix, sampleName))
+                                logging.info("%s       A * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
+                                logging.info("%s       B * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID))
+
+                            midA = (rtstart + rtend) / 2
+                            midB = (brtstart + brtend) / 2
+                            used = "A" if abs(midA - reqForA[0].refRT) < abs(midB - reqForA[0].refRT) else "B"
+                            unused = "B" if used == "A" else "A"
+                            
+                            if verbose:
+                                logging.info("%s   --> The two channels are used for the same substance and their RT starts/ends are similar. Channel %s fits the refernce rt of the substance better will be used and Channel %s will be removed"%(logPrefix, used, unused))
+                            unusedChannels.append(bentryID if unused == "B" else entryID)
+                            if verbose:
+                                logging.info(logPrefix)
+                            
+                        elif len(reqForA) == len(reqForB) and all([i.name in [j.name for j in reqForB] for i in reqForA]):
+                            if verbose: 
+                                logging.info("%s    \033[91mProblematic channel combination found in sample '%s'.\033[0m"%(logPrefix, sampleName))
+                                logging.info("%s       A * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
+                                logging.info("%s       B * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID))
+
+                                logging.info("%s   --> Channel A is used for %d substances"%(logPrefix, len(reqForA)))
+                                for sub in reqForA:
+                                    logging.info("%s      * %s at %.2f min"%(logPrefix, sub.name, sub.refRT))
+                                logging.info("%s   --> Channel B is used for %d substances"%(logPrefix, len(reqForB)))
+                                for sub in reqForB:
+                                    logging.info("%s      * %s at %.2f min"%(logPrefix, sub.name, sub.refRT))
+                                    
+                            used = "A" if rtstart < brtstart else "B"
+                            unused = "B" if used == "A" else "B"
+                            
+                            if verbose: 
+                                logging.info("%s   --> Channel %s will be used as it starts a bit earlier. Channel %s will removed"%(logPrefix, used, unused))
+                            unusedChannels.append(bentryID if unused == "B" else entryID)
+                            
+                            if verbose: 
+                                logging.info(logPrefix)
+
+                        else:
+                            if verbose: 
+                                logging.warning("%s    \033[91mProblematic channel combination found in sample '%s'. Both will be skipped\033[0m"%(logPrefix, sampleName))
+                                logging.warning("%s       A * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
+                                logging.warning("%s       B * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID))
+                                
+                                logging.warning("%s   --> Channel A is used for %d substances"%(logPrefix, len(reqForA)))
+                                for sub in reqForA:
+                                    logging.warning("%s      * %s at %.2f min"%(logPrefix, sub.name, sub.refRT))
+                                logging.warning("%s   --> Channel B is used for %d substances"%(logPrefix, len(reqForB)))
+                                for sub in reqForB:
+                                    logging.warning("%s      * %s at %.2f min"%(logPrefix, sub.name, sub.refRT))
+                                    
+                                logging.warning("%s       TODO: Problematic. Both channels will be removed for now"%(logPrefix))
+                                
+                            unusedChannels.append(entryID)
+                            unusedChannels.append(bentryID)
+                        
+                        alreadyProcessed.append("%d - %d"%(i, bi))
+                        alreadyProcessed.append("%d - %d"%(bi, i))       
+            
+        usedChannel = []
+        for i, (Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID, chrom) in enumerate(allChannels):
+            if entryID not in unusedChannels:
+                ## use channel if it is unique and find the integrated substance(s) for it
+                for substance in substances.values():
+                    if abs(substance.Q1 - Q1) < allowedMZOffset and abs(substance.Q3 - Q3) <= allowedMZOffset and \
+                        substance.CE == collisionEnergy and substance.CEMethod == collisionMethod and \
+                        rtstart <= substance.refRT <= rtend:
+                        if createNewIntegrations and substance.name not in integrations:
+                            integrations[substance.name] = {}
+                        if createNewIntegrations and sampleName not in integrations[substance.name]:
+                            integrations[substance.name][sampleName] = Integration(foundPeak = None, rtStart = None, rtEnd = None, area = None, type = "None", comment = "None", chromatogram = [])
+                        
+                        if substance.name in integrations and sampleName in integrations[substance.name]:
+                            foundTargets.append([substance, entry, integrations[substance.name][sampleName]])
+                            usedChannel.append(substance)
+                            integrations[substance.name][sampleName].chromatogram.append(chrom)
+                            if verbose: 
+                                logging.info("%s       Channel will be used for '%s': * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, substance.name, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
+                
+            elif verbose: 
+                logging.info("%s       Channel will not be used: * Q1 %8.3f, Q3 %8.3f, Rt %5.2f - %5.2f, Polarity '%10s', Fragmentation %5.1f '%s', Header '%s'"%(logPrefix, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID))
+                
     if resetIntegrations:
         for s in integrations:
             for f in integrations[s]:
