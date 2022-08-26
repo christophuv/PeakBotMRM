@@ -243,6 +243,9 @@ Additionally to changing a results type via the info-box, the user can also use 
 | E | Reduce the start of the chromatographic peak or noise area towards a later retention time | 
 | R | Reduce the end of the chromatographic peak or noise area towards an earlier retention time |
 | T | Extend the end of the chromatographic peak or noise area towards a later retention time |
+| General actions| |
+| A | Refresh EIC views |
+| G | Continue with next substance |
 
 
 #### Change calibration curve options

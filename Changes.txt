@@ -1,0 +1,50 @@
+Version 0.9.41
+* Added changelog (Changes.txt)
+* Did some empty line linting
+* Added shortcut 'g' to move to the next substance
+
+
+
+
+Version 0.9.40
+• Rename an experiment (Right-click on an experiment to rename it)
+• Reprocess individual substances (Right-click on an experiment to reprocess a single substance)
+• Remove certain substances (Right-click on a substance to remove it)
+• Add new substances to an existing experiment: To to this, right-click on a experiment and select 'add substances'. Then, select the transition list with the new substances (note: any substance on this transition list that is already present will not be added/changed and simply ignored, same name). Next, select the folder with the very same raw data files as have already been loaded. After a brief inspection all new substances will be added to the treeview at its end. To process these new substances, right-click on them and process them individually
+• TODO: improve user-interface to make adding substances a bit less painful (i.e. not reprocess them individually but at once, use import dialog/wizard)
+
+
+Version 0.9.38
+• Minor bug in calibration curve calculation. Any previously saved binary experiment with a few missing calibration curves are correctly calculated with this version
+• SEVERE BUG: After opening the settings in v_0.9.37 it was no longer possible to save an experiment in binary form. This bug is resolved now.
+
+
+Version 0.9.37
+• SHIFT-Mouse selection: Press the SHIFT key and draw a rectangle in the overlaid or single EICs of the active substance. This will update all selected samples to the according retention times without changing their results type (peak, noise, nothing). This feature is handy together with the STRG selection, which works similar but only select samples whose EICs have at least one signal in the drawn box (in both the RT and abundance).
+• The calibration regressions can no longer have negative values for the intercept terms. Thus, with linear regression it will no longer be possible to calculate negative concentrations.
+• The RT spinning boxes have been updated to not change after each step, but only after all changes. This is realized by allowing for a minimal time between consecutive changes and when no change is detected within a short time span of less than a second, the corresponding RTs are updated.
+• The small report can now either contain noise values or '<LOD' strings. The user is asked each time to specify the report type.
+• several smaller bug fixes.
+
+
+Version 0.9.35
+• The tree on the left side automatically collapses to the active substance making scrolling a bit easier. This behavior can be changed and deactivated in the settings.
+• You can select a range of the EIC to be defined for peak-picking by pressing and holding the ALT-key and then drawing a rectangle in the overlaid EICs. This will define a chromatographic peak with the start and end retention times according to the drawn window for all samples of the current substance. Then, certain samples can be selected (either individually or via a CTRL + mouse drag selection) and changed to noise / etc.
+• The icons representing the results type have been changed to more easily recognize what kind of integration (peak, noise) has been used for a particular substance.
+• Some basic information of the substances can now be edited directly in PeakBotMRM. This makes it easier to for example change certain calibration levels if an incorrect transition list has been used. However, it is currently not possible to add or remove substances from there.
+
+
+Version 0.9.33
+• You can select samples in the overlaid EIC view (second plot in the first row) interactively by pressing and holding the CTRL key on your keyboard and then draw a rectangle. The corresponding samples of the substance that have at least one intensity within the rectangle will be selected. Moreover, if you do not press CTRL, displacement (left mouse button) and scaling (right mouse button) are unaffected and still work.
+• Whenever the substance is changed the current experiment is backed up and saved to a temporary file on your PC. The location of this file is specified in the documentation. This backup takes approximately 1 second, so not too long.
+• The keyboard shortcuts to changing the results type (peak, noise, nothing) and the peak width have been changed and are now qwert for the substance and QWERT for the internal standard. Furthermore a new shortcut (a) is available that simply refreshes all EIC plots. This refresh is helpful whenever one wants to see the changes in the overlaid EICs plot
+
+
+Version 0.9.31
+• Fix calibration method integration (thanks Juan)
+• Two separate transition lists (with adapted carnitine concentrations after R100269). Please use these transition lists (thanks Iciar)
+
+
+Version 0.9.30
+• an updated transition list with a couple of new compounds not present on the old transition list. Unfortunately, at the moment there is no method implemented to update an existing experiment/evolution to the new list. I apologize.
+• The rendering of the plots is considerably faster and should make manual checks a little bit less frustrating when switching form one compound to another.
