@@ -1,9 +1,17 @@
+Version 0.9.45
+* Changed path for autosave. Once a binary file has been saved and/or loaded from a file, this file will be updated whenever the selected substance is changed. 
+* Added option to swtich axes in calibration plots (e.g., MassHunter style (value vs. expected), expected (x) vs. value)
+* Removed idea of Ulrich Goldmann (integrate linearly from LOD calibration to 0), replaced by non-negative intercepts in earlier version (linear regressions only)
+* Added options to not plot all figures. Makes switching from one substance to another much faster. Options are available in the settings dialog in the section 'Plots'
+* Added layout of the figure panes saved to the binary format and restored when an experiment is loaded from the binary format
+* Samples are illustrated in the calibration curves (green, smaller dots)
+* version increment
+
+
 Version 0.9.41
 * Added changelog (Changes.txt)
 * Did some empty line linting
 * Added shortcut 'g' to move to the next substance
-
-
 
 
 Version 0.9.40

@@ -116,11 +116,15 @@ def sortSamples(sampleNames, importantSamplesRegEx):
 class Experiment:
     def __init__(self, expName = "", substances = None, integrations = None, sampleInfo = None):
         self.expName = expName
+        self.experimentFile = os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "_backup", expName+"_backup.pbexp")
         self.substances = substances
         self.integrations = integrations
         self.sampleInfo = sampleInfo
 
-    def saveToFile(self, toFile, additionalData = None):
+    def saveToFile(self, toFile = None, additionalData = None):
+        if toFile is None:
+            toFile = self.experimentFile
+        
         tempIntegrations = {}
         for sub in self.integrations:
             tempIntegrations[sub] = {}
@@ -574,11 +578,18 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         }
         self.__saveBackup = True
         self.__autoCollapseTree = True
+        
+        self.__guiCalibrationAxesFormat = "expected (x) vs. observed (y)" ## either 'expected (x) vs. observed (y)' or 'observed (x) vs. expected (y)
+        self.__guiPlotEmbedding = True
+        self.__guiPlotNormalizedSubstancePeaks = True
+        self.__guiPlotISTD = True
 
         if not os.path.exists(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM")):
             os.mkdir(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM"))
         if not os.path.exists(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models")):
             os.mkdir(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models"))
+        if not os.path.exists(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "_backup")):
+            os.mkdir(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "_backup"))
 
 
         self.setWindowTitle("PeakBotMRM (version '%s')"%(PeakBotMRM.Config.VERSION))
@@ -766,11 +777,11 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         item.triggered.connect(functools.partial(self.showSummary, processingInfo = None))
         toolbar.addAction(item)
 
-        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "download-outline.svg")), "Export active experiment results", self)
+        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "download-outline.svg")), "Export active experiment (full results table)", self)
         item.triggered.connect(functools.partial(self.exportIntegrations, all = False))
         toolbar.addAction(item)
 
-        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "document-text-outline.svg")), "Export active experiment report", self)
+        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "document-text-outline.svg")), "Export active experiment (reduced quantification table)", self)
         item.triggered.connect(functools.partial(self.exportReport))
         toolbar.addAction(item)
 
@@ -828,7 +839,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.tree._keyPressEvent = self.tree.keyPressEvent
         self.tree.keyPressEvent = self.keyPressEvent
 
-        if os.path.exists(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "defaultSettings.pickle")):
+        if os.path.exists(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "defaultSettings.pickle")):
+            print("Found default settings file)")
             self.tree.blockSignals(True)
             try:
                 self.loadSettingsFromFile()
@@ -976,10 +988,15 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     "GUI/__defaultJumpWidth": self.__defaultJumpWidth,
                     "GUI/__areaFormatter": self.__areaFormatter,
 
-                    "GUI/DockAreaState": self.dockArea.saveState(),
-
                     "GUI/__saveBackup": self.__saveBackup,
                     "GUI/__autoCollapseTree": self.__autoCollapseTree,
+                    
+                    "GUI/__guiCalibrationAxesFormat": self.__guiCalibrationAxesFormat,
+                    "GUI/__guiPlotEmbedding": self.__guiPlotEmbedding,
+                    "GUI/__guiPlotNormalizedSubstancePeaks": self.__guiPlotNormalizedSubstancePeaks,
+                    "GUI/__guiPlotISTD": self.__guiPlotISTD,
+
+                    "GUI/DockAreaState": self.dockArea.saveState(),
                 }
         return settings
 
@@ -1036,13 +1053,24 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         if "GUI/__areaFormatter" in settings:
             self.__areaFormatter = settings["GUI/__areaFormatter"]
 
-        #self.dockArea.restoreState(settings["GUI/DockAreaState"])
-
         if "GUI/__saveBackup" in settings:
             self.__saveBackup = settings["GUI/__saveBackup"]
         if "GUI/__autoCollapseTree" in settings:
             self.__autoCollapseTree = settings["GUI/__autoCollapseTree"]
+            self.__autoCollapseTree = settings["GUI/__autoCollapseTree"]
+            
+        if "GUI/__guiCalibrationAxesFormat" in settings:
+            self.__guiCalibrationAxesFormat = settings["GUI/__guiCalibrationAxesFormat"]
+        if "GUI/__guiPlotEmbedding" in settings:
+            self.__guiPlotEmbedding = settings["GUI/__guiPlotEmbedding"]
+        if "GUI/__guiPlotNormalizedSubstancePeaks" in settings:
+            self.__guiPlotNormalizedSubstancePeaks = settings["GUI/__guiPlotNormalizedSubstancePeaks"]
+        if "GUI/__guiPlotISTD" in settings:
+            self.__guiPlotISTD = settings["GUI/__guiPlotISTD"]
 
+        if "GUI/DockAreaState" in settings:
+            self.dockArea.restoreState(settings["GUI/DockAreaState"])
+            
     def saveSettingsToFile(self, settingsFile = None):
         if settingsFile is None:
             settingsFile = os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "defaultSettings.pickle")
@@ -1072,7 +1100,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 {'name': 'Memory', 'type': 'str', 'value': PeakBotMRM.getMemoryInfo(), 'readonly': True},
                 {'name': 'GPU/CUDA', 'type': 'str', 'value': PeakBotMRM.getCUDAInfo(), 'readonly': True},
                 {'name': 'Tensorflow', 'type': 'str', 'value': PeakBotMRM.getTensorflowVersion(), 'readonly': True},
-        ]},
+            ]},
             {'name': 'PeakBotMRM Configuration', 'type': 'group', 'children': [
                 {'name': 'Name', 'type': 'str', 'value': PeakBotMRM.Config.NAME, 'readonly': True},
                 {'name': 'version', 'type': 'str', 'value': PeakBotMRM.Config.VERSION, 'readonly': True},
@@ -1097,10 +1125,14 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 {'name': 'Default left width', 'type': 'float', 'value': self.__leftPeakDefault, 'limits': [-1., 0], 'step' : .005, 'suffix': 'min'},
                 {'name': 'Default right width', 'type': 'float', 'value': self.__rightPeakDefault, 'limits': [0., 1.], 'step' : .005, 'suffix': 'min'},
             ]},
-            {'name': 'Plot colors', 'type': 'group', 'children':[
+            {'name': 'Plots', 'type': 'group', 'children':[
                 {'name': 'Normal color', 'type': 'color', 'value': PyQt6.QtGui.QColor.fromRgb(*self.__normalColor)},
                 {'name': 'Highlight color 1', 'type': 'color', 'value': PyQt6.QtGui.QColor.fromRgb(*self.__highlightColor1)},
-                {'name': 'Highlight color 2', 'type': 'color', 'value': PyQt6.QtGui.QColor.fromRgb(*self.__highlightColor2)}
+                {'name': 'Highlight color 2', 'type': 'color', 'value': PyQt6.QtGui.QColor.fromRgb(*self.__highlightColor2)},
+                {'name': 'Calibration axes', 'type': 'list', 'value': self.__guiCalibrationAxesFormat, 'values': ["expected (x) vs. observed (y)", "observed (x) vs. expected (y)"]},
+                {'name': 'Plot embedding of EICs', 'type': 'bool', 'value': self.__guiPlotEmbedding},
+                {'name': 'Plot normalized substance areas', 'type': 'bool', 'value': self.__guiPlotNormalizedSubstancePeaks},
+                {'name': 'Plot internal standard', 'type': 'bool', 'value': self.__guiPlotISTD},
             ]},
             {'name': 'Other', 'type': 'group', 'children':[
                 {'name': 'MSConvert executable', 'type': 'str', 'value': self.__msConvertPath, 'tip': 'Download MSconvert from <a href="https://proteowizard.sourceforge.io/">https://proteowizard.sourceforge.io/</a>. Choose the version that is "able to convert ventdor files". Install the software. Then try restarting PeakBotMRM. If "msconvert" alone does not work, try "%LOCALAPPDATA%\\Apps\\ProteoWizard 3.0.22119.ba94f16 32-bit\\msconvert.exe"'},
@@ -1153,9 +1185,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     self.__defaultSampleOrder = ["Error, invalid python object"]
             self.__leftPeakDefault = p.param("New chromatographic peak (relative to ref. RT)", "Default left width").value()
             self.__rightPeakDefault = p.param("New chromatographic peak (relative to ref. RT)", "Default right width").value()
-            self.__normalColor = p.param("Plot colors", "Normal color").value().getRgb()
-            self.__highlightColor1 = p.param("Plot colors", "Highlight color 1").value().getRgb()
-            self.__highlightColor2 = p.param("Plot colors", "Highlight color 2").value().getRgb()
+            self.__normalColor = p.param("Plots", "Normal color").value().getRgb()
+            self.__highlightColor1 = p.param("Plots", "Highlight color 1").value().getRgb()
+            self.__highlightColor2 = p.param("Plots", "Highlight color 2").value().getRgb()
             self.__calibrationFunctionstep = p.param("PeakBotMRM Configuration", "Calibration plot step size").value()
             self.__msConvertPath = p.param("Other", "MSConvert executable").value()
             self.__exportSeparator = p.param("Other", "Export delimiter").value().replace("TAB", "\t")
@@ -1164,6 +1196,11 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             self.__areaFormatter = p.param("Other", "Area formatter").value()
             self.__saveBackup = p.param("Other", "Auto backup").value()
             self.__autoCollapseTree = p.param("Other", "Auto collapse tree").value()
+            
+            self.__guiCalibrationAxesFormat = p.param("Plots", "Calibration axes").value()
+            self.__guiPlotEmbedding = p.param("Plots", "Plot embedding of EICs").value()
+            self.__guiPlotNormalizedSubstancePeaks = p.param("Plots", "Plot normalized substance areas").value()
+            self.__guiPlotISTD = p.param("Plots", "Plot internal standard").value()
 
         t = ParameterTree()
         t.setParameters(p, showTop=False)
@@ -2201,16 +2238,6 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         with open(fromFile, "rb") as fin:
             expName, substances, integrations, sampleInfo, additionalData = pickle.load(fin)
 
-            if False:
-                with open("C:/Users/cbueschl/Desktop/R100287_newCompounds.pbexp", "rb") as fin2:
-                    expName2, substances2, integrations2, sampleInfo2, additionalData2 = pickle.load(fin2)
-
-                    for sub in substances2:
-                        if sub not in substances:
-                            print(sub)
-                            substances[sub] = substances2[sub]
-                            integrations[sub] = integrations2[sub]
-
             i = 1
             while expName in self.loadedExperiments:
                 expName = expName + "_" + str(i)
@@ -2219,7 +2246,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             if additionalData is not None and type(additionalData) == dict and "settings" in additionalData:
                 self._loadSettingsFromObject(additionalData["settings"])
 
-            self.addExperimentToGUI(expName, substances, integrations, sampleInfo)
+            self.addExperimentToGUI(expName, substances, integrations, sampleInfo, experimentFile = fromFile)
+
 
     def loadExperiment(self, expName, transitionFile, rawDataPath, integrationsFile, delimChar):
 
@@ -2260,10 +2288,14 @@ class Window(PyQt6.QtWidgets.QMainWindow):
 
         self.addExperimentToGUI(expName, substances, integrations, sampleInfo, integrationsLoaded)
 
-    def addExperimentToGUI(self, expName, substances, integrations, sampleInfo, integrationsLoaded = False, showProcDiag = True):
+    def addExperimentToGUI(self, expName, substances, integrations, sampleInfo, integrationsLoaded = False, experimentFile = None, showProcDiag = True):
+
         self.tree.blockSignals(True)
         self.loadedExperiments[expName] = Experiment(expName, substances, integrations, sampleInfo)
-
+        if experimentFile is not None:
+            self.loadedExperiments[expName].experimentFile = experimentFile
+        else:
+            self.loadedExperiments[expName].experimentFile = os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "_backup", expName+"_backup.pbexp")
         if showProcDiag:
             procDiag = PyQt6.QtWidgets.QProgressDialog(self, labelText="Loading experiment '%s'"%(expName))
             procDiag.setWindowIcon(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "robot.png")))
@@ -3005,12 +3037,13 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                     if "userType" in oit.__dict__ and oit.userType == "Single peak" and not oit.isHidden():
                                         ints.append(self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample])
                                         colors.append(self.loadedExperiments[oit.experiment].sampleInfo[oit.sample]["Color"])
-                                    if oit.experiment in self.loadedExperiments and oit.substance in self.loadedExperiments[oit.experiment].substances and self.loadedExperiments[oit.experiment].substances[oit.substance].internalStandard in self.loadedExperiments[oit.experiment].integrations and oit.sample in self.loadedExperiments[oit.experiment].integrations[self.loadedExperiments[oit.experiment].substances[oit.substance].internalStandard] and not oit.isHidden():
+                                    if self.__guiPlotISTD and oit.experiment in self.loadedExperiments and oit.substance in self.loadedExperiments[oit.experiment].substances and self.loadedExperiments[oit.experiment].substances[oit.substance].internalStandard in self.loadedExperiments[oit.experiment].integrations and oit.sample in self.loadedExperiments[oit.experiment].integrations[self.loadedExperiments[oit.experiment].substances[oit.substance].internalStandard] and not oit.isHidden():
+                                        colors.append(self.loadedExperiments[oit.experiment].sampleInfo[oit.sample]["Color"])
                                         intsIS.append(self.loadedExperiments[oit.experiment].integrations[self.loadedExperiments[oit.experiment].substances[oit.substance].internalStandard][oit.sample])
                                         colorsIS.append(self.loadedExperiments[oit.experiment].sampleInfo[oit.sample]["Color"])
                                 if len(ints) > 0:
                                     self.plotIntegrations(ints, colors, "", refRT = self.loadedExperiments[selExp].substances[selSub].refRT, plotInds = [1,2])
-                                if len(intsIS) > 0:
+                                if self.__guiPlotISTD and len(intsIS) > 0:
                                     self.plotIntegrations(intsIS, colorsIS, "", refRT = self.loadedExperiments[selExp].substances[selIST].refRT if selIST is not None and selIST in self.loadedExperiments[selExp].substances else None, plotInds = [4,5])
 
                     if "userType" in it.__dict__:
@@ -3025,14 +3058,21 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                             highlightLevel = None
                             highlightLevelIS = None
                             highlightLevelRatio = None
+
+                            peakAreaLevel = []
+                            peakAreaLevelIS = []
+                            peakAreaLevelRatio = []
+                            
                             for oitInd in range(it.childCount()):
                                 oit = it.child(oitInd)
+                                used = False
                                 for calSampPart, level in substance.calSamples.items():
                                     if "userType" in oit.__dict__ and oit.userType == "Single peak" and calSampPart in oit.sample:
                                         if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1:
                                             subArea.append((self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].area, level * substance.calLevel1Concentration))
                                             if oit.sample == selSam:
                                                 highlightLevel = level * substance.calLevel1Concentration
+                                            used = True
                                         if istd is not None:
                                             if self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1:
                                                 isArea.append((self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area, level * istd.calLevel1Concentration))
@@ -3042,58 +3082,72 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                                     subRatio.append((self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].area / self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area, level * substance.calLevel1Concentration))
                                                     if oit.sample == selSam:
                                                         highlightLevelRatio = level * substance.calLevel1Concentration
+                                                used = True
+                                if not used:
+                                    if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1:
+                                        peakAreaLevel.append(self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].area)
+                                    if istd is not None:
+                                        if self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1:
+                                            peakAreaLevelIS.append(self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area)        
+                                            if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1 and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1:
+                                                peakAreaLevelRatio.append(self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].area / self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area)
+                                                    
                             self.calibrationMethod.setCurrentIndex(self.calibrationMethod.findText(self.loadedExperiments[selExp].substances[selSub].calibrationMethod))
 
                             if len(subArea) > 0:
-                                self.plotCalibration(subArea, "Sub; areas", unit = substance.calLevel1ConcentrationUnit, addLM = True, highlightLevel = highlightLevel, plotInd = 6)
+                                self.plotCalibration(subArea, "Sub; areas", unit = substance.calLevel1ConcentrationUnit, addLM = True, highlightLevel = highlightLevel, plotAreas = peakAreaLevel, plotInd = 6)
                             if len(isArea) > 0:
-                                self.plotCalibration(isArea, "ISTD, areas", unit = substance.calLevel1ConcentrationUnit, addLM = False, highlightLevel = highlightLevelIS, plotInd = 7)
+                                self.plotCalibration(isArea, "ISTD, areas", unit = substance.calLevel1ConcentrationUnit, addLM = False, highlightLevel = highlightLevelIS, plotAreas = peakAreaLevelIS, plotInd = 7)
                             if len(subRatio) > 0:
-                                self.plotCalibration(subRatio, "Sub/ISTD", unit = substance.calLevel1ConcentrationUnit, addLM = True, highlightLevel = highlightLevelRatio, plotInd = 8)
+                                self.plotCalibration(subRatio, "Sub/ISTD", unit = substance.calLevel1ConcentrationUnit, addLM = True, highlightLevel = highlightLevelRatio, plotAreas = peakAreaLevelRatio, plotInd = 8)
+                    
+                    if self.__guiPlotEmbedding:
+                        if selExp != self.lastExp or self.paCMAP is None:
+                            self.paCMAPAllEICsS = []
+                            self.paCMAPAllRTsS = []
+                            self.paCMAPsubstances = []
+                            self.paCMAPSamples = []
+                            self.paCMAP = None
+                            self.polyROI = None
+                            for sub in self.loadedExperiments[selExp].integrations:
+                                for samp in self.loadedExperiments[selExp].integrations[sub]:
+                                    inte = self.loadedExperiments[selExp].integrations[sub][samp]
+                                    if "eicStd" not in inte.chromatogram:
+                                        rtsS, eicS = PeakBotMRM.extractStandardizedEIC(inte.chromatogram["eic"], inte.chromatogram["rts"], self.loadedExperiments[selExp].substances[sub].refRT)
+                                        inte.chromatogram["eicS"] = eicS
+                                        inte.chromatogram["rtsS"] = rtsS
+                                    a = inte.chromatogram["eicS"]
+                                    a = a - np.min(a)
+                                    a = a / np.max(a)
+                                    self.paCMAPAllEICsS.append(a)
+                                    self.paCMAPAllRTsS.append(inte.chromatogram["rtsS"])
+                                    self.paCMAPsubstances.append(sub)
+                                    self.paCMAPSamples.append(samp)
 
-                    if selExp != self.lastExp or self.paCMAP is None:
-                        self.paCMAPAllEICsS = []
-                        self.paCMAPAllRTsS = []
-                        self.paCMAPsubstances = []
-                        self.paCMAPSamples = []
-                        self.paCMAP = None
-                        self.polyROI = None
-                        for sub in self.loadedExperiments[selExp].integrations:
-                            for samp in self.loadedExperiments[selExp].integrations[sub]:
-                                inte = self.loadedExperiments[selExp].integrations[sub][samp]
-                                if "eicStd" not in inte.chromatogram:
-                                    rtsS, eicS = PeakBotMRM.extractStandardizedEIC(inte.chromatogram["eic"], inte.chromatogram["rts"], self.loadedExperiments[selExp].substances[sub].refRT)
-                                    inte.chromatogram["eicS"] = eicS
-                                    inte.chromatogram["rtsS"] = rtsS
-                                a = inte.chromatogram["eicS"]
-                                a = a - np.min(a)
-                                a = a / np.max(a)
-                                self.paCMAPAllEICsS.append(a)
-                                self.paCMAPAllRTsS.append(inte.chromatogram["rtsS"])
-                                self.paCMAPsubstances.append(sub)
-                                self.paCMAPSamples.append(samp)
+                            # loading preprocessed coil_20 dataset
+                            # you can change it with any dataset that is in the ndarray format, with the shape (N, D)
+                            # where N is the number of samples and D is the dimension of each sample
+                            # initializing the pacmap instance
+                            # Setting n_neighbors to "None" leads to a default choice shown below in "parameter" section
+                            embedding = pacmap.PaCMAP(n_neighbors=None, MN_ratio=0.5, FP_ratio=2.0)
 
-                        # loading preprocessed coil_20 dataset
-                        # you can change it with any dataset that is in the ndarray format, with the shape (N, D)
-                        # where N is the number of samples and D is the dimension of each sample
-                        # initializing the pacmap instance
-                        # Setting n_neighbors to "None" leads to a default choice shown below in "parameter" section
-                        embedding = pacmap.PaCMAP(n_neighbors=None, MN_ratio=0.5, FP_ratio=2.0)
+                            # fit the data (The index of transformed data corresponds to the index of the original data)
+                            ## TODO: Dialog is not rendered correctly, only a blank window appears
+                            procDiag = PyQt6.QtWidgets.QProgressDialog(self, labelText="Generating PaCMAP embedding",
+                                                                        minimum=0, maximum=1)
+                            procDiag.setWindowIcon(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "robot.png")))
+                            procDiag.setWindowTitle("PeakBotMRM")
+                            procDiag.setModal(True)
+                            procDiag.show()
+                            self.paCMAP = embedding.fit_transform(np.array(self.paCMAPAllEICsS), init="pca")
+                            procDiag.close()
 
-                        # fit the data (The index of transformed data corresponds to the index of the original data)
-                        ## TODO: Dialog is not rendered correctly, only a blank window appears
-                        procDiag = PyQt6.QtWidgets.QProgressDialog(self, labelText="Generating PaCMAP embedding",
-                                                                    minimum=0, maximum=1)
-                        procDiag.setWindowIcon(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "robot.png")))
-                        procDiag.setWindowTitle("PeakBotMRM")
-                        procDiag.setModal(True)
-                        procDiag.show()
-                        self.paCMAP = embedding.fit_transform(np.array(self.paCMAPAllEICsS), init="pca")
-                        procDiag.close()
+                        if self.paCMAP is not None and (selExp != self.lastExp or selSam != self.lastSam or selSub != self.lastSub):
+                            self.polyROI = None
+                            self.plotPaCMAP(selSub, selSam)
 
-                    if self.paCMAP is not None and (selExp != self.lastExp or selSam != self.lastSam or selSub != self.lastSub):
-                        self.polyROI = None
-                        self.plotPaCMAP(selSub, selSam)
+                            if self.paCMAP is not None and (selExp != self.lastExp or selSam != self.lastSam or selSub != self.lastSub):
+                                self.polyROI = None
 
                     if autoRange:
                         for i, plot in enumerate(self._plots):
@@ -3116,11 +3170,10 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                         it.setExpanded(False)
                         if self.__saveBackup:
                             try:
-                                self.loadedExperiments[selExp].saveToFile(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", selExp+"_backup.pbexp"), additionalData = {"settings": copy.deepcopy(self._getSaveSettingsObject())})
-                                logging.info("Saved auto backup to '%s'"%(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", selExp+"_backup.pbexp")))
+                                self.loadedExperiments[selExp].saveToFile(additionalData = {"settings": copy.deepcopy(self._getSaveSettingsObject())})
                             except:
-                                PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "<b>Error</b><br><br>Could not save backup file to '%s'. <br>Please save your work to avoid loss of data"%(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", selExp+"_backup.pbexp")))
-                                logging.exception("Could not save auto backup to '%s'"%(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", selExp+"_backup.pbexp")))
+                                logging.exception("Could not save auto backup to '%s'"%(self.loadedExperiments[selExp].experimentFile))
+                                PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "<b>Error</b><br><br>Could not save backup file to '%s'. <br>Please save your work to avoid loss of data"%(self.loadedExperiments[selExp].experimentFile))
 
                     self.lastExp = selExp
                     self.lastSub = selSub
@@ -3259,25 +3312,27 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self._plots[plotInds[0]].setLabel('left', "Intensity")
         self._plots[plotInds[0]].setLabel('bottom', "Retention time (min)")
 
-        for ind in range(len(intes)):
-            inte = intes[ind]
 
-            if inte.foundPeak is not None and inte.foundPeak % 128:
-                try:
-                    tempRT = inte.chromatogram["rts"][np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
-                    temp = inte.chromatogram["eic"][np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
-                    minVal = np.min(temp)
-                    maxVal = np.max(temp - minVal)
-                    peakApexRT = tempRT[np.argmax(temp)]
+        if self.__guiPlotNormalizedSubstancePeaks:
+            for ind in range(len(intes)):
+                inte = intes[ind]
 
-                    col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2], 255*transp) # PyQt6.QtGui.QColor(colors[ind])PyQt6.QtGui.QColor(colors[ind])
-                    if inte.foundPeak is not None and inte.foundPeak % 128 == 2:
-                        col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor2[0], self.__highlightColor2[1], self.__highlightColor2[2], 255*transp)
-                    self._plots[plotInds[1]].plot(tempRT - peakApexRT,
-                                                (temp - minVal) / maxVal,
-                                                pen = (col.red(), col.green(), col.blue(), 255*transp))
-                except Exception as ex:
-                    logging.exception("Error in plotting integration")
+                if inte.foundPeak is not None and inte.foundPeak % 128:
+                    try:
+                        tempRT = inte.chromatogram["rts"][np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
+                        temp = inte.chromatogram["eic"][np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
+                        minVal = np.min(temp)
+                        maxVal = np.max(temp - minVal)
+                        peakApexRT = tempRT[np.argmax(temp)]
+
+                        col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2], 255*transp) # PyQt6.QtGui.QColor(colors[ind])PyQt6.QtGui.QColor(colors[ind])
+                        if inte.foundPeak is not None and inte.foundPeak % 128 == 2:
+                            col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor2[0], self.__highlightColor2[1], self.__highlightColor2[2], 255*transp)
+                        self._plots[plotInds[1]].plot(tempRT - peakApexRT,
+                                                    (temp - minVal) / maxVal,
+                                                    pen = (col.red(), col.green(), col.blue(), 255*transp))
+                    except Exception as ex:
+                        logging.exception("Error in plotting integration")
 
         self._plots[plotInds[1]].setTitle(title)
         self._plots[plotInds[1]].setLabel('left', "Intensity")
@@ -3304,23 +3359,24 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             self.tree.setCurrentItem(closest[1].other["GUIElement"])
             self.tree.scrollToItem(closest[1].other["GUIElement"])
 
-    def plotCalibration(self, calInfo, title, unit = "NA", addLM = True, highlightLevel = None, plotInd = 6):
+    def plotCalibration(self, calInfo, title, unit = "NA", addLM = True, highlightLevel = None, plotAreas = None, plotInd = 6):
         try:
-            self._plots[plotInd].plot([i for i, l in calInfo], [abs(l) for i, l in calInfo], pen=None, symbolSize=8, symbolBrush=(self.__normalColor[0], self.__normalColor[1], self.__normalColor[2], int(255*0.33)), symbolPen='w')
-            self._plots[plotInd].plot([i for i, l in calInfo if l > 0], [abs(l) for i, l in calInfo if l > 0], pen=None, symbolSize=8, symbolBrush=self.__normalColor, symbolPen='w')
+            self._plots[plotInd].plot([(i if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else abs(l)) for i, l in calInfo], [(abs(l) if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else i) for i, l in calInfo], pen=None, symbolSize=8, symbolBrush=(self.__normalColor[0], self.__normalColor[1], self.__normalColor[2], int(255*0.33)), symbolPen=None)
+            self._plots[plotInd].plot([(i if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else abs(l)) for i, l in calInfo if l > 0], [(abs(l) if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else i) for i, l in calInfo if l > 0], pen=None, symbolSize=8, symbolBrush=self.__normalColor, symbolPen=None)
             if highlightLevel is not None:
                 for ci, (i, l) in enumerate(calInfo):
                     if l == highlightLevel:
-                        self._plots[plotInd].plot([calInfo[ci][0]], [abs(calInfo[ci][1])], pen=None, symbolSize=8, symbolBrush=(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2], int(255 * (1 if l > 0 else 0.33))), symbolPen='w')
-            ax = self._plots[plotInd].getAxis('left')
+                        self._plots[plotInd].plot([calInfo[ci][0 if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else 1]], [abs(calInfo[ci][1 if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else 0])], pen=None, symbolSize=8, symbolBrush=(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2], int(255 * (1 if l > 0 else 0.33))), symbolPen=None)
+            ax = self._plots[plotInd].getAxis('left' if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else 'bottom')
             ax.setTicks([] + [[(abs(l), "%.3f"%(abs(l))) for i, l in calInfo + [(0,0)]]])
 
             if len(calInfo) > 1 and addLM:
                 usedAreas = [a for a, c in calInfo if c > 0]
                 usedConcs = [c for a, c in calInfo if c > 0]
                 if len(usedAreas) >= 2:
-                    model, r2, yhat, params, strRepr = PeakBotMRM.calibrationRegression(usedAreas, usedConcs,
-                                                                                        type = self.calibrationMethod.currentText())
+                    model, r2, yhat, params, strRepr = PeakBotMRM.calibrationRegression(usedAreas, usedConcs, type = self.calibrationMethod.currentText())
+                    
+                    ## Regression line plot
                     useCals = [a for a, c in calInfo if c > 0]
                     if len(useCals) > 1:
                         useCals = sorted(useCals)
@@ -3328,25 +3384,42 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         if len(useCals) > 2:
                             for i in range(1, len(useCals) - 1):
                                 a = np.concatenate((a, np.linspace(useCals[i], useCals[i+1], self.__calibrationFunctionstep)))
-
                     b = None
-                    calcCons = None
                     if self.calibrationMethod.currentText() in ["linear", "linear, 1/expConc."]:
                         b = model(np.array((a)).reshape(-1,1))
-                        calcCons = model(np.array((usedAreas)).reshape(-1,1))
-
                     elif self.calibrationMethod.currentText() in ["quadratic", "quadratic, 1/expConc."]:
-                        b = model(np.array((a)).reshape(-1,1))[:,0]
-                        calcCons = model(np.array((usedAreas)).reshape(-1,1))[:,0]
-
-                    self._plots[plotInd].plot(a, b, pen=self.__normalColor)
-                    self._plots[plotInd].plot(usedAreas, calcCons, pen=None, symbolSize=8, symbolBrush="Orange", symbolPen='w')
-                    infLine = pyqtgraph.InfiniteLine(pos = 0, movable=False, angle=0, label='', pen=self.__normalColor)
+                        b = model(np.array((a)).reshape(-1,1))[:,0]                    
+                    self._plots[plotInd].plot(a if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else b, b if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else a, pen=(self.__normalColor[0], self.__normalColor[1], self.__normalColor[2], 255*0.33))
+                    
+                    ## All other samples to be plotted
+                    if plotAreas is not None and (type(plotAreas) == list or (type(plotAreas) == np.ndarray and len(plotAreas.shape) == 1)):
+                        calcCons = None
+                        if self.calibrationMethod.currentText() in ["linear", "linear, 1/expConc."]:
+                            calcCons = model(np.array((plotAreas)).reshape(-1,1))
+                        elif self.calibrationMethod.currentText() in ["quadratic", "quadratic, 1/expConc."]:
+                            calcCons = model(np.array((plotAreas)).reshape(-1,1))[:,0]
+                        self._plots[plotInd].plot(plotAreas if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else calcCons, calcCons if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else plotAreas, pen=None, symbolSize=4, symbolBrush=(154, 205, 50, 255*0.33), symbolPen=None)
+                    
+                    ## Calibration samples on regression line
+                    usedAreas = [a for a, c in calInfo]
+                    usedConcs = [c for a, c in calInfo]
+                    b = None
+                    if self.calibrationMethod.currentText() in ["linear", "linear, 1/expConc."]:
+                        calcCons = model(np.array((usedAreas)).reshape(-1,1))
+                    elif self.calibrationMethod.currentText() in ["quadratic", "quadratic, 1/expConc."]:
+                        calcCons = model(np.array((usedAreas)).reshape(-1,1))[:,0]                    
+                    for ci, (i, l) in enumerate(calInfo):
+                        self._plots[plotInd].plot([usedAreas[ci] if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else calcCons[ci]], [calcCons[ci] if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else usedAreas[ci]], pen=None, symbolSize=8, symbolBrush=(self.__highlightColor2[0], self.__highlightColor2[1], self.__highlightColor2[2], int(255 * (1 if l > 0 else 0.33))), symbolPen=None)
+                        if highlightLevel is not None and l == highlightLevel:
+                            self._plots[plotInd].plot([usedAreas[ci] if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else calcCons[ci]], [calcCons[ci] if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else usedAreas[ci]], pen=None, symbolSize=8, symbolBrush=(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2], int(255 * (1 if l > 0 else 0.33))), symbolPen=None)
+                    
+                    infLine = pyqtgraph.InfiniteLine(pos = 0, movable=False, angle=0 if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else 90, label='', pen=self.__normalColor)
                     self._plots[plotInd].addItem(infLine)
-
                     self._plots[plotInd].setTitle(title + "; R2 %.3f; %d points"%(r2, len(calInfo)))
-                    self._plots[plotInd].setLabel('bottom', "Value")
-                    self._plots[plotInd].setLabel('left', "Expected (%s)"%(unit))
+                    self._plots[plotInd].setLabel('bottom' if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else 'left', "Value")
+                    self._plots[plotInd].setLabel('left' if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else 'bottom', "Expected (%s)"%(unit))
+                    self._plots[plotInd].setTitle(title + "; R2 %.3f; %d points"%(r2, len(calInfo)))
+            self._plots[plotInd].setLabel('bottom' if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else 'left', "Value")
         except:
             PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "<b>Critical problem</b><br><br>A critical problem happend. Please save your work, take a screenshot, document what you have been doing, contact the developers, and then continue in a new Window. <br><br>We apololgize for this inconvenience!")
             logging.exception("Exception in plotCalibration")

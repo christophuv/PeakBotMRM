@@ -4,7 +4,6 @@ from .core import *
 
 import sys
 import os
-import pickle
 import uuid
 import re
 import math
@@ -38,7 +37,7 @@ class Config(object):
     """Base configuration class"""
 
     NAME    = "PeakBotMRM"
-    VERSION = "0.9.41"
+    VERSION = "0.9.45"
 
     RTSLICES       = 255   ## should be of 2^n-1
     NUMCLASSES     =   2   ## [Peak, noPeak]
@@ -961,15 +960,17 @@ def calibrationRegression(x, y, type = None):
             
             popt, pcov = curve_fit(polyFun, x, y)
             model = np.poly1d(popt)
+            fun = "y = %f * x**2 + %f * x + %f"%(popt[0], popt[1], popt[2])
             
-            if Config.CALIBRATIONMETHODENFORCENONNEGATIVE and popt[2] < 0:
+            if False and Config.CALIBRATIONMETHODENFORCENONNEGATIVE and popt[2] < 0:
                 popt, pcov = curve_fit(polyFunNoIntercept, x, y)
                 model = np.poly1d(popt)
+                fun = "y = %f * x**2 + %f * x "%(popt[0], popt[1])
             
             yhat = model(x)            
             r2 = calcR2(x, y, yhat)
             
-            return model, r2, yhat, popt, "y = %f * x**2 + %f * x + %f"%(popt[0], popt[1], popt[2])
+            return model, r2, yhat, popt, fun
 
         if type == "quadratic, 1/expConc.":
             x_ = np.array(x)
@@ -977,15 +978,17 @@ def calibrationRegression(x, y, type = None):
             
             popt, pcov = curve_fit(polyFun, x, y, sigma = np.ones(len(y))/np.array(y))
             model = np.poly1d(popt)
+            fun = "y = %f * x**2 + %f * x + %f"%(popt[0], popt[1], popt[2])
             
-            if Config.CALIBRATIONMETHODENFORCENONNEGATIVE and popt[2] < 0:
+            if False and Config.CALIBRATIONMETHODENFORCENONNEGATIVE and popt[2] < 0:
                 popt, pcov = curve_fit(polyFunNoIntercept, x, y, sigma = np.ones(len(y))/np.array(y))
                 model = np.poly1d(popt)
+                fun = "y = %f * x**2 + %f * x "%(popt[0], popt[1])
             
             yhat = model(x)            
             r2 = calcR2(x, y, yhat)
             
-            return model, r2, yhat, popt, "y = %f * x**2 + %f * x + %f"%(popt[0], popt[1], 0)
+            return model, r2, yhat, popt, fun
     
     except Exception as ex:
         logging.error("Exception in linear regression calibrationRegression(x, y, type) with x '%s', y '%s', type '%s'"%(str(x), str(y), str(type)))

@@ -550,13 +550,14 @@ def calibrateIntegrations(substances, integrations):
                             calcConc = model(np.array((inteSub.area)).reshape(-1,1))
                             inteSub.concentration = calcConc
                                         
-                            if calToOrigin is not None and inteSub.area < calObs[calToOrigin]:
+                            if calToOrigin is not None and inteSub.area < calObs[calToOrigin] and False:
                                 ## Idea of Ulrich Goldmann: linear interpolation to origin for the lowest calibration level
                                 ## Attention: Use with caution, not fully tested
                                 samplesComments[substanceName][sample].append("Outside: Area is lower than calibration range with a non-negative regression (level %.3f, observed %.3f). Linear interpolation from last non-negative calibration will be used. Use with caution"%(calExp[calToOrigin], calObs[calToOrigin]))
                                 inteSub.concentration = model(np.array((calObs[calToOrigin])).reshape(-1,1)) * inteSub.area / calObs[calToOrigin]
-                                
+                            elif inteSubarea < np.min(calObs): 
+                                samplesComments[substanceName][sample].append("LOD: Area is lower than calibration range.")    
                             elif inteSub.area > np.max(calObs):
-                                samplesComments[substanceName][sample].append("Outside: Area is higher than calibration range.")
+                                samplesComments[substanceName][sample].append("ULOD: Area is higher than calibration range.")
     
     return substancesComments, samplesComments
