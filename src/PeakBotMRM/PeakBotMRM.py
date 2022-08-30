@@ -946,7 +946,7 @@ def calibrationRegression(x, y, type = None):
             model.fit(x_, y_, np.ones(len(y))/np.array(y))
             
             if Config.CALIBRATIONMETHODENFORCENONNEGATIVE and model.intercept_ < 0:
-                model = LinearRegression(positive = True, fit_intercept = True)
+                model = LinearRegression(positive = True, fit_intercept = False)
                 model.fit(x_, y_, np.ones(len(y))/np.array(y))
             
             yhat = model.predict(x_)            
