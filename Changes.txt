@@ -1,3 +1,8 @@
+Version 0.9.50
+* Fixed bug in EIC color
+* Started adding statistical analysis plots
+
+
 Version 0.9.45
 * Changed path for autosave. Once a binary file has been saved and/or loaded from a file, this file will be updated whenever the selected substance is changed. 
 * Added option to swtich axes in calibration plots (e.g., MassHunter style (value vs. expected), expected (x) vs. value)
