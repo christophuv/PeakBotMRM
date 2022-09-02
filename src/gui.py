@@ -3038,7 +3038,6 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                         ints.append(self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample])
                                         colors.append(self.loadedExperiments[oit.experiment].sampleInfo[oit.sample]["Color"])
                                     if self.__guiPlotISTD and oit.experiment in self.loadedExperiments and oit.substance in self.loadedExperiments[oit.experiment].substances and self.loadedExperiments[oit.experiment].substances[oit.substance].internalStandard in self.loadedExperiments[oit.experiment].integrations and oit.sample in self.loadedExperiments[oit.experiment].integrations[self.loadedExperiments[oit.experiment].substances[oit.substance].internalStandard] and not oit.isHidden():
-                                        colors.append(self.loadedExperiments[oit.experiment].sampleInfo[oit.sample]["Color"])
                                         intsIS.append(self.loadedExperiments[oit.experiment].integrations[self.loadedExperiments[oit.experiment].substances[oit.substance].internalStandard][oit.sample])
                                         colorsIS.append(self.loadedExperiments[oit.experiment].sampleInfo[oit.sample]["Color"])
                                 if len(ints) > 0:
