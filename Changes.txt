@@ -5,6 +5,7 @@ Version 0.9.45
 * Added options to not plot all figures. Makes switching from one substance to another much faster. Options are available in the settings dialog in the section 'Plots'
 * Added layout of the figure panes saved to the binary format and restored when an experiment is loaded from the binary format
 * Samples are illustrated in the calibration curves (green, smaller dots)
+* Fixed bug in quadratic regression model
 * version increment
 
 

@@ -555,7 +555,7 @@ def calibrateIntegrations(substances, integrations):
                                 ## Attention: Use with caution, not fully tested
                                 samplesComments[substanceName][sample].append("Outside: Area is lower than calibration range with a non-negative regression (level %.3f, observed %.3f). Linear interpolation from last non-negative calibration will be used. Use with caution"%(calExp[calToOrigin], calObs[calToOrigin]))
                                 inteSub.concentration = model(np.array((calObs[calToOrigin])).reshape(-1,1)) * inteSub.area / calObs[calToOrigin]
-                            elif inteSubarea < np.min(calObs): 
+                            elif inteSub.area < np.min(calObs): 
                                 samplesComments[substanceName][sample].append("LOD: Area is lower than calibration range.")    
                             elif inteSub.area > np.max(calObs):
                                 samplesComments[substanceName][sample].append("ULOD: Area is higher than calibration range.")

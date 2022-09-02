@@ -97,6 +97,19 @@ fontSizeP9 = 8
 
 
 
+def makeColor(color, alpha = 1.):
+    if type(color) == list and len(color) == 3:
+        return (color[0], color[1], color[2], alpha * 255)
+    if type(color) == str:
+        color = PyQt6.QtGui.QColor(color)
+    if type(color) == PyQt6.QtGui.QColor:
+        r, g, b, a = color.rgba()
+        return (r, g, b, alpha * 255)
+    raise Exception("Unknown type for color generation")
+
+
+
+
 def sortSamples(sampleNames, importantSamplesRegEx):
     order = []
     for imp in importantSamplesRegEx:
@@ -583,7 +596,10 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.__guiPlotEmbedding = True
         self.__guiPlotNormalizedSubstancePeaks = True
         self.__guiPlotISTD = True
-
+        
+        self.__statsUseISTDs = True
+        self.__calculateStatistics = True
+        
         if not os.path.exists(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM")):
             os.mkdir(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM"))
         if not os.path.exists(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models")):
@@ -713,6 +729,34 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.dockArea.addDock(dock)
         self.dockArea.moveDock(self.docks[11], "bottom", self.docks[10])
 
+        plot = self.genPlot()
+        dock = Dock("PCA - scores")
+        self.docks.append(dock)
+        dock.addWidget(plot)
+        self.dockArea.addDock(dock)
+        self.dockArea.moveDock(self.docks[12], "bottom", self.docks[11])
+
+        plot = self.genPlot()
+        dock = Dock("PCA - loadings")
+        self.docks.append(dock)
+        dock.addWidget(plot)
+        self.dockArea.addDock(dock)
+        self.dockArea.moveDock(self.docks[13], "bottom", self.docks[12])
+
+        plot = self.genPlot()
+        dock = Dock("Abundances")
+        self.docks.append(dock)
+        dock.addWidget(plot)
+        self.dockArea.addDock(dock)
+        self.dockArea.moveDock(self.docks[14], "bottom", self.docks[13])
+
+        plot = self.genPlot()
+        dock = Dock("Volcano plot")
+        self.docks.append(dock)
+        dock.addWidget(plot)
+        self.dockArea.addDock(dock)
+        self.dockArea.moveDock(self.docks[15], "bottom", self.docks[14])
+
         self.setCentralWidget(self.dockArea)
 
         ## Toolbar
@@ -840,7 +884,6 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.tree.keyPressEvent = self.keyPressEvent
 
         if os.path.exists(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "defaultSettings.pickle")):
-            print("Found default settings file)")
             self.tree.blockSignals(True)
             try:
                 self.loadSettingsFromFile()
@@ -995,6 +1038,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     "GUI/__guiPlotEmbedding": self.__guiPlotEmbedding,
                     "GUI/__guiPlotNormalizedSubstancePeaks": self.__guiPlotNormalizedSubstancePeaks,
                     "GUI/__guiPlotISTD": self.__guiPlotISTD,
+                    
+                    "GUI/__calculateStatistics": self.__calculateStatistics,
+                    "GUI/__statsUseISTDs": self.__statsUseISTDs,
 
                     "GUI/DockAreaState": self.dockArea.saveState(),
                 }
@@ -1067,6 +1113,11 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             self.__guiPlotNormalizedSubstancePeaks = settings["GUI/__guiPlotNormalizedSubstancePeaks"]
         if "GUI/__guiPlotISTD" in settings:
             self.__guiPlotISTD = settings["GUI/__guiPlotISTD"]
+            
+        if "GUI/__calculateStatistics" in settings:
+            self.__calculateStatistics = settings["GUI/__calculateStatistics"]
+        if "GUI/__statsUseISTDs" in settings:
+            self.__statsUseISTDs = settings["GUI/__statsUseISTDs"]
 
         if "GUI/DockAreaState" in settings:
             self.dockArea.restoreState(settings["GUI/DockAreaState"])
@@ -1134,6 +1185,10 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 {'name': 'Plot normalized substance areas', 'type': 'bool', 'value': self.__guiPlotNormalizedSubstancePeaks},
                 {'name': 'Plot internal standard', 'type': 'bool', 'value': self.__guiPlotISTD},
             ]},
+            {'name': 'Statistics', 'type': 'group', 'children':[
+                {'name': 'Calculate statistics', 'type': 'bool', 'value': self.__calculateStatistics},
+                {'name': 'Illustrate ISTDs', 'type': 'bool', 'value': self.__statsUseISTDs},                
+            ]}, 
             {'name': 'Other', 'type': 'group', 'children':[
                 {'name': 'MSConvert executable', 'type': 'str', 'value': self.__msConvertPath, 'tip': 'Download MSconvert from <a href="https://proteowizard.sourceforge.io/">https://proteowizard.sourceforge.io/</a>. Choose the version that is "able to convert ventdor files". Install the software. Then try restarting PeakBotMRM. If "msconvert" alone does not work, try "%LOCALAPPDATA%\\Apps\\ProteoWizard 3.0.22119.ba94f16 32-bit\\msconvert.exe"'},
                 {'name': 'Export delimiter', 'type': 'list', 'value': self.__exportSeparator, 'values': ["TAB", ",", ";", "$"]},
@@ -1201,6 +1256,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             self.__guiPlotEmbedding = p.param("Plots", "Plot embedding of EICs").value()
             self.__guiPlotNormalizedSubstancePeaks = p.param("Plots", "Plot normalized substance areas").value()
             self.__guiPlotISTD = p.param("Plots", "Plot internal standard").value()
+
+            self.__calculateStatistics = p.param("Statistics", "Calculate statistics").value()
+            self.__statsUseISTDs = p.param("Statistics", "Illustrate ISTDs").value()
 
         t = ParameterTree()
         t.setParameters(p, showTop=False)
@@ -1382,7 +1440,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 logging.info("")
                 logging.info("Processing dataset '%s'"%(selExp))
                 PeakBotMRM.predict.predictDataset(peakBotMRMModelFile, self.loadedExperiments[selExp].substances, self.loadedExperiments[selExp].integrations, specificSubstances = specificSubstances, callBackFunctionValue = prDiag.setValue, callBackFunctionText = prDiag.setLabelText, showConsoleProgress = False)
-
+                self.updateCalibrationLabels(expName = selExp)
+                
                 prDiag.close()
 
                 for sub in self.loadedExperiments[selExp].integrations:
@@ -1889,7 +1948,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         for c in range(self.tree.topLevelItemCount()):
             it = self.tree.topLevelItem(c)
             selExp = it.experiment
-
+            
+            ## TODO sort according to R2
+            
             for subI in range(it.childCount()):
                 subit = it.child(subI)
                 selSub = subit.substance
@@ -2377,6 +2438,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     inte.other["GUIElement"] = sampleItem
 
                     allSamples.append(sample)
+                    
+            self.updateCalibrationLabels(expName = expName)
 
         if showProcDiag:
             procDiag.close()
@@ -2935,6 +2998,81 @@ class Window(PyQt6.QtWidgets.QMainWindow):
 
         self.tree.blockSignals(False); self.hasPeak.blockSignals(False); self.peakStart.blockSignals(False); self.peakEnd.blockSignals(False); self.istdhasPeak.blockSignals(False); self.istdpeakStart.blockSignals(False); self.istdpeakEnd.blockSignals(False); self.useForCalibration.blockSignals(False); self.calibrationMethod.blockSignals(False);
 
+    def updateCalibrationLabels(self, expName = None):
+        self.tree.blockSignals(True); self.hasPeak.blockSignals(True); self.peakStart.blockSignals(True); self.peakEnd.blockSignals(True); self.istdhasPeak.blockSignals(True); self.istdpeakStart.blockSignals(True); self.istdpeakEnd.blockSignals(True); self.useForCalibration.blockSignals(True); self.calibrationMethod.blockSignals(True);
+            
+        for iti in range(self.tree.topLevelItemCount()):
+            expit = self.tree.topLevelItem(iti)
+            if expName is None or expit.experiment == expName:
+                for subiti in range(expit.childCount()):
+                    it = expit.child(subiti)
+                    selExp = it.experiment
+                    selSub = it.substance
+                    selSam = None
+                    if it.substance is not None and it.substance in self.loadedExperiments[it.experiment].substances:
+                        substance = self.loadedExperiments[selExp].substances[selSub]
+                        istd = self.loadedExperiments[selExp].substances[substance.internalStandard] if substance.internalStandard is not None and substance.internalStandard != "" and substance.internalStandard in self.loadedExperiments[selExp].substances else None
+
+                        subArea = []
+                        isArea = []
+                        subRatio = []
+
+                        highlightLevel = None
+                        highlightLevelIS = None
+                        highlightLevelRatio = None
+
+                        peakAreaLevel = []
+                        peakAreaLevelIS = []
+                        peakAreaLevelRatio = []
+                        
+                        for oitInd in range(it.childCount()):
+                            oit = it.child(oitInd)
+                            used = False
+                            for calSampPart, level in substance.calSamples.items():
+                                if "userType" in oit.__dict__ and oit.userType == "Single peak" and calSampPart in oit.sample:
+                                    if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1:
+                                        subArea.append((self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].area, level * substance.calLevel1Concentration))
+                                        if oit.sample == selSam:
+                                            highlightLevel = level * substance.calLevel1Concentration
+                                        used = True
+                                    if istd is not None:
+                                        if self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1:
+                                            isArea.append((self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area, level * istd.calLevel1Concentration))
+                                            if oit.sample == selSam:
+                                                highlightLevelIS = level
+                                            if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1 and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1 and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area > 0:
+                                                subRatio.append((self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].area / self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area, level * substance.calLevel1Concentration))
+                                                if oit.sample == selSam:
+                                                    highlightLevelRatio = level * substance.calLevel1Concentration
+                                            used = True
+                            if not used:
+                                if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1:
+                                    peakAreaLevel.append(self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].area)
+                                if istd is not None and oit.sample in self.loadedExperiments[oit.experiment].integrations[istd.name]:
+                                    if self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1:
+                                        peakAreaLevelIS.append(self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area)        
+                                        if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1 and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1 and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area > 0:
+                                            peakAreaLevelRatio.append(self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].area / self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area)
+                        
+                        ret = None
+                        if len(subArea) >= 0:
+                            usedAreas = [a for a, c in subArea if c > 0]
+                            usedConcs = [c for a, c in subArea if c > 0]
+                            if len(usedAreas) >= 2:
+                                model, r2, yhat, params, strRepr = PeakBotMRM.calibrationRegression(usedAreas, usedConcs, type = self.loadedExperiments[selExp].substances[selSub].calibrationMethod)
+                                ret = {"R2": r2, "points": len(usedAreas), "typ": "Sub"}
+                        if len(subRatio) >= 0:
+                            usedAreas = [a for a, c in subRatio if c > 0]
+                            usedConcs = [c for a, c in subRatio if c > 0]
+                            if len(usedAreas) >= 2:
+                                model, r2, yhat, params, strRepr = PeakBotMRM.calibrationRegression(usedAreas, usedConcs, type = self.loadedExperiments[selExp].substances[selSub].calibrationMethod)
+                                ret = {"R2": r2, "points": len(usedAreas), "typ": "Sub/ISTD"}
+                        
+                        if ret is not None and type(ret) == dict and "R2" in ret and "points" in ret:
+                            it.setText(2, "R2 %.3f, %d points, %s"%(ret["R2"], ret["points"], ret["typ"]))
+                               
+        self.tree.blockSignals(False); self.hasPeak.blockSignals(False); self.peakStart.blockSignals(False); self.peakEnd.blockSignals(False); self.istdhasPeak.blockSignals(False); self.istdpeakStart.blockSignals(False); self.istdpeakEnd.blockSignals(False); self.useForCalibration.blockSignals(False); self.calibrationMethod.blockSignals(False);
+                               
 
     def treeSelectionChanged(self, updateIndividualFilesPlot = True, autoRange = True):
         with pyqtgraph.BusyCursor():
@@ -3086,19 +3224,29 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                     if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1:
                                         peakAreaLevel.append(self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].area)
                                     if istd is not None:
-                                        if self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1:
+                                        if it.sample in self.loadedExperiments[oit.experiment].integrations[istd.name] and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1:
                                             peakAreaLevelIS.append(self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area)        
-                                            if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1 and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1:
+                                            if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1 and oit.sample in self.loadedExperiments[oit.experiment].integrations[istd.name] and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1:
                                                 peakAreaLevelRatio.append(self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].area / self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area)
                                                     
                             self.calibrationMethod.setCurrentIndex(self.calibrationMethod.findText(self.loadedExperiments[selExp].substances[selSub].calibrationMethod))
-
+                            
+                            ret = None
                             if len(subArea) > 0:
-                                self.plotCalibration(subArea, "Sub; areas", unit = substance.calLevel1ConcentrationUnit, addLM = True, highlightLevel = highlightLevel, plotAreas = peakAreaLevel, plotInd = 6)
+                                temp = self.plotCalibration(subArea, "Sub; areas", unit = substance.calLevel1ConcentrationUnit, addLM = True, highlightLevel = highlightLevel, plotAreas = peakAreaLevel, plotInd = 6)
+                                if temp is not None:
+                                    ret = temp
                             if len(isArea) > 0:
-                                self.plotCalibration(isArea, "ISTD, areas", unit = substance.calLevel1ConcentrationUnit, addLM = False, highlightLevel = highlightLevelIS, plotAreas = peakAreaLevelIS, plotInd = 7)
+                                temp = self.plotCalibration(isArea, "ISTD, areas", unit = substance.calLevel1ConcentrationUnit, addLM = False, highlightLevel = highlightLevelIS, plotAreas = peakAreaLevelIS, plotInd = 7)
+                                if temp is not None:
+                                    ret = temp
                             if len(subRatio) > 0:
-                                self.plotCalibration(subRatio, "Sub/ISTD", unit = substance.calLevel1ConcentrationUnit, addLM = True, highlightLevel = highlightLevelRatio, plotAreas = peakAreaLevelRatio, plotInd = 8)
+                                temp = self.plotCalibration(subRatio, "Sub/ISTD", unit = substance.calLevel1ConcentrationUnit, addLM = True, highlightLevel = highlightLevelRatio, plotAreas = peakAreaLevelRatio, plotInd = 8)
+                                if temp is not None:
+                                    ret = temp
+                            
+                            if ret is not None and type(ret) == dict and "R2" in ret and "points" in ret:
+                                it.setText(2, "R2 %.3f, %d points"%(ret["R2"], ret["points"]))
                     
                     if self.__guiPlotEmbedding:
                         if selExp != self.lastExp or self.paCMAP is None:
@@ -3173,10 +3321,19 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                             except:
                                 logging.exception("Could not save auto backup to '%s'"%(self.loadedExperiments[selExp].experimentFile))
                                 PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "<b>Error</b><br><br>Could not save backup file to '%s'. <br>Please save your work to avoid loss of data"%(self.loadedExperiments[selExp].experimentFile))
-
-                    self.lastExp = selExp
-                    self.lastSub = selSub
-                    self.lastSam = selSam
+                    
+                    if self.__calculateStatistics:
+                        self._plots[10].clear(); self._plots[11].clear()
+                        self.plotPCA(selExp, selSub, plotInds = [10,11])
+                        self._plots[10].autoRange(); self._plots[11].autoRange()
+                        
+                        self._plots[12].clear(); self._plots[13].clear()
+                        self.plotUniVarStatistics(selExp, selSub, plotInds = [12, 13])
+                        self._plots[12].autoRange(); self._plots[13].autoRange()
+                        
+                        self.lastExp = selExp
+                        self.lastSub = selSub
+                        self.lastSam = selSam
 
             self.tree.blockSignals(False); self.hasPeak.blockSignals(False); self.peakStart.blockSignals(False); self.peakEnd.blockSignals(False); self.istdhasPeak.blockSignals(False); self.istdpeakStart.blockSignals(False); self.istdpeakEnd.blockSignals(False); self.useForCalibration.blockSignals(False); self.calibrationMethod.blockSignals(False);
 
@@ -3294,7 +3451,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             if scaleEIC:
                 y = y - np.min(y)
                 y = y / np.max(y)
-            col = PyQt6.QtGui.QColor.fromRgb(self.__normalColor[0], self.__normalColor[1], self.__normalColor[2]) # PyQt6.QtGui.QColor(colors[ind])
+            col = PyQt6.QtGui.QColor.fromRgb(self.__normalColor[0], self.__normalColor[1], self.__normalColor[2])
             self._plots[plotInds[0]].plot(x,y, pen = (col.red(), col.green(), col.blue(), 255*transp))
             if inte.foundPeak is not None and inte.foundPeak % 128:
                 x = x[np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
@@ -3302,6 +3459,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2], 255*transp) # PyQt6.QtGui.QColor(colors[ind])
                 if inte.foundPeak is not None and inte.foundPeak % 128 == 2:
                     col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor2[0], self.__highlightColor2[1], self.__highlightColor2[2], 255*transp)
+                col = PyQt6.QtGui.QColor(colors[ind])
                 self._plots[plotInds[0]].plot(x, y, pen = (col.red(), col.green(), col.blue(), 255))
         if refRT is not None:
             infLine = pyqtgraph.InfiniteLine(pos = [refRT, 0], movable=False, angle=90, label='', pen=self.__normalColor)
@@ -3324,9 +3482,10 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         maxVal = np.max(temp - minVal)
                         peakApexRT = tempRT[np.argmax(temp)]
 
-                        col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2], 255*transp) # PyQt6.QtGui.QColor(colors[ind])PyQt6.QtGui.QColor(colors[ind])
+                        col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2], 255*transp) # PyQt6.QtGui.QColor(colors[ind])
                         if inte.foundPeak is not None and inte.foundPeak % 128 == 2:
                             col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor2[0], self.__highlightColor2[1], self.__highlightColor2[2], 255*transp)
+                        col = PyQt6.QtGui.QColor(colors[ind])
                         self._plots[plotInds[1]].plot(tempRT - peakApexRT,
                                                     (temp - minVal) / maxVal,
                                                     pen = (col.red(), col.green(), col.blue(), 255*transp))
@@ -3359,6 +3518,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             self.tree.scrollToItem(closest[1].other["GUIElement"])
 
     def plotCalibration(self, calInfo, title, unit = "NA", addLM = True, highlightLevel = None, plotAreas = None, plotInd = 6):
+        ret = None
+        
         try:
             self._plots[plotInd].plot([(i if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else abs(l)) for i, l in calInfo], [(abs(l) if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else i) for i, l in calInfo], pen=None, symbolSize=8, symbolBrush=(self.__normalColor[0], self.__normalColor[1], self.__normalColor[2], int(255*0.33)), symbolPen=None)
             self._plots[plotInd].plot([(i if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else abs(l)) for i, l in calInfo if l > 0], [(abs(l) if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else i) for i, l in calInfo if l > 0], pen=None, symbolSize=8, symbolBrush=self.__normalColor, symbolPen=None)
@@ -3376,22 +3537,23 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     model, r2, yhat, params, strRepr = PeakBotMRM.calibrationRegression(usedAreas, usedConcs, type = self.calibrationMethod.currentText())
                     
                     ## Regression line plot
-                    useCals = [a for a, c in calInfo if c > 0]
-                    if len(useCals) > 1:
+                    useCals = [a for a, c in calInfo if c > 0 and not np.isnan(a) and not np.isinf(a)]
+                    if len(useCals) >= 2:
                         useCals = sorted(useCals)
-                        a = np.linspace(useCals[0], useCals[1], self.__calibrationFunctionstep)
+                        a = np.linspace(0, useCals[1], self.__calibrationFunctionstep)
                         if len(useCals) > 2:
                             for i in range(1, len(useCals) - 1):
                                 a = np.concatenate((a, np.linspace(useCals[i], useCals[i+1], self.__calibrationFunctionstep)))
-                    b = None
-                    if self.calibrationMethod.currentText() in ["linear", "linear, 1/expConc."]:
-                        b = model(np.array((a)).reshape(-1,1))
-                    elif self.calibrationMethod.currentText() in ["quadratic", "quadratic, 1/expConc."]:
-                        b = model(np.array((a)).reshape(-1,1))[:,0]                    
-                    self._plots[plotInd].plot(a if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else b, b if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else a, pen=(self.__normalColor[0], self.__normalColor[1], self.__normalColor[2], 255*0.33))
+                        a = np.concatenate((a, np.linspace(np.max(useCals), np.max(useCals)*1.2, self.__calibrationFunctionstep)))
+                        b = None
+                        if self.calibrationMethod.currentText() in ["linear", "linear, 1/expConc."]:
+                            b = model(np.array((a)).reshape(-1,1))
+                        elif self.calibrationMethod.currentText() in ["quadratic", "quadratic, 1/expConc."]:
+                            b = model(np.array((a)).reshape(-1,1))[:,0]                    
+                        self._plots[plotInd].plot(a if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else b, b if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else a, pen=(self.__normalColor[0], self.__normalColor[1], self.__normalColor[2], 255*0.33))
                     
                     ## All other samples to be plotted
-                    if plotAreas is not None and (type(plotAreas) == list or (type(plotAreas) == np.ndarray and len(plotAreas.shape) == 1)):
+                    if plotAreas is not None and ((type(plotAreas) == list and len(plotAreas) > 0) or (type(plotAreas) == np.ndarray and len(plotAreas.shape) == 1 and plotAreas[0] > 0)):
                         calcCons = None
                         if self.calibrationMethod.currentText() in ["linear", "linear, 1/expConc."]:
                             calcCons = model(np.array((plotAreas)).reshape(-1,1))
@@ -3400,28 +3562,165 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         self._plots[plotInd].plot(plotAreas if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else calcCons, calcCons if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else plotAreas, pen=None, symbolSize=4, symbolBrush=(154, 205, 50, 255*0.33), symbolPen=None)
                     
                     ## Calibration samples on regression line
-                    usedAreas = [a for a, c in calInfo]
-                    usedConcs = [c for a, c in calInfo]
+                    usedAreas = [a for a, c in calInfo if c > 0 and not np.isnan(a) and not np.isinf(a)]
+                    usedConcs = [c for a, c in calInfo if c > 0 and not np.isnan(a) and not np.isinf(a)]
                     b = None
                     if self.calibrationMethod.currentText() in ["linear", "linear, 1/expConc."]:
                         calcCons = model(np.array((usedAreas)).reshape(-1,1))
                     elif self.calibrationMethod.currentText() in ["quadratic", "quadratic, 1/expConc."]:
                         calcCons = model(np.array((usedAreas)).reshape(-1,1))[:,0]                    
-                    for ci, (i, l) in enumerate(calInfo):
-                        self._plots[plotInd].plot([usedAreas[ci] if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else calcCons[ci]], [calcCons[ci] if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else usedAreas[ci]], pen=None, symbolSize=8, symbolBrush=(self.__highlightColor2[0], self.__highlightColor2[1], self.__highlightColor2[2], int(255 * (1 if l > 0 else 0.33))), symbolPen=None)
-                        if highlightLevel is not None and l == highlightLevel:
-                            self._plots[plotInd].plot([usedAreas[ci] if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else calcCons[ci]], [calcCons[ci] if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else usedAreas[ci]], pen=None, symbolSize=8, symbolBrush=(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2], int(255 * (1 if l > 0 else 0.33))), symbolPen=None)
+                    for ci in range(len(usedAreas)):
+                        self._plots[plotInd].plot([usedAreas[ci] if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else calcCons[ci]], [calcCons[ci] if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else usedAreas[ci]], pen=None, symbolSize=8, symbolBrush=self.__highlightColor2, symbolPen=None)
+                        if highlightLevel is not None and usedConcs[ci] == highlightLevel:
+                            self._plots[plotInd].plot([usedAreas[ci] if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else calcCons[ci]], [calcCons[ci] if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else usedAreas[ci]], pen=None, symbolSize=8, symbolBrush=self.__highlightColor1, symbolPen=None)
                     
                     infLine = pyqtgraph.InfiniteLine(pos = 0, movable=False, angle=0 if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else 90, label='', pen=self.__normalColor)
                     self._plots[plotInd].addItem(infLine)
-                    self._plots[plotInd].setTitle(title + "; R2 %.3f; %d points"%(r2, len(calInfo)))
-                    self._plots[plotInd].setLabel('bottom' if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else 'left', "Value")
-                    self._plots[plotInd].setLabel('left' if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else 'bottom', "Expected (%s)"%(unit))
-                    self._plots[plotInd].setTitle(title + "; R2 %.3f; %d points"%(r2, len(calInfo)))
-            self._plots[plotInd].setLabel('bottom' if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else 'left', "Value")
+                    self._plots[plotInd].setTitle(title + "; R2 %.3f; %d points"%(r2, len([a for a, c in calInfo if c > 0])))
+                    ret = {"R2": r2, "points": len(usedAreas)}
+                else:
+                    self._plots[plotInd].setTitle(title + "; no regression")
+                    
+                self._plots[plotInd].setLabel('bottom' if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else 'left', "Value")
+                self._plots[plotInd].setLabel('left' if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else 'bottom', "Expected (%s)"%(unit))
+                
+            return ret
+                
         except:
             PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "<b>Critical problem</b><br><br>A critical problem happend. Please save your work, take a screenshot, document what you have been doing, contact the developers, and then continue in a new Window. <br><br>We apololgize for this inconvenience!")
             logging.exception("Exception in plotCalibration")
+            
+            
+            
+    def plotPCA(self, selExp, selSub, plotInds, integrationType = None):
+        if integrationType is None:
+            integrationType = "Area"
+        
+        samples = []
+        substances = []
+        sampleColors = []
+        sampleGroups = []
+        substanceType = []
+        for sub in self.loadedExperiments[selExp].integrations:
+            if self.__statsUseISTDs or self.loadedExperiments[selExp].substances[sub].type.lower() == "target":
+                substances.append(sub)
+                substanceType.append(self.loadedExperiments[selExp].substances[sub].type)
+                for samp in self.loadedExperiments[selExp].integrations[sub]:
+                    if samp not in samples and str(self.loadedExperiments[selExp].sampleInfo[samp]["use4Stats"]).lower() in ["t", "true", "y", "yes", "1", "1.0"]:
+                        samples.append(samp)
+                        sampleColors.append(self.loadedExperiments[selExp].sampleInfo[samp]["Color"])
+                        sampleGroups.append(self.loadedExperiments[selExp].sampleInfo[samp]["Group"])
+    
+        temp = np.zeros((len(samples), len(substances)))
+        for sampi, samp in enumerate(samples):
+            for subi, sub in enumerate(substances):
+                if self.loadedExperiments[selExp].integrations[sub][samp].foundPeak % 128 > 0:
+                    if integrationType.lower() == "area":
+                        temp[sampi, subi] = self.loadedExperiments[selExp].integrations[sub][samp].area
+                    else: 
+                        raise Exception("Unknown integration type specified for PCA plot")
+        
+        from sklearn.decomposition import PCA
+        from sklearn.preprocessing import StandardScaler
+
+        temp_norm = StandardScaler().fit_transform(temp)
+        temp = pd.DataFrame(temp_norm, columns = substances, index = samples)
+        pca = PCA(n_components=2)
+        pca.fit(temp)
+        pcaScores = pca.fit_transform(temp)
+        temp = pd.DataFrame({"X": pcaScores[:,0],
+                             "Y": pcaScores[:,1],
+                             "sample": samples,
+                             "group": sampleGroups,
+                             "color": sampleColors})
+        self._plots[plotInds[0]].plot(temp["X"], temp["Y"], pen = None, symbolBrush = sampleColors, symbolSize = 6, symbolPen = None)
+        self._plots[plotInds[0]].setLabel("left", "PC 2")
+        self._plots[plotInds[0]].setLabel("bottom", "PC 1")
+        
+        temp = pd.DataFrame(pca.components_.T, columns=['PC1', 'PC2'], index=substances)
+        self._plots[plotInds[1]].plot(temp["PC1"], temp["PC2"], pen = None, symbolSize = 8, symbolBrush = [self.__highlightColor2 if substanceType[i].lower() == "target" else self.__highlightColor1 for i in range(len(substanceType))], symbolPen = None)
+        if selSub is not None and selSub in substances:
+            x = temp["PC1"]
+            y = temp["PC2"]
+            self._plots[plotInds[1]].plot([x[i] for i, sub in enumerate(temp.index) if sub == selSub], [y[i] for i, sub in enumerate(temp.index) if sub == selSub], pen = None, symbolSize = 8, symbolBrush = self.__highlightColor1, symbolPen = None)
+        self._plots[plotInds[1]].setLabel("left", "PC 2")
+        self._plots[plotInds[1]].setLabel("bottom", "PC 1")
+                
+            
+            
+    def plotUniVarStatistics(self, selExp, selSub, plotInds, integrationType = None):
+        if integrationType is None:
+            integrationType = "Area"
+        
+        samples = []
+        substances = []
+        sampleColors = []
+        groupColors = {}
+        sampleGroups = []
+        substanceType = []
+        for sub in self.loadedExperiments[selExp].integrations:
+            if self.__statsUseISTDs or self.loadedExperiments[selExp].substances[sub].type.lower() == "target":
+                substances.append(sub)
+                substanceType.append(self.loadedExperiments[selExp].substances[sub].type)
+                for samp in self.loadedExperiments[selExp].integrations[sub]:
+                    if samp not in samples and str(self.loadedExperiments[selExp].sampleInfo[samp]["use4Stats"]).lower() in ["t", "true", "y", "yes", "1", "1.0"]:
+                        samples.append(samp)
+                        sampleColors.append(self.loadedExperiments[selExp].sampleInfo[samp]["Color"])
+                        sampleGroups.append(self.loadedExperiments[selExp].sampleInfo[samp]["Group"])
+                        groupColors[self.loadedExperiments[selExp].sampleInfo[samp]["Group"]] = self.loadedExperiments[selExp].sampleInfo[samp]["Color"]
+        
+        temp = np.zeros((len(samples), len(substances)))
+        for sampi, samp in enumerate(samples):
+            for subi, sub in enumerate(substances):
+                if self.loadedExperiments[selExp].integrations[sub][samp].foundPeak % 128 > 0:
+                    if integrationType.lower() == "area":
+                        temp[sampi, subi] = self.loadedExperiments[selExp].integrations[sub][samp].area
+                    else: 
+                        raise Exception("Unknown integration type specified for PCA plot")
+                
+        from scipy.stats import ttest_ind
+        
+        folds = []
+        pvals = []
+        sigInds = []
+        testedSubs = []
+        
+        grp1 = sampleGroups[0]
+        grp2 = sampleGroups[5]
+        for subi, sub in enumerate(substances):
+            vals1 = temp[[t == grp1 for t in sampleGroups], subi]
+            vals2 = temp[[t == grp2 for t in sampleGroups], subi]
+            try:
+                fold = np.mean(vals1) / np.mean(vals2)
+                pval = ttest_ind(vals1, vals2, equal_var = False, alternative = "two-sided").pvalue
+                folds.append(np.log2(fold))
+                pvals.append(-np.log10(pval))
+                sigInds.append("*" if pval <= 0.05 and (fold <= 0.5 or fold >= 2) else "-")
+                testedSubs.append(sub)
+            except Exception as ex:
+                logging.exception("Could not calculate the volcano plot properties for substance '%s'"%(sub))
+        
+        sampleGroupsUn = natsort.natsorted(list(set(sampleGroups)))
+        for i, sampleGroup in enumerate(sampleGroupsUn):
+            vals = temp[[t == sampleGroup for t in sampleGroups], [subi for subi, sub in enumerate(substances) if sub == selSub]]
+            xvals = pyqtgraph.pseudoScatter(vals, spacing=0.4, bidir=True) * 0.2
+            self._plots[plotInds[0]].plot(x=xvals+i, y=vals, pen=None, symbolSize = 8, symbolBrush = groupColors[sampleGroup], symbolPen = None)
+        ax = self._plots[plotInds[0]].getAxis('bottom')
+        ax.setTicks([[(i, str(sampleGroupsUn[i])) for i in range(len(sampleGroupsUn))]])
+        
+        self._plots[plotInds[1]].plot(folds, pvals, pen = None, symbolSize = 8, symbolBrush = [self.__highlightColor2 if sigInds[i] == "*" else self.__normalColor for i in range(len(sigInds))], symbolPen = None)
+        if selSub is not None and selSub in substances:
+            self._plots[plotInds[1]].plot([folds[subi] for subi, sub in enumerate(substances) if sub == selSub], [pvals[subi] for subi, sub in enumerate(substances) if sub == selSub], pen = None, symbolSize = 8, symbolBrush = self.__highlightColor1, symbolPen = None)
+        self._plots[plotInds[1]].setLabel("left", "log2(fold)")
+        self._plots[plotInds[1]].setLabel("bottom", "-log10(p-value)")
+        self._plots[plotInds[1]].setTitle("Volcano plot '%s' / '%s'"%(grp1, grp2))
+                
+            
+            
+            
+            
+            
+            
 
     def closeEvent(self, event):
         close = PyQt6.QtWidgets.QMessageBox.question(self,
