@@ -98,7 +98,7 @@ fontSizeP9 = 8
 
 
 def makeColor(color, alpha = 1.):
-    if type(color) == list and len(color) == 3:
+    if (type(color) == list or type(color) == tuple) and len(color) >= 3:
         return (color[0], color[1], color[2], alpha * 255)
     if type(color) == str:
         color = PyQt6.QtGui.QColor(color)
@@ -596,6 +596,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.__guiPlotEmbedding = True
         self.__guiPlotNormalizedSubstancePeaks = True
         self.__guiPlotISTD = True
+        self.__guiPlotsInSampleColor = False
         
         self.__statsUseISTDs = True
         self.__calculateStatistics = True
@@ -750,12 +751,38 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.dockArea.addDock(dock)
         self.dockArea.moveDock(self.docks[14], "bottom", self.docks[13])
 
-        plot = self.genPlot()
-        dock = Dock("Volcano plot")
-        self.docks.append(dock)
-        dock.addWidget(plot)
-        self.dockArea.addDock(dock)
-        self.dockArea.moveDock(self.docks[15], "bottom", self.docks[14])
+        self.__guiVolcanoPlots = {}
+        for i in range(3):
+            plot = self.genPlot()
+            a = PyQt6.QtWidgets.QComboBox()
+            a.setFixedWidth(150)  ## TODO improve
+            b = PyQt6.QtWidgets.QComboBox()
+            b.setFixedWidth(150)  ## TODO improve
+            layout = PyQt6.QtWidgets.QHBoxLayout()
+            layout.setContentsMargins(0,0,0,0)
+            temp = PyQt6.QtWidgets.QLabel("Comapre ")
+            layout.addWidget(temp)
+            layout.addWidget(a)
+            temp = PyQt6.QtWidgets.QLabel(" (right) with ")
+            layout.addWidget(temp)
+            layout.addWidget(b)
+            temp = PyQt6.QtWidgets.QLabel(" (left)")
+            layout.addWidget(temp)
+            helper2 = PyQt6.QtWidgets.QWidget()
+            helper2.setLayout(layout)
+            
+            layout = PyQt6.QtWidgets.QVBoxLayout()
+            layout.setContentsMargins(0,0,0,0)
+            layout.addWidget(helper2)
+            layout.addWidget(plot)
+            helper = PyQt6.QtWidgets.QWidget()
+            helper.setLayout(layout)
+            dock = Dock("Volcano plot %d"%(i))
+            self.docks.append(dock)
+            dock.addWidget(helper)
+            self.dockArea.addDock(dock)
+            self.dockArea.moveDock(self.docks[15+i], "bottom", self.docks[14+i])
+            self.__guiVolcanoPlots[i] = {"plot": plot, "group1ComboBox": a, "group2ComboBox": b}
 
         self.setCentralWidget(self.dockArea)
 
@@ -1038,6 +1065,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     "GUI/__guiPlotEmbedding": self.__guiPlotEmbedding,
                     "GUI/__guiPlotNormalizedSubstancePeaks": self.__guiPlotNormalizedSubstancePeaks,
                     "GUI/__guiPlotISTD": self.__guiPlotISTD,
+                    "GUI/__guiPlotsInSampleColor": self.__guiPlotsInSampleColor,
                     
                     "GUI/__calculateStatistics": self.__calculateStatistics,
                     "GUI/__statsUseISTDs": self.__statsUseISTDs,
@@ -1113,6 +1141,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             self.__guiPlotNormalizedSubstancePeaks = settings["GUI/__guiPlotNormalizedSubstancePeaks"]
         if "GUI/__guiPlotISTD" in settings:
             self.__guiPlotISTD = settings["GUI/__guiPlotISTD"]
+        if "GUI/__guiPlotsInSampleColor" in settings:
+            self.__guiPlotsInSampleColor = settings["GUI/__guiPlotsInSampleColor"]
             
         if "GUI/__calculateStatistics" in settings:
             self.__calculateStatistics = settings["GUI/__calculateStatistics"]
@@ -1120,7 +1150,11 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             self.__statsUseISTDs = settings["GUI/__statsUseISTDs"]
 
         if "GUI/DockAreaState" in settings:
-            self.dockArea.restoreState(settings["GUI/DockAreaState"])
+            try:
+                self.dockArea.restoreState(settings["GUI/DockAreaState"])
+            except Exception as es:
+                PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "<b>Settings error</b><br><br>Could not restore saved layout. The standard layout will be applied.")
+                logging.exception("Could not restore saved layout")
             
     def saveSettingsToFile(self, settingsFile = None):
         if settingsFile is None:
@@ -1184,6 +1218,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 {'name': 'Plot embedding of EICs', 'type': 'bool', 'value': self.__guiPlotEmbedding},
                 {'name': 'Plot normalized substance areas', 'type': 'bool', 'value': self.__guiPlotNormalizedSubstancePeaks},
                 {'name': 'Plot internal standard', 'type': 'bool', 'value': self.__guiPlotISTD},
+                {'name': 'Show peaks/noise in sample colors', 'type': 'bool', 'value': self.__guiPlotsInSampleColor},
             ]},
             {'name': 'Statistics', 'type': 'group', 'children':[
                 {'name': 'Calculate statistics', 'type': 'bool', 'value': self.__calculateStatistics},
@@ -1256,6 +1291,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             self.__guiPlotEmbedding = p.param("Plots", "Plot embedding of EICs").value()
             self.__guiPlotNormalizedSubstancePeaks = p.param("Plots", "Plot normalized substance areas").value()
             self.__guiPlotISTD = p.param("Plots", "Plot internal standard").value()
+            self.__guiPlotsInSampleColor = p.param("Plots", "Show peaks/noise in sample colors").value()
 
             self.__calculateStatistics = p.param("Statistics", "Calculate statistics").value()
             self.__statsUseISTDs = p.param("Statistics", "Illustrate ISTDs").value()
@@ -2203,32 +2239,38 @@ class Window(PyQt6.QtWidgets.QMainWindow):
 
             ## reimplement mouseDragEvent to disable continuous axis zoom
             def mouseDragEvent(self, ev, axis=None):
-                ev.accept()
-                modifiers = PyQt6.QtWidgets.QApplication.keyboardModifiers()
-                if modifiers in [PyQt6.QtCore.Qt.KeyboardModifier.ControlModifier, PyQt6.QtCore.Qt.KeyboardModifier.AltModifier, PyQt6.QtCore.Qt.KeyboardModifier.ShiftModifier] and ev.button() == PyQt6.QtCore.Qt.MouseButton.LeftButton:
-                    p1 = ev.buttonDownPos()
-                    p2 = ev.pos()
-                    r = PyQt6.QtCore.QRectF(p1, p2)
-                    r = self.childGroup.mapRectFromParent(r)
-                    self.rbScaleBox.setPos(r.topLeft())
-                    tr = PyQt6.QtGui.QTransform.fromScale(r.width(), r.height())
-                    self.rbScaleBox.setTransform(tr)
-                    self.rbScaleBox.show()
+                if self.selectionCallBack is not None and len(self.selectionCallBack) > 0:
+                    ev.accept()
+                    modifiers = PyQt6.QtWidgets.QApplication.keyboardModifiers()
+                    if modifiers in [PyQt6.QtCore.Qt.KeyboardModifier.ControlModifier, PyQt6.QtCore.Qt.KeyboardModifier.AltModifier, PyQt6.QtCore.Qt.KeyboardModifier.ShiftModifier] and ev.button() == PyQt6.QtCore.Qt.MouseButton.LeftButton:
+                        p1 = ev.buttonDownPos()
+                        p2 = ev.pos()
+                        r = PyQt6.QtCore.QRectF(p1, p2)
+                        r = self.childGroup.mapRectFromParent(r)
+                        self.rbScaleBox.setPos(r.topLeft())
+                        tr = PyQt6.QtGui.QTransform.fromScale(r.width(), r.height())
+                        self.rbScaleBox.setTransform(tr)
+                        self.rbScaleBox.show()
 
-                    if ev.isFinish():  ## This is the final move in the drag; change the view scale now
-                        #print(self.rbScaleBox.x(), self.rbScaleBox.y(), self.rbScaleBox.x() + r.width(), self.rbScaleBox.y() + r.height())
-                        self.rbScaleBox.hide()
-                        if self.selectionCallBack is not None and modifiers == PyQt6.QtCore.Qt.KeyboardModifier.ControlModifier:
-                            self.selectionCallBack["CTRL"](self.rbScaleBox.x(), self.rbScaleBox.y(), self.rbScaleBox.x() + r.width(), self.rbScaleBox.y() + r.height())
-                        elif self.selectionCallBack is not None and modifiers == PyQt6.QtCore.Qt.KeyboardModifier.AltModifier:
-                            self.selectionCallBack["ALT"](self.rbScaleBox.x(), self.rbScaleBox.y(), self.rbScaleBox.x() + r.width(), self.rbScaleBox.y() + r.height())
-                        elif self.selectionCallBack is not None and modifiers == PyQt6.QtCore.Qt.KeyboardModifier.ShiftModifier:
-                            self.selectionCallBack["SHIFT"](self.rbScaleBox.x(), self.rbScaleBox.y(), self.rbScaleBox.x() + r.width(), self.rbScaleBox.y() + r.height())
+                        if ev.isFinish():  ## This is the final move in the drag; change the view scale now
+                            #print(self.rbScaleBox.x(), self.rbScaleBox.y(), self.rbScaleBox.x() + r.width(), self.rbScaleBox.y() + r.height())
+                            self.rbScaleBox.hide()
+                            if self.selectionCallBack is not None and modifiers == PyQt6.QtCore.Qt.KeyboardModifier.ControlModifier:
+                                self.selectionCallBack["CTRL"](self.rbScaleBox.x(), self.rbScaleBox.y(), self.rbScaleBox.x() + r.width(), self.rbScaleBox.y() + r.height())
+                            elif self.selectionCallBack is not None and modifiers == PyQt6.QtCore.Qt.KeyboardModifier.AltModifier:
+                                self.selectionCallBack["ALT"](self.rbScaleBox.x(), self.rbScaleBox.y(), self.rbScaleBox.x() + r.width(), self.rbScaleBox.y() + r.height())
+                            elif self.selectionCallBack is not None and modifiers == PyQt6.QtCore.Qt.KeyboardModifier.ShiftModifier:
+                                self.selectionCallBack["SHIFT"](self.rbScaleBox.x(), self.rbScaleBox.y(), self.rbScaleBox.x() + r.width(), self.rbScaleBox.y() + r.height())
+                    else:
+                        self.setMouseMode(self.PanMode)
+                        pyqtgraph.ViewBox.mouseDragEvent(self, ev, axis=axis)
                 else:
                     self.setMouseMode(self.PanMode)
                     pyqtgraph.ViewBox.mouseDragEvent(self, ev, axis=axis)
 
         plot = pyqtgraph.PlotWidget(viewBox = CustomViewBox(selectionCallBack = selectionCallBack))
+        plot.mouseClickSignals = []
+        plot.mouseMoveSignals = []
         self._plots.append(plot)
         return plot
 
@@ -2422,7 +2464,6 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         substanceItem.setText(1, s)
                 else:
                     substanceItem.setText(1, "not found in transition list")
-
                 for sample in sortSamples(integrations[substance], self.__defaultSampleOrder):
                     inte = integrations[substance][sample]
                     sampleItem = PyQt6.QtWidgets.QTreeWidgetItem(substanceItem)
@@ -2436,9 +2477,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         sampleItem.setText(1, self.__areaFormatter%(inte.area) if inte.foundPeak % 128 else "")
                         sampleItem.setText(2, "%.2f - %.2f"%(inte.rtStart, inte.rtEnd) if inte.foundPeak % 128 != 0 else "")
                     inte.other["GUIElement"] = sampleItem
-
+                
                     allSamples.append(sample)
-                    
             self.updateCalibrationLabels(expName = expName)
 
         if showProcDiag:
@@ -3149,7 +3189,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                     self.hasPeak.setCurrentIndex({0:0, 1:1, 2:2, 128:3, 129:4, 130:5}[inte.foundPeak])
                                     self.peakStart.setValue(inte.rtStart)
                                     self.peakEnd.setValue(inte.rtEnd)
-                                self.plotIntegration(inte, "", refRT = self.loadedExperiments[selExp].substances[selSub].refRT, plotInd = 0, transp = max(0.05, 0.8 /len(its)))
+                                self.plotIntegration(inte, self.loadedExperiments[selExp].sampleInfo[selSam]["Color"], "", refRT = self.loadedExperiments[selExp].substances[selSub].refRT, plotInd = 0, transp = max(0.05, 0.8 /len(its)))
 
                                 if selIST is not None and selIST in self.loadedExperiments[selExp].substances and selIST in self.loadedExperiments[selExp].integrations and selSam in self.loadedExperiments[selExp].integrations[selIST]:
                                     inte = self.loadedExperiments[selExp].integrations[selIST][selSam]
@@ -3160,7 +3200,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                         self.istdhasPeak.setCurrentIndex({0:0, 1:1, 2:2, 128:3, 129:4, 130:5}[inte.foundPeak])
                                         self.istdpeakStart.setValue(inte.rtStart)
                                         self.istdpeakEnd.setValue(inte.rtEnd)
-                                    self.plotIntegration(inte, "", refRT = self.loadedExperiments[selExp].substances[selIST].refRT if selIST is not None and selIST in self.loadedExperiments[selExp].substances else None, plotInd = 3, transp = max(0.05, 0.8 /len(its)))
+                                    self.plotIntegration(inte, self.loadedExperiments[selExp].sampleInfo[selSam]["Color"], "", refRT = self.loadedExperiments[selExp].substances[selIST].refRT if selIST is not None and selIST in self.loadedExperiments[selExp].substances else None, plotInd = 3, transp = max(0.05, 0.8 /len(its)))
                                 it = it.parent()
 
                     if selExp != self.lastExp or selSub != self.lastSub:
@@ -3327,13 +3367,13 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         self.plotPCA(selExp, selSub, plotInds = [10,11])
                         self._plots[10].autoRange(); self._plots[11].autoRange()
                         
-                        self._plots[12].clear(); self._plots[13].clear()
-                        self.plotUniVarStatistics(selExp, selSub, plotInds = [12, 13])
-                        self._plots[12].autoRange(); self._plots[13].autoRange()
+                        self._plots[12].clear()
+                        self.plotUniVarStatistics(selExp, selSub, plotIndValues = 12)
+                        self._plots[12].autoRange()
                         
-                        self.lastExp = selExp
-                        self.lastSub = selSub
-                        self.lastSam = selSam
+                    self.lastExp = selExp
+                    self.lastSub = selSub
+                    self.lastSam = selSam
 
             self.tree.blockSignals(False); self.hasPeak.blockSignals(False); self.peakStart.blockSignals(False); self.peakEnd.blockSignals(False); self.istdhasPeak.blockSignals(False); self.istdpeakStart.blockSignals(False); self.istdpeakEnd.blockSignals(False); self.useForCalibration.blockSignals(False); self.calibrationMethod.blockSignals(False);
 
@@ -3410,22 +3450,25 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.polyROI = None
         self.plotPaCMAP(self.lastSub, self.lastSam, addROI = True)
 
-    def plotIntegration(self, inte, title, refRT = None, plotInd = 0, transp = 0.2):
+    def plotIntegration(self, inte, color, title, refRT = None, plotInd = 0, transp = 0.2):
         self._plots[plotInd].plot(inte.chromatogram["rts"], inte.chromatogram["eic"], pen = self.__normalColor)
 
         if inte.foundPeak is not None and inte.foundPeak % 128:
             try:
                 rts = inte.chromatogram["rts"][np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
                 eic = inte.chromatogram["eic"][np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
-                pen = self.__highlightColor1
-                if inte.foundPeak % 128 == 2:
-                    pen = self.__highlightColor2
+                if self.__guiPlotsInSampleColor:
+                    col = PyQt6.QtGui.QColor(color)
+                else:
+                    if inte.foundPeak % 128 == 1:
+                        col = self.__highlightColor1
+                    else:
+                        col = self.__highlightColor2
+                pen = col
                 p = self._plots[plotInd].plot(rts, eic, pen = pen)
                 a = np.min(eic)
                 p1 = self._plots[plotInd].plot(rts, np.ones(rts.shape[0]) * a)
-                brush = (self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2], 255*transp)
-                if inte.foundPeak % 128 == 2:
-                    brush = (self.__highlightColor2[0], self.__highlightColor2[1], self.__highlightColor2[2], 255*transp)
+                brush = makeColor(col, transp)
                 fill = pyqtgraph.FillBetweenItem(p, p1, brush)
                 fill.setZValue(-1)
                 self._plots[plotInd].addItem(fill)
@@ -3456,10 +3499,12 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             if inte.foundPeak is not None and inte.foundPeak % 128:
                 x = x[np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
                 y = y[np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
-                col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2], 255*transp) # PyQt6.QtGui.QColor(colors[ind])
-                if inte.foundPeak is not None and inte.foundPeak % 128 == 2:
-                    col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor2[0], self.__highlightColor2[1], self.__highlightColor2[2], 255*transp)
-                col = PyQt6.QtGui.QColor(colors[ind])
+                if self.__guiPlotsInSampleColor:
+                    col = PyQt6.QtGui.QColor(colors[ind])
+                else:
+                    col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2], 255*transp) # PyQt6.QtGui.QColor(colors[ind])
+                    if inte.foundPeak is not None and inte.foundPeak % 128 == 2:
+                        col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor2[0], self.__highlightColor2[1], self.__highlightColor2[2], 255*transp)
                 self._plots[plotInds[0]].plot(x, y, pen = (col.red(), col.green(), col.blue(), 255))
         if refRT is not None:
             infLine = pyqtgraph.InfiniteLine(pos = [refRT, 0], movable=False, angle=90, label='', pen=self.__normalColor)
@@ -3481,11 +3526,12 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         minVal = np.min(temp)
                         maxVal = np.max(temp - minVal)
                         peakApexRT = tempRT[np.argmax(temp)]
-
-                        col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2], 255*transp) # PyQt6.QtGui.QColor(colors[ind])
-                        if inte.foundPeak is not None and inte.foundPeak % 128 == 2:
-                            col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor2[0], self.__highlightColor2[1], self.__highlightColor2[2], 255*transp)
-                        col = PyQt6.QtGui.QColor(colors[ind])
+                        if self.__guiPlotsInSampleColor:
+                            col = PyQt6.QtGui.QColor(colors[ind])
+                        else:
+                            col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2], 255*transp) # PyQt6.QtGui.QColor(colors[ind])
+                            if inte.foundPeak is not None and inte.foundPeak % 128 == 2:
+                                col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor2[0], self.__highlightColor2[1], self.__highlightColor2[2], 255*transp)
                         self._plots[plotInds[1]].plot(tempRT - peakApexRT,
                                                     (temp - minVal) / maxVal,
                                                     pen = (col.red(), col.green(), col.blue(), 255*transp))
@@ -3496,9 +3542,14 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self._plots[plotInds[1]].setLabel('left', "Intensity")
         self._plots[plotInds[1]].setLabel('bottom', "Retention time (min)")
 
-        self._plots[plotInds[0]].plotItem.scene().sigMouseClicked.connect(functools.partial(self.mouseClickedInPlot, plotItem = self._plots[plotInds[0]].plotItem))
-
-    def mouseClickedInPlot(self, evt, plotItem):
+        for x in self._plots[plotInds[0]].mouseClickSignals: 
+            self._plots[plotInds[0]].plotItem.scene().sigMouseClicked.disconnect(x)
+        self._plots[plotInds[0]].mouseClickSignals = []
+        x = functools.partial(self.integrationsPlot_mouseClicked, plotItem = self._plots[plotInds[0]].plotItem)        
+        self._plots[plotInds[0]].plotItem.scene().sigMouseClicked.connect(x)
+        self._plots[plotInds[0]].mouseClickSignals.append(x)
+    
+    def integrationsPlot_mouseClicked(self, evt, plotItem):
         pos = evt.scenePos()
         if plotItem.sceneBoundingRect().contains(pos):
             pos = plotItem.vb.mapSceneToView(pos)
@@ -3636,19 +3687,77 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self._plots[plotInds[0]].plot(temp["X"], temp["Y"], pen = None, symbolBrush = sampleColors, symbolSize = 6, symbolPen = None)
         self._plots[plotInds[0]].setLabel("left", "PC 2")
         self._plots[plotInds[0]].setLabel("bottom", "PC 1")
+        for x in self._plots[plotInds[0]].mouseClickSignals: 
+            self._plots[plotInds[0]].plotItem.scene().sigMouseClicked.disconnect(x)
+        self._plots[plotInds[0]].mouseClickSignals = []
+        x = functools.partial(self.pcaScoresPlotSampleClicked, plotItem = self._plots[plotInds[0]].plotItem, scoresPlotData = temp, selExp = selExp, selSub = selSub)
+        self._plots[plotInds[0]].plotItem.scene().sigMouseClicked.connect(x)
+        self._plots[plotInds[0]].mouseClickSignals.append(x)
         
         temp = pd.DataFrame(pca.components_.T, columns=['PC1', 'PC2'], index=substances)
-        self._plots[plotInds[1]].plot(temp["PC1"], temp["PC2"], pen = None, symbolSize = 8, symbolBrush = [self.__highlightColor2 if substanceType[i].lower() == "target" else self.__highlightColor1 for i in range(len(substanceType))], symbolPen = None)
+        self._plots[plotInds[1]].plot(temp["PC1"], temp["PC2"], pen = None, symbolSize = 6, symbolBrush = [makeColor(i, alpha = 0.33) for i in [self.__highlightColor2 if substanceType[i].lower() == "target" else self.__highlightColor1 for i in range(len(substanceType))]], symbolPen = None)
         if selSub is not None and selSub in substances:
             x = temp["PC1"]
             y = temp["PC2"]
-            self._plots[plotInds[1]].plot([x[i] for i, sub in enumerate(temp.index) if sub == selSub], [y[i] for i, sub in enumerate(temp.index) if sub == selSub], pen = None, symbolSize = 8, symbolBrush = self.__highlightColor1, symbolPen = None)
+            self._plots[plotInds[1]].plot([x[i] for i, sub in enumerate(temp.index) if sub == selSub], [y[i] for i, sub in enumerate(temp.index) if sub == selSub], pen = None, symbolSize = 8, symbolBrush = self.__highlightColor1, symbolPen = "Firebrick")
         self._plots[plotInds[1]].setLabel("left", "PC 2")
         self._plots[plotInds[1]].setLabel("bottom", "PC 1")
-                
+        for x in self._plots[plotInds[1]].mouseClickSignals: 
+            self._plots[plotInds[1]].plotItem.scene().sigMouseClicked.disconnect(x)
+        self._plots[plotInds[1]].mouseClickSignals = []
+        x = functools.partial(self.pcaLoadingsPlotSubstanceClicked, plotItem = self._plots[plotInds[1]].plotItem, loadingsPlotData = temp, selExp = selExp)
+        self._plots[plotInds[1]].plotItem.scene().sigMouseClicked.connect(x)
+        self._plots[plotInds[1]].mouseClickSignals.append(x)
+    
+    def pcaScoresPlotSampleClicked(self, evt, plotItem, scoresPlotData, selExp, selSub):
+        pos = evt.scenePos()
+        if plotItem.sceneBoundingRect().contains(pos):
+            pos = plotItem.vb.mapSceneToView(pos)
+            if selExp is not None and selSub is not None:
+                closest = None
+                closestDist = 1E6
+                for index, row in scoresPlotData.iterrows():
+                    x = row["X"]
+                    y = row["Y"]
+                    samp = row["sample"]
+                    dist = np.abs(np.sqrt(np.power(x - pos.x(), 2) + np.power(y - pos.y(), 2)))
+                    if dist < closestDist:
+                        closest = samp
+                        closestDist = dist
+                if closest is not None:
+                    for samp, inte in self.loadedExperiments[selExp].integrations[selSub].items():
+                        if samp == closest:
+                            self.tree.setCurrentItem(inte.other["GUIElement"])
+                            self.tree.scrollToItem(inte.other["GUIElement"])
+                            break
+    
+    def pcaLoadingsPlotSubstanceClicked(self, evt, plotItem, loadingsPlotData, selExp):
+        pos = evt.scenePos()
+        if plotItem.sceneBoundingRect().contains(pos):
+            pos = plotItem.vb.mapSceneToView(pos)
+            if selExp is not None:
+                closest = None
+                closestDist = 1E6
+                for samp, row in loadingsPlotData.iterrows():
+                    x = row["PC1"]
+                    y = row["PC2"]
+                    dist = np.abs(np.sqrt(np.power(x - pos.x(), 2) + np.power(y - pos.y(), 2)))
+                    if dist < closestDist:
+                        closest = samp
+                        closestDist = dist
+                if closest is not None:
+                    for iti in range(self.tree.topLevelItemCount()):
+                        it = self.tree.topLevelItem(iti)
+                        if it.experiment == selExp:
+                            for subi in range(it.childCount()):
+                                subit = it.child(subi)
+                                if subit.substance == closest:
+                                    self.tree.setCurrentItem(subit)
+                                    self.tree.scrollToItem(subit)
+                                    break
+    
             
-            
-    def plotUniVarStatistics(self, selExp, selSub, plotInds, integrationType = None):
+    def plotUniVarStatistics(self, selExp, selSub, plotIndValues, integrationType = None):
         if integrationType is None:
             integrationType = "Area"
         
@@ -3677,46 +3786,95 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         temp[sampi, subi] = self.loadedExperiments[selExp].integrations[sub][samp].area
                     else: 
                         raise Exception("Unknown integration type specified for PCA plot")
-                
+                        
+        sampleGroupsUn = natsort.natsorted(list(set(sampleGroups)))
+        if selSub is not None and selExp is not None:
+            for i, sampleGroup in enumerate(sampleGroupsUn):
+                vals = temp[[t == sampleGroup for t in sampleGroups], [subi for subi, sub in enumerate(substances) if sub == selSub]]
+                xvals = pyqtgraph.pseudoScatter(vals, spacing=0.4, bidir=True) * 0.2
+                self._plots[plotIndValues].plot(x=xvals+i, y=vals, pen=None, symbolSize = 8, symbolBrush = groupColors[sampleGroup], symbolPen = None)
+            ax = self._plots[plotIndValues].getAxis('bottom')
+            ax.setTicks([[(i, str(sampleGroupsUn[i])) for i in range(len(sampleGroupsUn))]])
+        
         from scipy.stats import ttest_ind
         
-        folds = []
-        pvals = []
-        sigInds = []
-        testedSubs = []
+        for k in self.__guiVolcanoPlots: #{"plot": plot, "group1ComboBox": a, "group2ComboBox": b}
         
-        grp1 = sampleGroups[0]
-        grp2 = sampleGroups[5]
-        for subi, sub in enumerate(substances):
-            vals1 = temp[[t == grp1 for t in sampleGroups], subi]
-            vals2 = temp[[t == grp2 for t in sampleGroups], subi]
-            try:
-                fold = np.mean(vals1) / np.mean(vals2)
-                pval = ttest_ind(vals1, vals2, equal_var = False, alternative = "two-sided").pvalue
-                folds.append(np.log2(fold))
-                pvals.append(-np.log10(pval))
-                sigInds.append("*" if pval <= 0.05 and (fold <= 0.5 or fold >= 2) else "-")
-                testedSubs.append(sub)
-            except Exception as ex:
-                logging.exception("Could not calculate the volcano plot properties for substance '%s'"%(sub))
+            a = self.__guiVolcanoPlots[k]["group1ComboBox"]
+            if a.count() == 0:
+                a.addItems(sampleGroupsUn)
+            b = self.__guiVolcanoPlots[k]["group2ComboBox"]
+            if b.count() == 0:
+                b.addItems(sampleGroupsUn)
         
-        sampleGroupsUn = natsort.natsorted(list(set(sampleGroups)))
-        for i, sampleGroup in enumerate(sampleGroupsUn):
-            vals = temp[[t == sampleGroup for t in sampleGroups], [subi for subi, sub in enumerate(substances) if sub == selSub]]
-            xvals = pyqtgraph.pseudoScatter(vals, spacing=0.4, bidir=True) * 0.2
-            self._plots[plotInds[0]].plot(x=xvals+i, y=vals, pen=None, symbolSize = 8, symbolBrush = groupColors[sampleGroup], symbolPen = None)
-        ax = self._plots[plotInds[0]].getAxis('bottom')
-        ax.setTicks([[(i, str(sampleGroupsUn[i])) for i in range(len(sampleGroupsUn))]])
-        
-        self._plots[plotInds[1]].plot(folds, pvals, pen = None, symbolSize = 8, symbolBrush = [self.__highlightColor2 if sigInds[i] == "*" else self.__normalColor for i in range(len(sigInds))], symbolPen = None)
-        if selSub is not None and selSub in substances:
-            self._plots[plotInds[1]].plot([folds[subi] for subi, sub in enumerate(substances) if sub == selSub], [pvals[subi] for subi, sub in enumerate(substances) if sub == selSub], pen = None, symbolSize = 8, symbolBrush = self.__highlightColor1, symbolPen = None)
-        self._plots[plotInds[1]].setLabel("left", "log2(fold)")
-        self._plots[plotInds[1]].setLabel("bottom", "-log10(p-value)")
-        self._plots[plotInds[1]].setTitle("Volcano plot '%s' / '%s'"%(grp1, grp2))
-                
+            folds = []
+            pvals = []
+            sigInds = []
+            testedSubs = []
             
+            grp1 = a.currentText()
+            grp2 = b.currentText()
+            for subi, sub in enumerate(substances):
+                vals1 = temp[[t == grp1 for t in sampleGroups], subi]
+                vals2 = temp[[t == grp2 for t in sampleGroups], subi]
+                try:
+                    fold = np.mean(vals1) / np.mean(vals2)
+                    pval = ttest_ind(vals1, vals2, equal_var = False, alternative = "two-sided").pvalue
+                    folds.append(np.log2(fold))
+                    pvals.append(-np.log10(pval))
+                    sigInds.append("*" if pval <= 0.05 and (fold <= 0.5 or fold >= 2) else "-")
+                    testedSubs.append(sub)
+                except Exception as ex:
+                    logging.exception("Could not calculate the volcano plot properties for substance '%s'"%(sub))
+            volcanoPlotData = pd.DataFrame(data = {'folds': folds, "pvalues": pvals, "significanceIndicators": sigInds, "substance": testedSubs})
             
+            self.__guiVolcanoPlots[k]["plot"].clear()
+            self.__guiVolcanoPlots[k]["plot"].plot(folds, pvals, pen = None, symbolSize = 6, symbolBrush = [makeColor(i, alpha = 0.33) for i in [self.__highlightColor2 if sigInds[i] == "*" else self.__normalColor for i in range(len(sigInds))]], symbolPen = None)
+            if selSub is not None and selSub in testedSubs:
+                self.__guiVolcanoPlots[k]["plot"].plot([folds[subi] for subi, sub in enumerate(testedSubs) if sub == selSub], [pvals[subi] for subi, sub in enumerate(testedSubs) if sub == selSub], pen = None, symbolSize = 8, symbolBrush = [self.__highlightColor2 if sigInds[i] == "*" else self.__normalColor for i, sub in enumerate(testedSubs) if sub == selSub], symbolPen = "Firebrick")
+            self.__guiVolcanoPlots[k]["plot"].setLabel("bottom", "log2(fold)")
+            self.__guiVolcanoPlots[k]["plot"].setLabel("left", "-log10(p-value)")
+            self.__guiVolcanoPlots[k]["plot"].autoRange()
+            for x in self.__guiVolcanoPlots[k]["plot"].mouseClickSignals: 
+                self.__guiVolcanoPlots[k]["plot"].plotItem.scene().sigMouseClicked.disconnect(x)
+            self.__guiVolcanoPlots[k]["plot"].mouseClickSignals = []
+            x = functools.partial(self.volcanoPlotShowSubstanceAndSamples, plotItem = self.__guiVolcanoPlots[k]["plot"].plotItem, volcanoPlotData = volcanoPlotData, selExp = selExp, samples = [s for i, s in enumerate(samples) if sampleGroups[i] == grp1] + [s for i, s in enumerate(samples) if sampleGroups[i] == grp2])
+            self.__guiVolcanoPlots[k]["plot"].plotItem.scene().sigMouseClicked.connect(x)
+            self.__guiVolcanoPlots[k]["plot"].mouseClickSignals.append(x)
+            
+    
+    def volcanoPlotShowSubstanceAndSamples(self, evt, plotItem, volcanoPlotData, selExp, samples = None):
+        pos = evt.scenePos()
+        if plotItem.sceneBoundingRect().contains(pos):
+            pos = plotItem.vb.mapSceneToView(pos)
+            if selExp is not None:
+                closest = None
+                closestDist = 1E6
+                for samp, row in volcanoPlotData.iterrows():
+                    x = row["folds"]
+                    y = row["pvalues"]
+                    samp = row["substance"]
+                    dist = np.abs(np.sqrt(np.power(x - pos.x(), 2) + np.power(y - pos.y(), 2)))
+                    if dist < closestDist:
+                        closest = samp
+                        closestDist = dist
+                if closest is not None:
+                    for iti in range(self.tree.topLevelItemCount()):
+                        it = self.tree.topLevelItem(iti)
+                        if it.experiment == selExp:
+                            for subi in range(it.childCount()):
+                                subit = it.child(subi)
+                                if subit.substance == closest:
+                                    if samples is None:
+                                        self.tree.setCurrentItem(subit)
+                                        self.tree.scrollToItem(subit)
+                                        break
+                                    else:
+                                        self.tree.clearSelection()
+                                        for sampiti in range(subit.childCount()):
+                                            sampit = subit.child(sampiti)
+                                            if sampit.sample in samples:
+                                                sampit.setSelected(True)
             
             
             
