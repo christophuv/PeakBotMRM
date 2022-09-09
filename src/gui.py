@@ -45,6 +45,7 @@ import copy
 import csv
 import datetime
 import platform
+from collections import defaultdict
 
 import unit_converter
 from unit_converter.converter import convert, converts
@@ -1356,6 +1357,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
 
     def processExperimentSHelper(self, all = False):
         its = list(self.tree.selectedItems())
+        if all:
+            its = [self.tree.topLevelItem(i) for i in range(self.tree.topLevelItemCount())]
         self.tree.blockSignals(True); self.hasPeak.blockSignals(True); self.peakStart.blockSignals(True); self.peakEnd.blockSignals(True); self.istdhasPeak.blockSignals(True); self.istdpeakStart.blockSignals(True); self.istdpeakEnd.blockSignals(True); self.useForCalibration.blockSignals(True); self.calibrationMethod.blockSignals(True);
         if len(its) > 0:
             selExps = set()
@@ -1377,45 +1380,41 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     selSams.add(selSam)
                 if selIST is not None:
                     selISTs.add(selIST)
-
-            if len(selExps) > 1 or len(selSubs) > 1 or len(selISTs) > 1 or (len(selSams)>1 and None in selSams):
-                PyQt6.QtWidgets.QMessageBox.warning(self, "PeakBotMRM", "<b>Warning</b><br><br>Selecting several different experiments or substances is not supported at this time.<br>Please only select different samples if necessary!")
-
-            else:
-
+            
+            if len(selExps) > 0:
                 menu = PyQt6.QtWidgets.QMenu(self)
 
                 if True:
-                    procMenu = PyQt6.QtWidgets.QMenu(parent = menu, title = "Process experiment (%s)"%(selExp))
+                    procMenu = PyQt6.QtWidgets.QMenu(parent = menu, title = "Process experiment (%s)"%(selExp) if not all else "Process experiments")
                     addSep = False
                     for mf in natsort.natsorted(list(os.listdir(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models"))), key = lambda x: x.lower()):
                         if mf.endswith(".h5"):
                             acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "robot.png")), mf, self)
-                            acc.triggered.connect(functools.partial(self.processExperimentS, os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models", mf), all = False))
+                            acc.triggered.connect(functools.partial(self.processExperimentS, os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models", mf), all = all))
                             procMenu.addAction(acc)
                             addSep = True
 
                     if addSep:
                         menu.addSeparator()
                     acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "folder-open-outline.svg")), "Open other model", self)
-                    acc.triggered.connect(functools.partial(self.processExperimentS, None, all = False))
+                    acc.triggered.connect(functools.partial(self.processExperimentS, None, all = all))
                     procMenu.addAction(acc)
                     menu.addMenu(procMenu)
 
-                if len(selExps) == 1:
+                if len(selExps) == 1 and len(selSubs) == 1:
                     procMenu = PyQt6.QtWidgets.QMenu(parent = menu, title = "Process substance (%s)"%(selSub))
                     addSep = False
                     for mf in natsort.natsorted(list(os.listdir(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models"))), key = lambda x: x.lower()):
                         if mf.endswith(".h5"):
                             acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "robot.png")), mf, self)
-                            acc.triggered.connect(functools.partial(self.processExperimentS, os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models", mf), all = False, specificSubstances = selSubs))
+                            acc.triggered.connect(functools.partial(self.processExperimentS, os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models", mf), all = all, specificSubstances = selSubs))
                             procMenu.addAction(acc)
                             addSep = True
 
                     if addSep:
                         menu.addSeparator()
                     acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "folder-open-outline.svg")), "Open other model", self)
-                    acc.triggered.connect(functools.partial(self.processExperimentS, None, all = False, specificSubstances = selSubs))
+                    acc.triggered.connect(functools.partial(self.processExperimentS, None, all = all, specificSubstances = selSubs))
                     procMenu.addAction(acc)
                     menu.addMenu(procMenu)
 
@@ -2309,7 +2308,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         procDiag.setValue(i)
                         procDiag.setLabelText("Saving experiments, %d / %d done"%(i, len(ls)))
                         if not self.loadedExperiments[l.experiment].saveToFile(os.path.join(fDir, l.experiment+".pbexp"), additionalData = {"settings": copy.deepcopy(self._getSaveSettingsObject())}):
-                            PyQt6.QtWidgets.QMessageBox.error(self, "PeakBotMRM", "<b>Error: could not export experiment</b><br><br>See log for further details.")
+                            PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "<b>Error: could not export experiment</b><br><br>See log for further details.")
                         else:
                             procDiag.setLabelText("Saving experiment '%s'"%(l.experiment))
 
@@ -2918,7 +2917,12 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             self.lastExp = None
         self.lastSam = None
         self.lastSub = None
-
+        
+        for iti in range(self.tree.topLevelItemCount()):
+            it = self.tree.topLevelItem(iti)
+            self.updateAllAreas(selExp = it.experiment)
+            PeakBotMRM.predict.calibrateIntegrations(self.loadedExperiments[it.experiment].substances, self.loadedExperiments[it.experiment].integrations)
+        
         if autoRange:
             for ploti in range(len(self._plots)):
                 if type is not None and ((type(refresh) == str and refresh == "All") or (type(refresh) == list and ploti in refresh)):
@@ -2937,7 +2941,10 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                 sampit = subit.child(sampi)
                                 inte = self.loadedExperiments[selExp].integrations[subit.substance][sampit.sample]
                                 if inte.foundPeak is not None and inte.foundPeak % 128 > 0:
-                                    inte.area = PeakBotMRM.integrateArea(inte.chromatogram["eic"], inte.chromatogram["rts"], inte.rtStart, inte.rtEnd)
+                                    if inte.chromatogram is not None:
+                                        inte.area = PeakBotMRM.integrateArea(inte.chromatogram["eic"], inte.chromatogram["rts"], inte.rtStart, inte.rtEnd)
+                                    else:
+                                        inte.area = 0
                                     sampit.setText(1, self.__areaFormatter%(inte.area))
                                     sampit.setText(2, "%.2f - %.2f"%(inte.rtStart, inte.rtEnd) if inte.foundPeak else "")
                                 else:
@@ -3214,10 +3221,16 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                     oit = it.child(oitInd)
                                     if "userType" in oit.__dict__ and oit.userType == "Single peak" and not oit.isHidden():
                                         ints.append(self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample])
-                                        colors.append(self.loadedExperiments[oit.experiment].sampleInfo[oit.sample]["Color"])
+                                        try:
+                                            colors.append(self.loadedExperiments[oit.experiment].sampleInfo[oit.sample]["Color"])
+                                        except:
+                                            colors.append("black")
                                     if self.__guiPlotISTD and oit.experiment in self.loadedExperiments and oit.substance in self.loadedExperiments[oit.experiment].substances and self.loadedExperiments[oit.experiment].substances[oit.substance].internalStandard in self.loadedExperiments[oit.experiment].integrations and oit.sample in self.loadedExperiments[oit.experiment].integrations[self.loadedExperiments[oit.experiment].substances[oit.substance].internalStandard] and not oit.isHidden():
                                         intsIS.append(self.loadedExperiments[oit.experiment].integrations[self.loadedExperiments[oit.experiment].substances[oit.substance].internalStandard][oit.sample])
-                                        colorsIS.append(self.loadedExperiments[oit.experiment].sampleInfo[oit.sample]["Color"])
+                                        try:
+                                            colorsIS.append(self.loadedExperiments[oit.experiment].sampleInfo[oit.sample]["Color"])
+                                        except:
+                                            colorsIS.append("black")
                                 if len(ints) > 0:
                                     self.plotIntegrations(ints, colors, "", refRT = self.loadedExperiments[selExp].substances[selSub].refRT, plotInds = [1,2])
                                 if self.__guiPlotISTD and len(intsIS) > 0:
@@ -3255,7 +3268,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                                 isArea.append((self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area, level * istd.calLevel1Concentration))
                                                 if oit.sample == selSam:
                                                     highlightLevelIS = level
-                                                if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1 and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1:
+                                                if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1 and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1 and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area > 0:
                                                     subRatio.append((self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].area / self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area, level * substance.calLevel1Concentration))
                                                     if oit.sample == selSam:
                                                         highlightLevelRatio = level * substance.calLevel1Concentration
@@ -3363,13 +3376,21 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                 PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "<b>Error</b><br><br>Could not save backup file to '%s'. <br>Please save your work to avoid loss of data"%(self.loadedExperiments[selExp].experimentFile))
                     
                     if self.__calculateStatistics:
-                        self._plots[10].clear(); self._plots[11].clear()
-                        self.plotPCA(selExp, selSub, plotInds = [10,11])
-                        self._plots[10].autoRange(); self._plots[11].autoRange()
+                        try:
+                            self._plots[10].clear(); self._plots[11].clear()
+                            self.plotPCA(selExp, selSub, plotInds = [10,11])
+                            self._plots[10].autoRange(); self._plots[11].autoRange()
+                        except:
+                            logging.exception("Could not calculate PCA")
+                            PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "<b>Error calculating PCA</b>")
                         
-                        self._plots[12].clear()
-                        self.plotUniVarStatistics(selExp, selSub, plotIndValues = 12)
-                        self._plots[12].autoRange()
+                        try:
+                            self._plots[12].clear()
+                            self.plotUniVarStatistics(selExp, selSub, plotIndValues = 12)
+                            self._plots[12].autoRange()
+                        except:
+                            logging.exception("Could not calculate univariate statistics")
+                            PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "<b>Error calculating univariate statistics</b>")
                         
                     self.lastExp = selExp
                     self.lastSub = selSub
@@ -3419,7 +3440,10 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         xsub = self.paCMAPsubstances[xi]
                         xsam = self.paCMAPSamples[xi]
                         ints.append(self.loadedExperiments[self.lastExp].integrations[xsub][xsam])
-                        colors.append(self.loadedExperiments[self.lastExp].sampleInfo[xsam]["Color"])
+                        try:
+                            colors.append(self.loadedExperiments[self.lastExp].sampleInfo[xsam]["Color"])
+                        except:
+                            colors.append("black")
 
                 if len(ints) > 0:
                     self._plots[1].clear()

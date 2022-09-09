@@ -37,7 +37,7 @@ class Config(object):
     """Base configuration class"""
 
     NAME    = "PeakBotMRM"
-    VERSION = "0.9.50"
+    VERSION = "0.9.51"
 
     RTSLICES       = 255   ## should be of 2^n-1
     NUMCLASSES     =   2   ## [Peak, noPeak]
@@ -1254,7 +1254,7 @@ def loadIntegrations(substances, curatedPeaks, delimiter = ",", commentChar = "#
                     integrations[substanceName][sample] = Integration(False, -1, -1, -1, [], type = "Reference", comment = "from file '%s'"%(curatedPeaks))
                     foundNoPeaks += 1
                 else:
-                    integrations[substanceName][sample] = Integration(True, 
+                    integrations[substanceName][sample] = Integration(129, 
                                                                       float(integration[headers["%s$Int. Start"%(substanceName)]]), 
                                                                       float(integration[headers["%s$Int. End"  %(substanceName)]]), 
                                                                       float(integration[headers["%s$Area"      %(substanceName)]]),

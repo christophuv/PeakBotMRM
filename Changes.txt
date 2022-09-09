@@ -1,3 +1,12 @@
+Version 0.9.51
+* Added apex RT export to extended report
+* Started adding interactivity to statistical analysis plots
+* Several improvements to the GUI and settings
+* Several bugfixes
+* Added option to reprocess individual substances
+* version increment
+
+
 Version 0.9.50
 * Fixed bug in EIC color
 * Started adding statistical analysis plots

@@ -1,5 +1,6 @@
 import PeakBotMRM
 
+import logging
 from collections import OrderedDict
 import csv
 import time
@@ -67,6 +68,17 @@ def getHeader(string):
     
     
 
+def getApex(rts, eic, startRT, endRT):
+    a = np.argmin(np.abs(rts - startRT))
+    b = np.argmin(np.abs(rts - endRT))
+
+    if a >= b:
+        logging.warning("Warning in peak apex calculation: start and end rt of peak are incorrect (start %.2f, end %.2f), NoneType will be returned."%(startRT, endRT))
+        return None
+    
+    pos = np.argmax(eic[a:b]) + a
+    
+    return pos
 
 
 
