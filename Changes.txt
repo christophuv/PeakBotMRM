@@ -1,3 +1,7 @@
+Version 0.9.52
+* added filter for substance. See help for further details on how to specify it
+
+
 Version 0.9.51
 * Added apex RT export to extended report
 * Started adding interactivity to statistical analysis plots

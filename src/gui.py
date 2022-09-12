@@ -947,19 +947,67 @@ class Window(PyQt6.QtWidgets.QMainWindow):
     def filterUpdated(self):
         filter = self.treeFilter.text()
         filter = "" if filter is None else filter
+        reset = False
+        
+        try:
+            if ":" in filter:
+                typ = filter[:filter.index(":")]
 
-        if ":" in filter:
-            typ = filter[:filter.index(":")]
-            fil = filter[(filter.index(":")+1):]
-
-            if typ.lower() == "samp":
-                for iti in range(self.tree.topLevelItemCount()):
-                    it = self.tree.topLevelItem(iti)
-                    for subi in range(it.childCount()):
-                        subit = it.child(subi)
-                        for sampi in range(subit.childCount()):
-                            sampit = subit.child(sampi)
-                            sampit.setHidden(not (fil in sampit.text(0) or fil == ""))
+                if typ.lower() == "samp":
+                    fil = filter[(filter.index(":")+1):]
+                    for iti in range(self.tree.topLevelItemCount()):
+                        expit = self.tree.topLevelItem(iti)
+                        expit.setHidden(False)
+                        for subi in range(expit.childCount()):
+                            subit = expit.child(subi)
+                            subit.setHidden(False)
+                            for sampi in range(subit.childCount()):
+                                sampit = subit.child(sampi)
+                                sampit.setHidden(not (fil in sampit.text(0) or fil == ""))
+                            
+                elif typ.lower() == "sub":
+                    fil = filter[(filter.index(":")+1):]
+                    for iti in range(self.tree.topLevelItemCount()):
+                        expit = self.tree.topLevelItem(iti)
+                        expit.setHidden(False)
+                        for subi in range(expit.childCount()):   
+                            subit = expit.child(subi)
+                            for sampi in range(subit.childCount()):
+                                sampit = subit.child(sampi)
+                                sampit.setHidden(False)
+                            try:
+                                x = re.search("R2 ([+-]?[0-9]+\.?[0-9]*|\.[0-9]+), ([0-9]+) points, .*", subit.text(2))
+                                type = self.loadedExperiments[expit.experiment].substances[subit.substance].type
+                                print(type)
+                                r2 = None
+                                try:
+                                    r2 = float(x.groups(0)[0])
+                                except:
+                                    pass
+                                points = None
+                                try:
+                                    points = int(x.groups(0)[1])
+                                except:
+                                    pass
+                                subit.setHidden(not eval(fil.replace("R2", str(r2)).replace("points", str(points)).replace("type", "'%s'"%str(type))))
+                            except:
+                                subit.setHidden(False)
+                
+                else:
+                    reset = True
+        except:
+            reset = True
+        
+        if reset:
+            for iti in range(self.tree.topLevelItemCount()):
+                expit = self.tree.topLevelItem(iti)
+                expit.setHidden(False)
+                for subi in range(expit.childCount()):
+                    subit = expit.child(subi)
+                    subit.setHidden(False)
+                    for sampi in range(subit.childCount()):
+                        sampit = subit.child(sampi)
+                        sampit.setHidden(False)
 
 
     def keyPressEvent(self, event):

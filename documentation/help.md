@@ -254,6 +254,19 @@ The user can change the calibration curve options at any time for a substance. P
 
 Additionally, the user has the option to remove certain calibration levels on a per-substance base. This is done via deactivating the 'Use for calibration' checkbox in the info-box of a particular substance and sample. The respective calibration level will no longer be used, but still be illustrated in the regression plot. 
 
+#### Filter results
+
+Results in the tree view can be filtered. A string specifying the filtering option must be specified in the textfield above the tree view. The following modes are available: 
+
+##### Filter by sample name
+To filter the results for certain samples, the filter must start with the string 'samp:' and after the colon a substring of the sample names to be shown must be specified. The search is done in a case-sensitive manner. 
+Example: To search for all files containing the substring _Blk, the filter must be 'samp:_blk'
+Example: To search for all files containing the substring _Cal, the filter must be 'samp:_Cal'
+
+##### Filter substance by regression results
+To filter for regression results on individual substances, the filter must start with the string 'sub:'. Then, a variable python-valid boolean statement must be specified. Here, the variables R2 (None or float), points (None or integer), and type ('Targer', 'ISTD') are available. 
+Example: To search for all regression results of targets that have a R2 value lower than 0.75 or use less than 4 points for the calibration curve, the filter must be 'sub: type == 'Target' and (R2 < 0.75 or points < 4)
+
 ### Save results
 
 At any time the results can be saved to a binary file that can at a later time be loaded into PeakBotMRM again. 
