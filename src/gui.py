@@ -2921,8 +2921,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         for iti in range(self.tree.topLevelItemCount()):
             it = self.tree.topLevelItem(iti)
             self.updateAllAreas(selExp = it.experiment)
-            PeakBotMRM.predict.calibrateIntegrations(self.loadedExperiments[it.experiment].substances, self.loadedExperiments[it.experiment].integrations)
-        
+            substancesComments, samplesComments = PeakBotMRM.predict.calibrateIntegrations(self.loadedExperiments[it.experiment].substances, self.loadedExperiments[it.experiment].integrations)
+            self.updateAllCalibrations(selExp = it.experiment, substancesComments = substancesComments)
+
         if autoRange:
             for ploti in range(len(self._plots)):
                 if type is not None and ((type(refresh) == str and refresh == "All") or (type(refresh) == list and ploti in refresh)):
@@ -2950,6 +2951,17 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                 else:
                                     sampit.setText(1, "")
                                     sampit.setText(2, "")
+
+    def updateAllCalibrations(self, selExp = None, selSub = None, substancesComments = None):
+        for iti in range(self.tree.topLevelItemCount()):
+                it = self.tree.topLevelItem(iti)
+                if selExp is None or it.experiment == selExp:
+                    for subi in range(it.childCount()):
+                        subit = it.child(subi)
+                        if selSub is None or subit.substance == selSub:
+                            if substancesComments is not None and subit.substance in substancesComments and "R2" in substancesComments[subit.substance]:
+                                subit.setText(2, "R2 %.3f, %d points, %s"%(substancesComments["R2"], substancesComments["points"], substancesComments["fromType"]))
+                            
 
     def showTreeContextMenu(self, position):
         its = list(self.tree.selectedItems())
