@@ -46,6 +46,7 @@ import csv
 import datetime
 import platform
 from collections import defaultdict
+import objbrowser
 
 import unit_converter
 from unit_converter.converter import convert, converts
@@ -899,6 +900,14 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "information-circle-outline.svg")), "Information", self)
         item.triggered.connect(self.showPeakBotMRMInfo)
         toolbar.addAction(item)
+
+        if False:
+            toolbar.addWidget(PyQt6.QtWidgets.QLabel("    "))
+            toolbar.addWidget(PyQt6.QtWidgets.QLabel("Debug",))
+
+            item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "bug-outline.svg")), "Show active experiment object", self)
+            item.triggered.connect(self.showActiveExperimentObject)
+            toolbar.addAction(item)
 
 
         self.loadedExperiments = {}
@@ -3996,9 +4005,21 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                             if sampit.sample in samples:
                                                 sampit.setSelected(True)
             
-            
-            
-            
+    
+    
+    def showActiveExperimentObject(self):
+        its = list(self.tree.selectedItems())
+        if len(its) > 0:
+            selExps = set()
+            for it in its:
+                selExp = it.experiment if "experiment" in it.__dict__ else None
+                if selExp is not None:
+                    selExps.add(selExp)
+
+            if len(selExps) == 1:
+                objbrowser.browse(self.loadedExperiments[list(selExps)[0]])
+            else:
+                PyQt6.QtWidgets.QMessageBox.warning(self, "PeakBotMRM", "Please select an experiment to debug it")
 
     def closeEvent(self, event):
         close = PyQt6.QtWidgets.QMessageBox.question(self,
