@@ -617,7 +617,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.dockArea = DockArea()
         self.docks = []
         for i in range(9):
-            plot = self.genPlot(None if i not in [0,1, 3,4] else {"CTRL": self.selectSamples, "ALT": self.setSamples, "SHIFT": self.updateSelectedSamplesRTs})
+            plot = self.genPlot(None if i not in [0,1, 3,4] else {"CTRL": self.selectSamples, "ALT": self.setSamples, "SHIFT": self.updateSelectedSamplesRTs}, None if i not in [0,1, 3,4] else "target" if i in [0,1] else "istd")
             dock = Dock(["Sub EIC", "Sub EICs", "Sub peaks", "ISTD EIC", "ISTD EICs", "ISTD peaks", "Sub calibration", "ISTD calibration", "Sub / ISTD calibration"][i], autoOrientation=False)
             dock.setOrientation('vertical', force=True)
             self.docks.append(dock)
@@ -702,6 +702,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         helper.setContentsMargins(0,0,0,0)
         helper.addWidget(PyQt6.QtWidgets.QLabel("Filter"))
         self.treeFilter = PyQt6.QtWidgets.QLineEdit("samp:")
+        self.treeFilter.setToolTip("Define a filter\n\n * filter for samples 'samp:<filename-regex substring>'\n   e.g., samp:_Cal, samp:_Blk\n\n * filter for regression: sub:python-expression (R2 (None or float), points (None or int), and type ('Target' or 'ISTD) are available\n   e.g., sub: type == 'Target' and (R2 < 0.75 or points < 4)")
         self.treeFilter.textChanged.connect(self.filterUpdated)
         helper.addWidget(self.treeFilter)
         temp.setLayout(helper)
@@ -950,11 +951,11 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         reset = False
         
         try:
-            if ":" in filter:
-                typ = filter[:filter.index(":")]
+            typ = filter[:filter.index(":")]
 
-                if typ.lower() == "samp":
-                    fil = filter[(filter.index(":")+1):]
+            if typ.lower() == "samp":
+                fil = filter[(filter.index(":")+1):].strip()
+                if fil is not None and fil != "":
                     for iti in range(self.tree.topLevelItemCount()):
                         expit = self.tree.topLevelItem(iti)
                         expit.setHidden(False)
@@ -963,10 +964,13 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                             subit.setHidden(False)
                             for sampi in range(subit.childCount()):
                                 sampit = subit.child(sampi)
-                                sampit.setHidden(not (fil in sampit.text(0) or fil == ""))
-                            
-                elif typ.lower() == "sub":
-                    fil = filter[(filter.index(":")+1):]
+                                sampit.setHidden(re.search(fil, sampit.text(0)) is None)
+                else:
+                    reset = True
+                        
+            elif typ.lower() == "sub":
+                fil = filter[(filter.index(":")+1):].strip()
+                if fil is not None and fil != "":
                     for iti in range(self.tree.topLevelItemCount()):
                         expit = self.tree.topLevelItem(iti)
                         expit.setHidden(False)
@@ -978,7 +982,6 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                             try:
                                 x = re.search("R2 ([+-]?[0-9]+\.?[0-9]*|\.[0-9]+), ([0-9]+) points, .*", subit.text(2))
                                 type = self.loadedExperiments[expit.experiment].substances[subit.substance].type
-                                print(type)
                                 r2 = None
                                 try:
                                     r2 = float(x.groups(0)[0])
@@ -992,9 +995,11 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                 subit.setHidden(not eval(fil.replace("R2", str(r2)).replace("points", str(points)).replace("type", "'%s'"%str(type))))
                             except:
                                 subit.setHidden(False)
-                
                 else:
                     reset = True
+            
+            else:
+                reset = True
         except:
             reset = True
         
@@ -2277,7 +2282,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
 
                     PyQt6.QtWidgets.QMessageBox.information(self, "Closed experiment", "Experiment '%s' has been closed."%(selExp))
 
-    def genPlot(self, selectionCallBack = None):
+    def genPlot(self, selectionCallBack = None, target = None):
         class CustomViewBox(pyqtgraph.ViewBox):
             def __init__(self, selectionCallBack = None, *args, **kwds):
                 pyqtgraph.ViewBox.__init__(self, *args, **kwds)
@@ -2303,11 +2308,11 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                             #print(self.rbScaleBox.x(), self.rbScaleBox.y(), self.rbScaleBox.x() + r.width(), self.rbScaleBox.y() + r.height())
                             self.rbScaleBox.hide()
                             if self.selectionCallBack is not None and modifiers == PyQt6.QtCore.Qt.KeyboardModifier.ControlModifier:
-                                self.selectionCallBack["CTRL"](self.rbScaleBox.x(), self.rbScaleBox.y(), self.rbScaleBox.x() + r.width(), self.rbScaleBox.y() + r.height())
+                                self.selectionCallBack["CTRL"](self.rbScaleBox.x(), self.rbScaleBox.y(), self.rbScaleBox.x() + r.width(), self.rbScaleBox.y() + r.height(), target)
                             elif self.selectionCallBack is not None and modifiers == PyQt6.QtCore.Qt.KeyboardModifier.AltModifier:
-                                self.selectionCallBack["ALT"](self.rbScaleBox.x(), self.rbScaleBox.y(), self.rbScaleBox.x() + r.width(), self.rbScaleBox.y() + r.height())
+                                self.selectionCallBack["ALT"](self.rbScaleBox.x(), self.rbScaleBox.y(), self.rbScaleBox.x() + r.width(), self.rbScaleBox.y() + r.height(), target)
                             elif self.selectionCallBack is not None and modifiers == PyQt6.QtCore.Qt.KeyboardModifier.ShiftModifier:
-                                self.selectionCallBack["SHIFT"](self.rbScaleBox.x(), self.rbScaleBox.y(), self.rbScaleBox.x() + r.width(), self.rbScaleBox.y() + r.height())
+                                self.selectionCallBack["SHIFT"](self.rbScaleBox.x(), self.rbScaleBox.y(), self.rbScaleBox.x() + r.width(), self.rbScaleBox.y() + r.height(), target)
                     else:
                         self.setMouseMode(self.PanMode)
                         pyqtgraph.ViewBox.mouseDragEvent(self, ev, axis=axis)
@@ -2532,7 +2537,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             procDiag.close()
         self.tree.blockSignals(False)
 
-    def selectSamples(self, rtEarly, abundanceLower, rtLast, abundanceUpper):
+    def selectSamples(self, rtEarly, abundanceLower, rtLast, abundanceUpper, target):
         ls = list(self.tree.selectedItems())
         exps = set()
         subs = set()
@@ -2544,8 +2549,11 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 if selExp is not None:
                     exps.add(selExp)
                 if selSub is not None:
-                    subs.add(selSub)
-
+                    if target.lower() == "target":
+                        subs.add(selSub)
+                    elif target.lower() == "istd" and self.loadedExperiments[selExp].substances[selSub].internalStandard is not None:
+                        subs.add(self.loadedExperiments[selExp].substances[selSub].internalStandard)
+        
         self.tree.blockSignals(True)
         if len(exps) == 1 and len(subs) == 1:
             for iti in range(self.tree.topLevelItemCount()):
@@ -2554,19 +2562,23 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         for subi in range(it.childCount()):
                             subit = it.child(subi)
                             if subit.substance == selSub:
+                                subit.setHidden(False)
                                 for sampi in range(subit.childCount()):
                                     sampit = subit.child(sampi)
                                     isWithinSelection = False
-                                    for i in range(self.loadedExperiments[selExp].integrations[selSub][sampit.sample].chromatogram["eic"].shape[0]):
-                                        rt = self.loadedExperiments[selExp].integrations[selSub][sampit.sample].chromatogram["rts"][i]
-                                        abundance = self.loadedExperiments[selExp].integrations[selSub][sampit.sample].chromatogram["eic"][i]
-                                        if rtEarly <= rt <= rtLast and abundanceLower <= abundance <= abundanceUpper:
-                                            isWithinSelection = True
-                                            break
-                                        if rtLast < rt:
-                                            break
+                                    if self.loadedExperiments[selExp].integrations[selSub][sampit.sample].chromatogram is not None and "eic" in self.loadedExperiments[selExp].integrations[selSub][sampit.sample].chromatogram and "rts" in self.loadedExperiments[selExp].integrations[selSub][sampit.sample].chromatogram:
+                                        for i in range(self.loadedExperiments[selExp].integrations[selSub][sampit.sample].chromatogram["eic"].shape[0]):
+                                            if self.loadedExperiments[selExp].integrations[selSub][sampit.sample].chromatogram is not None and "rts" in self.loadedExperiments[selExp].integrations[selSub][sampit.sample].chromatogram and "eic" in self.loadedExperiments[selExp].integrations[selSub][sampit.sample].chromatogram:
+                                                rt = self.loadedExperiments[selExp].integrations[selSub][sampit.sample].chromatogram["rts"][i]
+                                                abundance = self.loadedExperiments[selExp].integrations[selSub][sampit.sample].chromatogram["eic"][i]
+                                                if rtEarly <= rt <= rtLast and abundanceLower <= abundance <= abundanceUpper:
+                                                    isWithinSelection = True
+                                                    break
+                                                if rtLast < rt:
+                                                    break
                                     sampit.setSelected(isWithinSelection)
                                     if isWithinSelection:
+                                        sampit.setHidden(False)
                                         self.tree.scrollToItem(sampit)
         self.tree.blockSignals(False)
         self.treeSelectionChanged(autoRange = False)
@@ -2614,53 +2626,55 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     else:
                         break
 
-    def removeSubstanceFromActiveExperiment(self):
-        its = list(self.tree.selectedItems())
-        if len(its) > 0:
-            selExps = set()
-            selSubs = set()
-            selSams = set()
-            selISTs = set()
+    def removeSubstanceFromExperiment(self, substances = None, experiment = None):
+        if substances is not None and experiment is not None and len(substances) > 0 and experiment in self.loadedExperiments:
+            choice = PyQt6.QtWidgets.QMessageBox.question(self,
+                                            "PeakBotMRM",
+                                            "Are you sure want to delete %d substance(s) in experiment '%s'?"%(len(substances), experiment),
+                                            PyQt6.QtWidgets.QMessageBox.StandardButton.Yes | PyQt6.QtWidgets.QMessageBox.StandardButton.No)
+            if choice == PyQt6.QtWidgets.QMessageBox.StandardButton.Yes:
+                for iti in range(self.tree.topLevelItemCount()):
+                    it = self.tree.topLevelItem(iti)
+                    if it.experiment == experiment:
+                        toRemoveInds = []
+                        for subi in range(it.childCount()):
+                            subIt = it.child(subi)
+                            if subIt.substance in substances:
+                                toRemoveInds.append(subi)
+                        toRemoveInds.reverse()
+                        for ind in toRemoveInds:
+                            subIt = it.child(ind)
+                            del self.loadedExperiments[experiment].substances[subIt.substance]
+                            del self.loadedExperiments[experiment].integrations[subIt.substance]
+                            it.removeChild(subIt)
 
-            for it in its:
-                selExp = it.experiment if "experiment" in it.__dict__ else None
-                selSub = it.substance if "substance" in it.__dict__ else None
-                selSam = it.sample if "sample" in it.__dict__ else None
-                selIST = self.loadedExperiments[selExp].substances[selSub].internalStandard if selExp is not None and selSub is not None and self.loadedExperiments[selExp].substances[selSub].internalStandard is not None and self.loadedExperiments[selExp].substances[selSub].internalStandard != "" else None
-
-                if selExp is not None:
-                    selExps.add(selExp)
-                if selSub is not None:
-                    selSubs.add(selSub)
-                if selSam is not None:
-                    selSams.add(selSam)
-                if selIST is not None:
-                    selISTs.add(selIST)
-
-            if len(selExps) != 1 or len(selSubs) != 1:
-                PyQt6.QtWidgets.QMessageBox.warning(self, "PeakBotMRM", "<b>Warning</b><br><br>Selecting several different experiments or substances is not supported at this time.<br>Please only select different samples if necessary!")
-
-            else:
-                choice = PyQt6.QtWidgets.QMessageBox.question(self,
-                                                "PeakBotMRM",
-                                                "Are you sure want to delete '%s' in experiment '%s'?"%(selSub, selExp),
-                                                PyQt6.QtWidgets.QMessageBox.StandardButton.Yes | PyQt6.QtWidgets.QMessageBox.StandardButton.No)
-                if choice == PyQt6.QtWidgets.QMessageBox.StandardButton.Yes:
-                    rootItem = None
-                    for c in range(self.tree.topLevelItemCount()):
-                        it = self.tree.topLevelItem(c)
-                        if it.experiment == selExp:
-                            rootItem = it
-                    for subi in range(rootItem.childCount()):
-                        subIt = rootItem.child(subi)
-                        if subIt.substance == selSub:
-                            rootItem.removeChild(subIt)
-                            del self.loadedExperiments[selExp].substances[selSub]
-                            del self.loadedExperiments[selExp].integrations[selSub]
-                            return
-
-                PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "<b>Error</b><br><br>Substance '%s' could not be removed from the experiment '%s"%(selSub, selExp))
-
+            
+    def removeSampleFromActiveExperiment(self, experiment = None, samples = None):
+        if experiment is not None and samples is not None and len(samples) > 0 and experiment in self.loadedExperiments:
+            print("removing samples", samples)
+            for sample in samples:
+                print("deleting", sample, "from sampleInfo")
+                del self.loadedExperiments[experiment].sampleInfo[sample]
+            for substance in self.loadedExperiments[experiment].integrations:
+                for sample in samples:
+                    print("deleting", sample, "from integrations")
+                    del self.loadedExperiments[experiment].integrations[substance][sample]
+            for iti in range(self.tree.topLevelItemCount()):
+                it = self.tree.topLevelItem(iti)
+                if it.experiment == experiment:
+                    for subi in range(it.childCount()):
+                        subIt = it.child(subi)
+                        toRemoveInds = []
+                        for sami in range(subIt.childCount()):
+                            sampIt = subIt.child(sami)
+                            if sampIt.sample in samples:
+                                toRemoveInds.append(sami)
+                        toRemoveInds.reverse()
+                        for ind in toRemoveInds:
+                            sampIt = subIt.child(ind)
+                            print("deleting", sampIt.sample, sampIt.substance, "from tree")
+                            subIt.removeChild(sampIt)
+                
 
     def addSubstancesToActiveExperiment(self):
         its = list(self.tree.selectedItems())
@@ -2766,7 +2780,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                             PyQt6.QtWidgets.QMessageBox.information(self, "PeakBotMRM", "Added %d compounds (they have been added to the end of the tree.)<br><br>%d substances have not been added as these have already been present (equal name). If you want to re-import these compounds, please first delete the already existing ones and repeat the step. "%(len(addTreeForSubstances), len(notImported)))
 
 
-    def setSamples(self, rtEarly, abundanceLower, rtLast, abundanceUpper):
+    def setSamples(self, rtEarly, abundanceLower, rtLast, abundanceUpper, target):
         ls = list(self.tree.selectedItems())
         exps = set()
         subs = set()
@@ -2778,7 +2792,10 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 if selExp is not None:
                     exps.add(selExp)
                 if selSub is not None:
-                    subs.add(selSub)
+                    if target.lower() == "target":
+                        subs.add(selSub)
+                    elif target.lower() == "istd" and self.loadedExperiments[selExp].substances[selSub].internalStandard is not None:
+                        subs.add(self.loadedExperiments[selExp].substances[selSub].internalStandard)
 
         self.tree.blockSignals(True)
         if len(exps) == 1 and len(subs) == 1:
@@ -2788,6 +2805,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         for subi in range(it.childCount()):
                             subit = it.child(subi)
                             if subit.substance == selSub:
+                                subit.setHidden(False)
                                 for sampi in range(subit.childCount()):
                                     sampit = subit.child(sampi)
                                     inte = self.loadedExperiments[selExp].integrations[selSub][sampit.sample]
@@ -2797,13 +2815,14 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                     sampit.setIcon(0, {0: self.__icons["res/PB/nothing"], 1: self.__icons["res/PB/peak"], 2: self.__icons["res/PB/noise"], 128: self.__icons["res/manual/nothing"], 129: self.__icons["res/manual/peak"], 130: self.__icons["res/manual/noise"]}[inte.foundPeak])
 
                                     sampit.setSelected(True)
+                                    sampit.setHidden(False)
                                     self.tree.scrollToItem(sampit)
 
         self.tree.blockSignals(False)
         self.treeSelectionChanged(autoRange = False)
         self.refreshViews(autoRange = False, reset = False)
 
-    def updateSelectedSamplesRTs(self, rtEarly, abundanceLower, rtLast, abundanceUpper):
+    def updateSelectedSamplesRTs(self, rtEarly, abundanceLower, rtLast, abundanceUpper, target):
         ls = list(self.tree.selectedItems())
         exps = set()
         subs = set()
@@ -2815,7 +2834,10 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 if selExp is not None:
                     exps.add(selExp)
                 if selSub is not None:
-                    subs.add(selSub)
+                    if target.lower() == "target":
+                        subs.add(selSub)
+                    elif target.lower() == "istd" and self.loadedExperiments[selExp].substances[selSub].internalStandard is not None:
+                        subs.add(self.loadedExperiments[selExp].substances[selSub].internalStandard)
 
         self.tree.blockSignals(True)
         if len(exps) == 1 and len(subs) == 1:
@@ -2825,12 +2847,14 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         for subi in range(it.childCount()):
                             subit = it.child(subi)
                             if subit.substance == selSub:
+                                subit.setHidden(False)
                                 for sampi in range(subit.childCount()):
                                     sampit = subit.child(sampi)
                                     if sampit.isSelected():
                                         inte = self.loadedExperiments[selExp].integrations[selSub][sampit.sample]
                                         inte.rtStart = rtEarly
                                         inte.rtEnd = rtLast
+                                        sampit.setHidden(False)
 
         self.tree.blockSignals(False)
         self.treeSelectionChanged(autoRange = False)
@@ -2968,9 +2992,10 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         
         for iti in range(self.tree.topLevelItemCount()):
             it = self.tree.topLevelItem(iti)
-            self.updateAllAreas(selExp = it.experiment)
-            substancesComments, samplesComments = PeakBotMRM.predict.calibrateIntegrations(self.loadedExperiments[it.experiment].substances, self.loadedExperiments[it.experiment].integrations)
-            self.updateAllCalibrations(selExp = it.experiment, substancesComments = substancesComments)
+            if self.lastExp is None or self.lastExp == it.experiment:
+                self.updateAllAreas(selExp = it.experiment)
+                substancesComments, samplesComments = PeakBotMRM.predict.calibrateIntegrations(self.loadedExperiments[it.experiment].substances, self.loadedExperiments[it.experiment].integrations)
+                self.updateAllCalibrations(selExp = it.experiment, substancesComments = substancesComments)
 
         if autoRange:
             for ploti in range(len(self._plots)):
@@ -3066,19 +3091,19 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     menu.addMenu(procMenu)
 
                 if len(selSubs) == 1:
-                    procMenu = PyQt6.QtWidgets.QMenu(parent = menu, title = "Process '%s'"%(selSub))
+                    procMenu = PyQt6.QtWidgets.QMenu(parent = menu, title = "Process '%s'"%(list(selSubs)[0]))
                     addSep = False
                     for mf in natsort.natsorted(list(os.listdir(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models"))), key = lambda x: x.lower()):
                         if mf.endswith(".h5"):
                             acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "robot.png")), mf, self)
-                            acc.triggered.connect(functools.partial(self.processExperimentS, os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models", mf), all = False, specificSubstances = [selSub]))
+                            acc.triggered.connect(functools.partial(self.processExperimentS, os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "models", mf), all = False, specificSubstances = list(selSubs)))
                             procMenu.addAction(acc)
                             addSep = True
 
                     if addSep:
                         procMenu.addSeparator()
                     acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "folder-open-outline.svg")), "Open other model", self)
-                    acc.triggered.connect(functools.partial(self.processExperimentS, None, all = False, specificSubstances = [selSub]))
+                    acc.triggered.connect(functools.partial(self.processExperimentS, None, all = False, specificSubstances = list(selSub)))
                     procMenu.addAction(acc)
                     menu.addMenu(procMenu)
 
@@ -3091,8 +3116,14 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     menu.addSeparator()
 
                 if len(selSubs) == 1:
-                    acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "close-circle-outline.svg")), "Remove '%s'"%(selSub), self)
-                    acc.triggered.connect(self.removeSubstanceFromActiveExperiment)
+                    acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "close-circle-outline.svg")), "Remove '%s'"%(list(selSubs)[0] if len(selSubs) == 1 else "%d substances"%len(selSubs)), self)
+                    acc.triggered.connect(functools.partial(self.removeSubstanceFromExperiment, substances = selSubs, experiment = list(selExps)[0]))
+                    menu.addAction(acc)
+                    menu.addSeparator()
+
+                if len(selSams) > 0:
+                    acc = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "close-circle-outline.svg")), "Remove '%s'"%(list(selSams)[0] if len(selSams) == 1 else "%d samples"%len(selSams)), self)
+                    acc.triggered.connect(functools.partial(self.removeSampleFromActiveExperiment, samples = selSams, experiment = list(selExps)[0]))
                     menu.addAction(acc)
                     menu.addSeparator()
 
@@ -3256,7 +3287,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                     self.hasPeak.setCurrentIndex({0:0, 1:1, 2:2, 128:3, 129:4, 130:5}[inte.foundPeak])
                                     self.peakStart.setValue(inte.rtStart)
                                     self.peakEnd.setValue(inte.rtEnd)
-                                self.plotIntegration(inte, self.loadedExperiments[selExp].sampleInfo[selSam]["Color"], "", refRT = self.loadedExperiments[selExp].substances[selSub].refRT, plotInd = 0, transp = max(0.05, 0.8 /len(its)))
+                                self.plotIntegration(inte, self.loadedExperiments[selExp].sampleInfo[selSam]["Color"] if selSam in self.loadedExperiments[selExp].sampleInfo and "Color" in self.loadedExperiments[selExp].sampleInfo[selSam] else "Black", "", refRT = self.loadedExperiments[selExp].substances[selSub].refRT, plotInd = 0, transp = max(0.05, 0.8 /len(its)))
 
                                 if selIST is not None and selIST in self.loadedExperiments[selExp].substances and selIST in self.loadedExperiments[selExp].integrations and selSam in self.loadedExperiments[selExp].integrations[selIST]:
                                     inte = self.loadedExperiments[selExp].integrations[selIST][selSam]
@@ -3267,7 +3298,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                         self.istdhasPeak.setCurrentIndex({0:0, 1:1, 2:2, 128:3, 129:4, 130:5}[inte.foundPeak])
                                         self.istdpeakStart.setValue(inte.rtStart)
                                         self.istdpeakEnd.setValue(inte.rtEnd)
-                                    self.plotIntegration(inte, self.loadedExperiments[selExp].sampleInfo[selSam]["Color"], "", refRT = self.loadedExperiments[selExp].substances[selIST].refRT if selIST is not None and selIST in self.loadedExperiments[selExp].substances else None, plotInd = 3, transp = max(0.05, 0.8 /len(its)))
+                                    self.plotIntegration(inte, self.loadedExperiments[selExp].sampleInfo[selSam]["Color"] if selSam in self.loadedExperiments[selExp].sampleInfo and "Color" in self.loadedExperiments[selExp].sampleInfo[selSam] else "Black", "", refRT = self.loadedExperiments[selExp].substances[selIST].refRT if selIST is not None and selIST in self.loadedExperiments[selExp].substances else None, plotInd = 3, transp = max(0.05, 0.8 /len(its)))
                                 it = it.parent()
 
                     if selExp != self.lastExp or selSub != self.lastSub:
@@ -3292,9 +3323,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                         except:
                                             colorsIS.append("black")
                                 if len(ints) > 0:
-                                    self.plotIntegrations(ints, colors, "", refRT = self.loadedExperiments[selExp].substances[selSub].refRT, plotInds = [1,2])
+                                    self.plotIntegrations(ints, colors, "", refRT = self.loadedExperiments[selExp].substances[selSub].refRT, plotInds = [1,2], target = "target")
                                 if self.__guiPlotISTD and len(intsIS) > 0:
-                                    self.plotIntegrations(intsIS, colorsIS, "", refRT = self.loadedExperiments[selExp].substances[selIST].refRT if selIST is not None and selIST in self.loadedExperiments[selExp].substances else None, plotInds = [4,5])
+                                    self.plotIntegrations(intsIS, colorsIS, "", refRT = self.loadedExperiments[selExp].substances[selIST].refRT if selIST is not None and selIST in self.loadedExperiments[selExp].substances else None, plotInds = [4,5], target = "istd")
 
                     if "userType" in it.__dict__:
                         if it.userType == "All samples" and it.substance is not None and it.substance in self.loadedExperiments[it.experiment].substances:
@@ -3346,20 +3377,20 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                             
                             ret = None
                             if len(subArea) > 0:
-                                temp = self.plotCalibration(subArea, "Sub; areas", unit = substance.calLevel1ConcentrationUnit, addLM = True, highlightLevel = highlightLevel, plotAreas = peakAreaLevel, plotInd = 6)
+                                temp = self.plotCalibration(subArea, "Sub; areas", unit = substance.calLevel1ConcentrationUnit, addLM = True, highlightLevel = highlightLevel, plotAreas = peakAreaLevel, plotInd = 6, fromType = "Sub")
                                 if temp is not None:
                                     ret = temp
                             if len(isArea) > 0:
-                                temp = self.plotCalibration(isArea, "ISTD, areas", unit = substance.calLevel1ConcentrationUnit, addLM = False, highlightLevel = highlightLevelIS, plotAreas = peakAreaLevelIS, plotInd = 7)
+                                temp = self.plotCalibration(isArea, "ISTD, areas", unit = substance.calLevel1ConcentrationUnit, addLM = False, highlightLevel = highlightLevelIS, plotAreas = peakAreaLevelIS, plotInd = 7, fromType = "ISTD")
                                 if temp is not None:
                                     ret = temp
                             if len(subRatio) > 0:
-                                temp = self.plotCalibration(subRatio, "Sub/ISTD", unit = substance.calLevel1ConcentrationUnit, addLM = True, highlightLevel = highlightLevelRatio, plotAreas = peakAreaLevelRatio, plotInd = 8)
+                                temp = self.plotCalibration(subRatio, "Sub/ISTD", unit = substance.calLevel1ConcentrationUnit, addLM = True, highlightLevel = highlightLevelRatio, plotAreas = peakAreaLevelRatio, plotInd = 8, fromType = "Sub/ISTD")
                                 if temp is not None:
                                     ret = temp
                             
                             if ret is not None and type(ret) == dict and "R2" in ret and "points" in ret:
-                                it.setText(2, "R2 %.3f, %d points"%(ret["R2"], ret["points"]))
+                                it.setText(2, "R2 %.3f, %d points, %s"%(ret["R2"], ret["points"], ret["fromType"]))
                     
                     if self.__guiPlotEmbedding:
                         if selExp != self.lastExp or self.paCMAP is None:
@@ -3508,7 +3539,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 if len(ints) > 0:
                     self._plots[1].clear()
                     self._plots[2].clear()
-                    self.plotIntegrations(ints, colors, "", plotInds = [1,2], makeUniformRT = True, scaleEIC = True)
+                    self.plotIntegrations(ints, colors, "", plotInds = [1,2], makeUniformRT = True, scaleEIC = True, target = "target")
             elif addROI:
                 self.polyROI = pyqtgraph.PolyLineROI([[-0.8, -0.8], [0.8, -0.8], [0.8, 0.8], [-0.8, 0.8]], closed=True, pen=self.__highlightColor1)
                 self.polyROI.sigRegionChangeFinished.connect(self.updatePACMAPROI)
@@ -3535,61 +3566,63 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.plotPaCMAP(self.lastSub, self.lastSam, addROI = True)
 
     def plotIntegration(self, inte, color, title, refRT = None, plotInd = 0, transp = 0.2):
-        self._plots[plotInd].plot(inte.chromatogram["rts"], inte.chromatogram["eic"], pen = self.__normalColor)
+        if inte.chromatogram is not None and "rts" in inte.chromatogram and "eic" in inte.chromatogram:
+            self._plots[plotInd].plot(inte.chromatogram["rts"], inte.chromatogram["eic"], pen = self.__normalColor)
 
-        if inte.foundPeak is not None and inte.foundPeak % 128:
-            try:
-                rts = inte.chromatogram["rts"][np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
-                eic = inte.chromatogram["eic"][np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
-                if self.__guiPlotsInSampleColor:
-                    col = PyQt6.QtGui.QColor(color)
-                else:
-                    if inte.foundPeak % 128 == 1:
-                        col = self.__highlightColor1
+            if inte.foundPeak is not None and inte.foundPeak % 128:
+                try:
+                    rts = inte.chromatogram["rts"][np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
+                    eic = inte.chromatogram["eic"][np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
+                    if self.__guiPlotsInSampleColor:
+                        col = PyQt6.QtGui.QColor(color)
                     else:
-                        col = self.__highlightColor2
-                pen = col
-                p = self._plots[plotInd].plot(rts, eic, pen = pen)
-                a = np.min(eic)
-                p1 = self._plots[plotInd].plot(rts, np.ones(rts.shape[0]) * a)
-                brush = makeColor(col, transp)
-                fill = pyqtgraph.FillBetweenItem(p, p1, brush)
-                fill.setZValue(-1)
-                self._plots[plotInd].addItem(fill)
-            except:
-                pass
+                        if inte.foundPeak % 128 == 1:
+                            col = self.__highlightColor1
+                        else:
+                            col = self.__highlightColor2
+                    pen = col
+                    p = self._plots[plotInd].plot(rts, eic, pen = pen)
+                    a = np.min(eic)
+                    p1 = self._plots[plotInd].plot(rts, np.ones(rts.shape[0]) * a)
+                    brush = makeColor(col, transp)
+                    fill = pyqtgraph.FillBetweenItem(p, p1, brush)
+                    fill.setZValue(-1)
+                    self._plots[plotInd].addItem(fill)
+                except:
+                    pass
 
-        if refRT is not None:
-            infLine = pyqtgraph.InfiniteLine(pos = [refRT, 0], movable=False, angle=90, label='', pen=self.__normalColor)
-            self._plots[plotInd].addItem(infLine)
+            if refRT is not None:
+                infLine = pyqtgraph.InfiniteLine(pos = [refRT, 0], movable=False, angle=90, label='', pen=self.__normalColor)
+                self._plots[plotInd].addItem(infLine)
 
-        self._plots[plotInd].setTitle(title)
-        self._plots[plotInd].setLabel('left', "Intensity")
-        self._plots[plotInd].setLabel('bottom', "Retention time (min)")
+            self._plots[plotInd].setTitle(title)
+            self._plots[plotInd].setLabel('left', "Intensity")
+            self._plots[plotInd].setLabel('bottom', "Retention time (min)")
 
-    def plotIntegrations(self, intes, colors, title, refRT = None, plotInds = [1,2], makeUniformRT = False, scaleEIC = False, transp = 0.4):
+    def plotIntegrations(self, intes, colors, title, refRT = None, plotInds = [1,2], makeUniformRT = False, scaleEIC = False, transp = 0.4, target = "target"):
 
         for ind in range(len(intes)):
             inte = intes[ind]
-            x = inte.chromatogram["rts"]
-            y = inte.chromatogram["eic"]
-            if makeUniformRT:
-                x = np.linspace(0, 1, x.shape[0])
-            if scaleEIC:
-                y = y - np.min(y)
-                y = y / np.max(y)
-            col = PyQt6.QtGui.QColor.fromRgb(self.__normalColor[0], self.__normalColor[1], self.__normalColor[2])
-            self._plots[plotInds[0]].plot(x,y, pen = (col.red(), col.green(), col.blue(), 255*transp))
-            if inte.foundPeak is not None and inte.foundPeak % 128:
-                x = x[np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
-                y = y[np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
-                if self.__guiPlotsInSampleColor:
-                    col = PyQt6.QtGui.QColor(colors[ind])
-                else:
-                    col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2], 255*transp) # PyQt6.QtGui.QColor(colors[ind])
-                    if inte.foundPeak is not None and inte.foundPeak % 128 == 2:
-                        col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor2[0], self.__highlightColor2[1], self.__highlightColor2[2], 255*transp)
-                self._plots[plotInds[0]].plot(x, y, pen = (col.red(), col.green(), col.blue(), 255))
+            if inte.chromatogram is not None and "rts" in inte.chromatogram and "eic" in inte.chromatogram:
+                x = inte.chromatogram["rts"]
+                y = inte.chromatogram["eic"]
+                if makeUniformRT:
+                    x = np.linspace(0, 1, x.shape[0])
+                if scaleEIC:
+                    y = y - np.min(y)
+                    y = y / np.max(y)
+                col = PyQt6.QtGui.QColor.fromRgb(self.__normalColor[0], self.__normalColor[1], self.__normalColor[2])
+                self._plots[plotInds[0]].plot(x,y, pen = (col.red(), col.green(), col.blue(), 255*transp))
+                if inte.foundPeak is not None and inte.foundPeak % 128:
+                    x = x[np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
+                    y = y[np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
+                    if self.__guiPlotsInSampleColor:
+                        col = PyQt6.QtGui.QColor(colors[ind])
+                    else:
+                        col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2], 255*transp) # PyQt6.QtGui.QColor(colors[ind])
+                        if inte.foundPeak is not None and inte.foundPeak % 128 == 2:
+                            col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor2[0], self.__highlightColor2[1], self.__highlightColor2[2], 255*transp)
+                    self._plots[plotInds[0]].plot(x, y, pen = (col.red(), col.green(), col.blue(), 255))
         if refRT is not None:
             infLine = pyqtgraph.InfiniteLine(pos = [refRT, 0], movable=False, angle=90, label='', pen=self.__normalColor)
             self._plots[plotInds[0]].addItem(infLine)
@@ -3603,7 +3636,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             for ind in range(len(intes)):
                 inte = intes[ind]
 
-                if inte.foundPeak is not None and inte.foundPeak % 128:
+                if inte.foundPeak is not None and inte.foundPeak % 128 and inte.chromatogram is not None and "rts" in inte.chromatogram and "eic" in inte.chromatogram:
                     try:
                         tempRT = inte.chromatogram["rts"][np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
                         temp = inte.chromatogram["eic"][np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
@@ -3629,30 +3662,33 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         for x in self._plots[plotInds[0]].mouseClickSignals: 
             self._plots[plotInds[0]].plotItem.scene().sigMouseClicked.disconnect(x)
         self._plots[plotInds[0]].mouseClickSignals = []
-        x = functools.partial(self.integrationsPlot_mouseClicked, plotItem = self._plots[plotInds[0]].plotItem)        
+        x = functools.partial(self.integrationsPlot_mouseClicked, plotItem = self._plots[plotInds[0]].plotItem, target = target)        
         self._plots[plotInds[0]].plotItem.scene().sigMouseClicked.connect(x)
         self._plots[plotInds[0]].mouseClickSignals.append(x)
     
-    def integrationsPlot_mouseClicked(self, evt, plotItem):
+    def integrationsPlot_mouseClicked(self, evt, plotItem, target):
         pos = evt.scenePos()
         if plotItem.sceneBoundingRect().contains(pos):
             pos = plotItem.vb.mapSceneToView(pos)
             if self.lastExp is not None and self.lastSub is not None:
                 closest = None
                 closestDist = 1E6
-                for samp, inte in self.loadedExperiments[self.lastExp].integrations[self.lastSub].items():
-                    if not inte.other["GUIElement"].isHidden():
-                        rts = inte.chromatogram["rts"]
-                        eic = inte.chromatogram["eic"]
-                        sigInd = np.argmin(np.abs(rts - pos.x()))
-                        dist = np.abs(eic[sigInd] - pos.y())
-                        if dist < closestDist:
-                            closest = (samp, inte)
-                            closestDist = dist
-            self.tree.setCurrentItem(closest[1].other["GUIElement"])
-            self.tree.scrollToItem(closest[1].other["GUIElement"])
+                selSub = self.lastSub if target.lower() == "target" else self.loadedExperiments[self.lastExp].substances[self.lastSub].internalStandard
+                print(selSub)
+                if selSub is not None:
+                    for samp, inte in self.loadedExperiments[self.lastExp].integrations[selSub].items():
+                        if not inte.other["GUIElement"].isHidden() and inte.chromatogram is not None and "rts" in inte.chromatogram and "eic" in inte.chromatogram:
+                            rts = inte.chromatogram["rts"]
+                            eic = inte.chromatogram["eic"]
+                            sigInd = np.argmin(np.abs(rts - pos.x()))
+                            dist = np.abs(eic[sigInd] - pos.y())
+                            if dist < closestDist:
+                                closest = (samp, inte)
+                                closestDist = dist
+                self.tree.setCurrentItem(closest[1].other["GUIElement"])
+                self.tree.scrollToItem(closest[1].other["GUIElement"])
 
-    def plotCalibration(self, calInfo, title, unit = "NA", addLM = True, highlightLevel = None, plotAreas = None, plotInd = 6):
+    def plotCalibration(self, calInfo, title, unit = "NA", addLM = True, highlightLevel = None, plotAreas = None, plotInd = 6, fromType = "NA"):
         ret = None
         
         try:
@@ -3712,7 +3748,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     infLine = pyqtgraph.InfiniteLine(pos = 0, movable=False, angle=0 if self.__guiCalibrationAxesFormat == "observed (x) vs. expected (y)" else 90, label='', pen=self.__normalColor)
                     self._plots[plotInd].addItem(infLine)
                     self._plots[plotInd].setTitle(title + "; R2 %.3f; %d points"%(r2, len([a for a, c in calInfo if c > 0])))
-                    ret = {"R2": r2, "points": len(usedAreas)}
+                    ret = {"R2": r2, "points": len(usedAreas), "fromType": fromType}
                 else:
                     self._plots[plotInd].setTitle(title + "; no regression")
                     

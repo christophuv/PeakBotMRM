@@ -1,5 +1,8 @@
 Version 0.9.52
 * added filter for substance. See help for further details on how to specify it
+* changed sample filter to regex
+* added option to remove samples
+* fixed several bugs
 
 
 Version 0.9.51
