@@ -46,7 +46,7 @@ import csv
 import datetime
 import platform
 from collections import defaultdict
-import objbrowser
+from scipy.stats import ttest_ind
 
 import unit_converter
 from unit_converter.converter import convert, converts
@@ -602,6 +602,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         
         self.__statsUseISTDs = True
         self.__calculateStatistics = True
+        self.__statsQuantifier = "Area" # either "Area" or "Concentration"
         
         if not os.path.exists(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM")):
             os.mkdir(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM"))
@@ -755,38 +756,6 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.dockArea.moveDock(self.docks[14], "bottom", self.docks[13])
 
         self.__guiVolcanoPlots = {}
-        for i in range(3):
-            plot = self.genPlot()
-            a = PyQt6.QtWidgets.QComboBox()
-            a.setFixedWidth(150)  ## TODO improve
-            b = PyQt6.QtWidgets.QComboBox()
-            b.setFixedWidth(150)  ## TODO improve
-            layout = PyQt6.QtWidgets.QHBoxLayout()
-            layout.setContentsMargins(0,0,0,0)
-            temp = PyQt6.QtWidgets.QLabel("Comapre ")
-            layout.addWidget(temp)
-            layout.addWidget(a)
-            temp = PyQt6.QtWidgets.QLabel(" (right) with ")
-            layout.addWidget(temp)
-            layout.addWidget(b)
-            temp = PyQt6.QtWidgets.QLabel(" (left)")
-            layout.addWidget(temp)
-            helper2 = PyQt6.QtWidgets.QWidget()
-            helper2.setLayout(layout)
-            
-            layout = PyQt6.QtWidgets.QVBoxLayout()
-            layout.setContentsMargins(0,0,0,0)
-            layout.addWidget(helper2)
-            layout.addWidget(plot)
-            helper = PyQt6.QtWidgets.QWidget()
-            helper.setLayout(layout)
-            dock = Dock("Volcano plot %d"%(i))
-            self.docks.append(dock)
-            dock.addWidget(helper)
-            self.dockArea.addDock(dock)
-            self.dockArea.moveDock(self.docks[15+i], "bottom", self.docks[14+i])
-            self.__guiVolcanoPlots[i] = {"plot": plot, "group1ComboBox": a, "group2ComboBox": b}
-
         self.setCentralWidget(self.dockArea)
 
         ## Toolbar
@@ -821,6 +790,10 @@ class Window(PyQt6.QtWidgets.QMainWindow):
 
         item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "close-circle-outline.svg")), "Close experiment", self)
         item.triggered.connect(self.closeExperiment)
+        toolbar.addAction(item)
+
+        item = PyQt6.QtGui.QAction(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "play-outline.svg")), "Add volcano plot", self)
+        item.triggered.connect(self.addVolcanoPlot)
         toolbar.addAction(item)
 
 
@@ -1132,6 +1105,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     
                     "GUI/__calculateStatistics": self.__calculateStatistics,
                     "GUI/__statsUseISTDs": self.__statsUseISTDs,
+                    "GUI/__statsQuantifier": self.__statsQuantifier, 
 
                     "GUI/DockAreaState": self.dockArea.saveState(),
                 }
@@ -1211,6 +1185,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             self.__calculateStatistics = settings["GUI/__calculateStatistics"]
         if "GUI/__statsUseISTDs" in settings:
             self.__statsUseISTDs = settings["GUI/__statsUseISTDs"]
+        if "GUI/__statsQuantifier" in settings:
+            self.__statsQuantifier = settings["GUI/__statsQuantifier"]
 
         if "GUI/DockAreaState" in settings:
             try:
@@ -1285,7 +1261,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             ]},
             {'name': 'Statistics', 'type': 'group', 'children':[
                 {'name': 'Calculate statistics', 'type': 'bool', 'value': self.__calculateStatistics},
-                {'name': 'Illustrate ISTDs', 'type': 'bool', 'value': self.__statsUseISTDs},                
+                {'name': 'Illustrate ISTDs', 'type': 'bool', 'value': self.__statsUseISTDs},
+                {'name': 'Quantifier for statistical analysis', 'type': 'list', 'value': self.__statsQuantifier, 'values': ["Area", "Concentration"]},
             ]}, 
             {'name': 'Other', 'type': 'group', 'children':[
                 {'name': 'MSConvert executable', 'type': 'str', 'value': self.__msConvertPath, 'tip': 'Download MSconvert from <a href="https://proteowizard.sourceforge.io/">https://proteowizard.sourceforge.io/</a>. Choose the version that is "able to convert ventdor files". Install the software. Then try restarting PeakBotMRM. If "msconvert" alone does not work, try "%LOCALAPPDATA%\\Apps\\ProteoWizard 3.0.22119.ba94f16 32-bit\\msconvert.exe"'},
@@ -1358,6 +1335,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
 
             self.__calculateStatistics = p.param("Statistics", "Calculate statistics").value()
             self.__statsUseISTDs = p.param("Statistics", "Illustrate ISTDs").value()
+            self.__statsQuantifier = p.param("Statistics", "Quantifier for statistical analysis").value()
 
         t = ParameterTree()
         t.setParameters(p, showTop=False)
@@ -1532,15 +1510,15 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 prDiag.setWindowIcon(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "robot.png")))
                 prDiag.setWindowTitle("PeakBotMRM")
                 prDiag.setModal(True)
+                prDiag.setText("Predicting with model")
                 prDiag.show()
                 logging.info("")
                 logging.info("")
                 logging.info("Processing dataset '%s'"%(selExp))
                 PeakBotMRM.predict.predictDataset(peakBotMRMModelFile, self.loadedExperiments[selExp].substances, self.loadedExperiments[selExp].integrations, specificSubstances = specificSubstances, callBackFunctionValue = prDiag.setValue, callBackFunctionText = prDiag.setLabelText, showConsoleProgress = False)
                 self.updateCalibrationLabels(expName = selExp)
-                
-                prDiag.close()
 
+                prDiag.setText("Updating peak areas")
                 for sub in self.loadedExperiments[selExp].integrations:
                     if specificSubstances is None or sub in specificSubstances:
                         for samp in self.loadedExperiments[selExp].integrations[sub]:
@@ -1567,7 +1545,13 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                     sampleItem.setIcon(0, {0: self.__icons["res/PB/nothing"], 1: self.__icons["res/PB/peak"], 2: self.__icons["res/PB/noise"], 128: self.__icons["res/manual/nothing"], 129: self.__icons["res/manual/peak"], 130: self.__icons["res/manual/noise"]}[inte.foundPeak])
                                     sampleItem.setText(1, self.__areaFormatter%(inte.area) if inte.foundPeak else "")
                                     sampleItem.setText(2, "%.2f - %.2f"%(inte.rtStart, inte.rtEnd) if inte.foundPeak else "")
-
+                
+                prDiag.setText("Updating calibrations")
+                PeakBotMRM.predict.calibrateIntegrations(self.loadedExperiments[selExp].substances, self.loadedExperiments[selExp].integrations, procSubstances = specificSubstances)
+                
+                prDiag.setText("All done")
+                prDiag.close()
+                
             if len(expToProcess) == 1 and specificSubstances is None:
                 if PyQt6.QtWidgets.QMessageBox.question(self, "Generate summary", "Do you want to generate a summary of the processed results and detected chromatographic peaks?") == PyQt6.QtWidgets.QMessageBox.StandardButton.Yes:
                     processingInfo = ["PeakBotMRM model file: %s"%(peakBotMRMModelFile)]
@@ -2369,7 +2353,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     for i, l in enumerate(ls):
                         procDiag.setValue(i)
                         procDiag.setLabelText("Saving experiments, %d / %d done"%(i, len(ls)))
-                        if not self.loadedExperiments[l.experiment].saveToFile(os.path.join(fDir, l.experiment+".pbexp"), additionalData = {"settings": copy.deepcopy(self._getSaveSettingsObject())}):
+                        if not self.loadedExperiments[l.experiment].saveToFile(os.path.join(fDir, l.experiment+".pbexp"), additionalData = {"settings": copy.deepcopy(self._getSaveSettingsObject()), "volcanoPlots": [{"group1ComboBox": self.__guiVolcanoPlots[k]["group1ComboBox"].currentText(), "group2ComboBox": self.__guiVolcanoPlots[k]["group2ComboBox"].currentText()} for k in self.__guiVolcanoPlots]}):
                             PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "<b>Error: could not export experiment</b><br><br>See log for further details.")
                         else:
                             procDiag.setLabelText("Saving experiment '%s'"%(l.experiment))
@@ -2397,10 +2381,66 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     self.loadBinaryExperiment(file)
 
             procDiag.close()
+            
+    def addVolcanoPlot(self, evt, i = None):
+        if i is None:
+            i = len(self.__guiVolcanoPlots) + 1
+        
+        plot = self.genPlot()
+        a = PyQt6.QtWidgets.QComboBox()
+        a.setFixedWidth(150)  ## TODO improve
+        b = PyQt6.QtWidgets.QComboBox()
+        b.setFixedWidth(150)  ## TODO improve
+        layout = PyQt6.QtWidgets.QHBoxLayout()
+        layout.setContentsMargins(0,0,0,0)
+        temp = PyQt6.QtWidgets.QLabel("Comapre ")
+        layout.addWidget(temp)
+        layout.addWidget(a)
+        temp = PyQt6.QtWidgets.QLabel(" (right) with ")
+        layout.addWidget(temp)
+        layout.addWidget(b)
+        temp = PyQt6.QtWidgets.QLabel(" (left)")
+        layout.addWidget(temp)
+        helper2 = PyQt6.QtWidgets.QWidget()
+        helper2.setLayout(layout)
+        
+        layout = PyQt6.QtWidgets.QVBoxLayout()
+        layout.setContentsMargins(0,0,0,0)
+        layout.addWidget(helper2)
+        layout.addWidget(plot)
+        helper = PyQt6.QtWidgets.QWidget()
+        helper.setLayout(layout)
+        dock = Dock("Volcano plot %d"%(i))
+        self.docks.append(dock)
+        dock.addWidget(helper)
+        self.dockArea.addDock(dock)
+        #self.dockArea.moveDock(self.docks[15+i], "", self.docks[14+i])
+        self.__guiVolcanoPlots[i] = {"plot": plot, "group1ComboBox": a, "group2ComboBox": b}
+        
 
     def loadBinaryExperiment(self, fromFile):
         with open(fromFile, "rb") as fin:
-            expName, substances, integrations, sampleInfo, additionalData = pickle.load(fin)
+            content = pickle.load(fin)
+            
+            ## Convert old experiments (tuple) to new style (dictionary)
+            if type(content) == tuple and len(content) == 5:
+                expName, substances, integrations, sampleInfo, additionalData = content
+                content = {"expName": expName, "substances": substances, "integrations": integrations, "sampleInfo": sampleInfo, "additionalData": additionalData}
+            elif type(content) == dict:
+                if not "expName" in content or not "substances" in content or not "integrations" in content or not "sampleInfo" in content or not "additionalData" in content:
+                    PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "<b>Invalid binary experiment</b><br><br>Cannot load binary file '%s'.<br>Please contact technical support of PeakBotMRM."%(fromFile))
+                    return
+            else:
+                    PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "<b>Invalid binary experiment</b><br><br>Cannot load binary file '%s'.<br>Please contact technical support of PeakBotMRM."%(fromFile))
+                    return
+            
+            ## Load experiment
+            if type(content) == dict:
+                expName        = content["expName"]
+                substances     = content["substances"]
+                integrations   = content["integrations"]
+                sampleInfo     = content["sampleInfo"]
+                additionalData = content["additionalData"]
 
             i = 1
             while expName in self.loadedExperiments:
@@ -2409,6 +2449,14 @@ class Window(PyQt6.QtWidgets.QMainWindow):
 
             if additionalData is not None and type(additionalData) == dict and "settings" in additionalData:
                 self._loadSettingsFromObject(additionalData["settings"])
+                
+            ## TODO fix issue with preselection to loaded file
+            if False and "volcanoPlots" in content:
+                for i, k in enumerate(content["volcanoPlots"]):
+                    if i > len(self.__guiVolcanoPlots):
+                        self.addVolcanoPlot(i = i)
+                    self.__guiVolcanoPlots[i]["group1ComboBox"].setCurrentIndex(self.__guiVolcanoPlots[i]["group1ComboBox"].texts() == content["volcanoPlots"]["group1ComboBox"])
+                    self.__guiVolcanoPlots[i]["group2ComboBox"].setCurrentIndex(self.__guiVolcanoPlots[i]["group2ComboBox"].texts() == content["volcanoPlots"]["group2ComboBox"])
 
             self.addExperimentToGUI(expName, substances, integrations, sampleInfo, experimentFile = fromFile)
 
@@ -3253,6 +3301,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     self.updateAllAreas(selExp, selSub)
                     if selIST is not None:
                         self.updateAllAreas(selExp, selIST)
+                    substancesComments, samplesComments = PeakBotMRM.predict.calibrateIntegrations(self.loadedExperiments[it.experiment].substances, self.loadedExperiments[it.experiment].integrations, procSubstances = [selSub])
+                    self.updateAllCalibrations(selExp, selSub)
 
                     if autoRange and selExp == self.lastExp and selSub != self.lastSub:
                         for plot in self._plots:
@@ -3377,7 +3427,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                     if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1:
                                         peakAreaLevel.append(self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].area)
                                     if istd is not None:
-                                        if it.sample in self.loadedExperiments[oit.experiment].integrations[istd.name] and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1:
+                                        if oit.sample in self.loadedExperiments[oit.experiment].integrations[istd.name] and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1:
                                             peakAreaLevelIS.append(self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area)        
                                             if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1 and oit.sample in self.loadedExperiments[oit.experiment].integrations[istd.name] and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1:
                                                 peakAreaLevelRatio.append(self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].area / self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area)
@@ -3478,7 +3528,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     if self.__calculateStatistics:
                         try:
                             self._plots[10].clear(); self._plots[11].clear()
-                            self.plotPCA(selExp, selSub, plotInds = [10,11])
+                            self.plotPCA(selExp, selSub, plotInds = [10,11], integrationType = self.__statsQuantifier)
                             self._plots[10].autoRange(); self._plots[11].autoRange()
                         except:
                             logging.exception("Could not calculate PCA")
@@ -3486,7 +3536,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         
                         try:
                             self._plots[12].clear()
-                            self.plotUniVarStatistics(selExp, selSub, plotIndValues = 12)
+                            self.plotUniVarStatistics(selExp, selSub, plotIndValues = 12, integrationType = self.__statsQuantifier)
                             self._plots[12].autoRange()
                         except:
                             logging.exception("Could not calculate univariate statistics")
@@ -3724,7 +3774,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         if len(useCals) > 2:
                             for i in range(1, len(useCals) - 1):
                                 a = np.concatenate((a, np.linspace(useCals[i], useCals[i+1], self.__calibrationFunctionstep)))
-                        a = np.concatenate((a, np.linspace(np.max(useCals), np.max(useCals)*1.2, self.__calibrationFunctionstep)))
+                        a = np.concatenate((a, np.linspace(np.max(useCals), np.max(useCals)*2, self.__calibrationFunctionstep)))
                         b = None
                         if self.calibrationMethod.currentText() in ["linear", "linear, 1/expConc."]:
                             b = model(np.array((a)).reshape(-1,1))
@@ -3794,9 +3844,12 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         temp = np.zeros((len(samples), len(substances)))
         for sampi, samp in enumerate(samples):
             for subi, sub in enumerate(substances):
-                if self.loadedExperiments[selExp].integrations[sub][samp].foundPeak % 128 > 0:
+                if samp in self.loadedExperiments[selExp].integrations[sub] and self.loadedExperiments[selExp].integrations[sub][samp].foundPeak % 128 > 0:
                     if integrationType.lower() == "area":
                         temp[sampi, subi] = self.loadedExperiments[selExp].integrations[sub][samp].area
+                    elif integrationType.lower() == "concentration": 
+                        if self.loadedExperiments[selExp].integrations[sub][samp].concentration is not None and not np.isnan(self.loadedExperiments[selExp].integrations[sub][samp].concentration) and not np.isinf(self.loadedExperiments[selExp].integrations[sub][samp].concentration):
+                            temp[sampi, subi] = self.loadedExperiments[selExp].integrations[sub][samp].concentration
                     else: 
                         raise Exception("Unknown integration type specified for PCA plot")
         
@@ -3910,22 +3963,36 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         temp = np.zeros((len(samples), len(substances)))
         for sampi, samp in enumerate(samples):
             for subi, sub in enumerate(substances):
-                if self.loadedExperiments[selExp].integrations[sub][samp].foundPeak % 128 > 0:
+                if samp in self.loadedExperiments[selExp].integrations[sub] and self.loadedExperiments[selExp].integrations[sub][samp].foundPeak % 128 > 0:
                     if integrationType.lower() == "area":
                         temp[sampi, subi] = self.loadedExperiments[selExp].integrations[sub][samp].area
+                    elif integrationType.lower() == "concentration": 
+                        if self.loadedExperiments[selExp].integrations[sub][samp].concentration is not None and not np.isnan(self.loadedExperiments[selExp].integrations[sub][samp].concentration) and not np.isinf(self.loadedExperiments[selExp].integrations[sub][samp].concentration):
+                            temp[sampi, subi] = self.loadedExperiments[selExp].integrations[sub][samp].concentration
                     else: 
-                        raise Exception("Unknown integration type specified for PCA plot")
-                        
+                        raise Exception("Unknown integration type specified for univariate statistics")
+        
+        pdTemp = {"sampleGroup": [], "values": []}
         sampleGroupsUn = natsort.natsorted(list(set(sampleGroups)))
         if selSub is not None and selExp is not None:
             for i, sampleGroup in enumerate(sampleGroupsUn):
                 vals = temp[[t == sampleGroup for t in sampleGroups], [subi for subi, sub in enumerate(substances) if sub == selSub]]
+                pdTemp["sampleGroup"].extend(sampleGroup for i in vals)
+                pdTemp["values"].extend(i for i in vals)
                 xvals = pyqtgraph.pseudoScatter(vals, spacing=0.4, bidir=True) * 0.2
                 self._plots[plotIndValues].plot(x=xvals+i, y=vals, pen=None, symbolSize = 8, symbolBrush = groupColors[sampleGroup], symbolPen = None)
             ax = self._plots[plotIndValues].getAxis('bottom')
             ax.setTicks([[(i, str(sampleGroupsUn[i])) for i in range(len(sampleGroupsUn))]])
         
-        from scipy.stats import ttest_ind
+        ## TODO include boxplot here
+        if False:
+            df = pd.DataFrame(pdTemp)
+            plot = (p9.ggplot(df, p9.aes(x="sampleGroup", y="values"))
+                    + p9.geom_boxplot()
+                    + p9.xlab("Sample group") + p9.ylab("Value")
+                    + p9.theme(legend_position = "none", panel_spacing_x=0.5))
+            p9.options.figure_size = (5.2,5)
+            p9.ggsave(plot=plot, filename=os.path.join(".", "overview.png"), width=5.2, height=5, dpi=300, verbose=False)
         
         for k in self.__guiVolcanoPlots: #{"plot": plot, "group1ComboBox": a, "group2ComboBox": b}
         

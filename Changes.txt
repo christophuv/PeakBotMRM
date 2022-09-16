@@ -1,3 +1,9 @@
+Version 0.9.53
+* added option to switch to concentration instead of area quantifier for statistical analysis
+* started implementing univariate statistics save (with binary experiment)
+* fixed several bugs
+
+
 Version 0.9.52
 * added filter for substance. See help for further details on how to specify it
 * changed sample filter to regex

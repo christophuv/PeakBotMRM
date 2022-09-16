@@ -495,6 +495,13 @@ def calibrateIntegrations(substances, integrations, procSubstances = None):
                                 samplesComments[substanceName][sample].append("Cal: Using for cal. (exp. conc. %s)"%str(exp))
                                 calExp.append(exp)
                                 calObs.append(obs)
+                            elif exp is None or exp <= 0:
+                                samplesComments[substanceName][sample].append("Cal: Not using for calibration (de-selected by user, exp. conc. %s)"%str(exp))
+                            elif obs is None or obs <= 0:
+                                samplesComments[substanceName][sample].append("Cal: Not using for calibration (observed value (%s) is lower than 0, exp. conc. %s)"%(str(obs), str(exp)))
+                            else:
+                                samplesComments[substanceName][sample].append("Cal: Not using for calibration (other problem, exp. conc. %s)"%str(exp))
+                            
                             
                 if len(calExp) > 1 and substances[substanceName].calculateCalibration:
                     calcCal = False
@@ -528,14 +535,15 @@ def calibrateIntegrations(substances, integrations, procSubstances = None):
                                             calcConc = model(np.array((ratio)).reshape(-1,1))
                                             inteSub.concentration = calcConc
                                             
-                                            if calToOrigin is not None and ratio < calObs[calToOrigin]:
+                                            if calToOrigin is not None and ratio < calObs[calToOrigin] and False:
                                                 ## Idea of Ulrich Goldmann: linear interpolation to origin for the lowest calibration level
                                                 ## Attention: Use with caution, not fully tested
                                                 samplesComments[substanceName][sample].append("Outside: Ratio is lower than calibration range with a non-negative regression (level %.3f, observed %.3f). Linear interpolation from last non-negative calibration will be used. Use with caution"%(calExp[calToOrigin], calObs[calToOrigin]))
                                                 inteSub.concentration = model(np.array((calObs[calToOrigin])).reshape(-1,1)) * ratio / calObs[calToOrigin]
-                                                
+                                            elif ratio < np.min(calObs):
+                                                samplesComments[substanceName][sample].append("Lower-LOD: Area_Sub / Area_ISTD (%f) is lower than minimum of calibration range (%f)."%(ratio, np.min(calObs)))
                                             elif ratio > np.max(calObs):
-                                                samplesComments[substanceName][sample].append("Outside: Ratio is higher than calibration range.")
+                                                samplesComments[substanceName][sample].append("Upper-LOD: Area_Sub / Area_ISTD (%f) is higher than calibration range (%f)."%(ratio, np.max(calObs)))
                                         
                             elif inteSub is not None and inteSub.chromatogram is not None and inteSub.foundPeak % 128 and not np.isnan(inteSub.area):
                                 calcConc = model(np.array((inteSub.area)).reshape(-1,1))
@@ -547,8 +555,8 @@ def calibrateIntegrations(substances, integrations, procSubstances = None):
                                     samplesComments[substanceName][sample].append("Outside: Area is lower than calibration range with a non-negative regression (level %.3f, observed %.3f). Linear interpolation from last non-negative calibration will be used. Use with caution"%(calExp[calToOrigin], calObs[calToOrigin]))
                                     inteSub.concentration = model(np.array((calObs[calToOrigin])).reshape(-1,1)) * inteSub.area / calObs[calToOrigin]
                                 elif inteSub.area < np.min(calObs): 
-                                    samplesComments[substanceName][sample].append("LOD: Area is lower than calibration range.")    
+                                    samplesComments[substanceName][sample].append("Lower-LOD: Area_Sub (%f) is lower than calibration range (%f)."%(inteSub.area, np.min(calObs)))
                                 elif inteSub.area > np.max(calObs):
-                                    samplesComments[substanceName][sample].append("ULOD: Area is higher than calibration range.")
+                                    samplesComments[substanceName][sample].append("Upper-LOD: Area_Sub (%f) is higher than calibration range (%f)."%(inteSub.area, np.min(calObs)))
     
     return substancesComments, samplesComments
