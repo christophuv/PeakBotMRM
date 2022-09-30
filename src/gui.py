@@ -894,6 +894,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.tree._keyPressEvent = self.tree.keyPressEvent
         self.tree.keyPressEvent = self.keyPressEvent
 
+
         if os.path.exists(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM", "defaultSettings.pickle")):
             self.tree.blockSignals(True)
             try:
@@ -958,6 +959,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         expit.setHidden(False)
                         for subi in range(expit.childCount()):   
                             subit = expit.child(subi)
+                            subName = subit.substance
                             for sampi in range(subit.childCount()):
                                 sampit = subit.child(sampi)
                                 sampit.setHidden(False)
@@ -974,7 +976,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                     points = int(x.groups(0)[1])
                                 except:
                                     pass
-                                subit.setHidden(not eval(fil.replace("R2", str(r2)).replace("points", str(points)).replace("type", "'%s'"%str(type))))
+                                subit.setHidden(not eval(fil.replace("R2", str(r2)).replace("points", str(points)).replace("type", "'%s'"%str(type)).replace("name", "'%s'"%(str(subName)))))
                             except:
                                 subit.setHidden(False)
                 else:
@@ -1192,7 +1194,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             try:
                 self.dockArea.restoreState(settings["GUI/DockAreaState"])
             except Exception as es:
-                PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "<b>Settings error</b><br><br>Could not restore saved layout. The standard layout will be applied.")
+                TimerMessageBox(self, "PeakBotMRM", "<b>Settings error</b><br><br>Could not restore saved layout. The standard layout will be applied.")
                 logging.exception("Could not restore saved layout")
             
     def saveSettingsToFile(self, settingsFile = None):
@@ -1510,7 +1512,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 prDiag.setWindowIcon(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "robot.png")))
                 prDiag.setWindowTitle("PeakBotMRM")
                 prDiag.setModal(True)
-                prDiag.setText("Predicting with model")
+                prDiag.setLabelText("Predicting with model")
                 prDiag.show()
                 logging.info("")
                 logging.info("")
@@ -1518,7 +1520,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 PeakBotMRM.predict.predictDataset(peakBotMRMModelFile, self.loadedExperiments[selExp].substances, self.loadedExperiments[selExp].integrations, specificSubstances = specificSubstances, callBackFunctionValue = prDiag.setValue, callBackFunctionText = prDiag.setLabelText, showConsoleProgress = False)
                 self.updateCalibrationLabels(expName = selExp)
 
-                prDiag.setText("Updating peak areas")
+                prDiag.setLabelText("Updating peak areas")
                 for sub in self.loadedExperiments[selExp].integrations:
                     if specificSubstances is None or sub in specificSubstances:
                         for samp in self.loadedExperiments[selExp].integrations[sub]:
@@ -1546,10 +1548,10 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                     sampleItem.setText(1, self.__areaFormatter%(inte.area) if inte.foundPeak else "")
                                     sampleItem.setText(2, "%.2f - %.2f"%(inte.rtStart, inte.rtEnd) if inte.foundPeak else "")
                 
-                prDiag.setText("Updating calibrations")
+                prDiag.setLabelText("Updating calibrations")
                 PeakBotMRM.predict.calibrateIntegrations(self.loadedExperiments[selExp].substances, self.loadedExperiments[selExp].integrations, procSubstances = specificSubstances)
                 
-                prDiag.setText("All done")
+                prDiag.setLabelText("All done")
                 prDiag.close()
                 
             if len(expToProcess) == 1 and specificSubstances is None:

@@ -486,7 +486,7 @@ def calibrateIntegrations(substances, integrations, procSubstances = None):
                                         obs = ratio
                                         fromType = "ISTD ratio"
                             else:
-                                if inteSub is not None and inteSub.chromatogram is not None and inteSub.foundPeak % 128 == 1 and not np.isnan(inteSub.area):
+                                if inteSub is not None and inteSub.chromatogram is not None and inteSub.foundPeak is not None and inteSub.foundPeak % 128 == 1 and not np.isnan(inteSub.area):
                                     exp = level * substances[substanceName].calLevel1Concentration
                                     obs = inteSub.area
                                     fromType = "Peak areas"

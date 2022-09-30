@@ -182,7 +182,77 @@ class EICIOUPeaks(tf.keras.metrics.Metric):
 
 
 @tf.autograph.experimental.do_not_convert
-def EICIOULoss(dummyX, dummyY, numClasses = None):
+def EICIOULoss(dummyX, dummyY, numClasses = None):    
+    
+    '''    
+    ## R-code to simulate the loss
+    
+    library(ggplot2)
+    library(dplyr)
+    library(magrittr)
+    library(cowplot)
+
+    start = 15
+    end = 15.3
+
+    rts = seq(15 - 1.4, end + 0.4, 0.01)
+
+    start = rts[which.min(abs(rts - start))]
+    end = rts[which.min(abs(rts - end))]
+
+    eic = dnorm(rts, mean = (end + start) / 2, sd = 0.05)
+    eic = eic + dnorm(rts, mean = 14.88, sd = 0.05) / 3
+    plot(rts, eic)
+    abline(v = c(start, end), col = "firebrick")
+
+
+    dat = data.frame(type = c(), rt = c(), val = c())
+
+    for(s in seq(start - 1.4, end , 0.01)){
+    
+    mse = (start - s) ^ 2
+    dat = rbind(dat, data.frame(type = "MSE", rt = s, val = mse))
+    
+    t = (end - max(s,start)) / (end - min(s,start))
+    dat = rbind(dat, data.frame(type = "IOU", rt = s, val = t))
+    
+    iou = sum(eic[which(rts == max(s,start)):which(rts == end)]) / sum(eic[which(rts == min(s,start)):which(rts == end)])
+    dat = rbind(dat, data.frame(type = "AreaIOU", rt = s, val = iou))
+    
+    t = mse * (sqrt(1 - iou) + sqrt(mse) )
+    dat = rbind(dat, data.frame(type = "AreaIOULoss", rt = s, val = t))
+    }
+
+
+    p1 <- ggplot(data = data.frame(rts = rts, eic = eic), mapping = aes(x = rts, y = eic)) +
+    theme_minimal() +
+    geom_line(size=2) +
+    geom_vline(xintercept = c(start, end), colour = "firebrick", size = 2) +
+    geom_vline(xintercept = c(start), colour = "firebrick", size = 3) +
+    ggtitle("EIC")
+
+    p2 <- ggplot(data = dat, mapping = aes(x = rt, y = val, colour = type)) +
+    theme_minimal() +
+    geom_line(size=2) +
+    ggtitle("Overview of metrics") +
+    theme(legend.position = "bottom")
+
+    p3 <- ggplot(data = dat %>% dplyr::filter(type %in% c("MSE", "AreaIOULoss")), mapping = aes(x = rt, y = val, colour = type)) +
+    theme_minimal() +
+    geom_line(size=2) +
+    ggtitle("Overview of metrics") +
+    theme(legend.position = "bottom")
+
+    p4 <- ggplot(data = dat %>% dplyr::filter(type %in% c("MSE", "AreaIOULoss"), rt > 14.8, rt < 15.25), mapping = aes(x = rt, y = val, colour = type)) +
+    theme_minimal() +
+    geom_line(size=2) +
+    ggtitle("Overview of metrics") +
+    theme(legend.position = "bottom")
+
+    print(plot_grid(p1, p2, plot_grid(p3, p4, ncol=1), ncol=3))
+    
+    '''
+    
     if numClasses is None:
         numClasses = PeakBotMRM.Config.NUMCLASSES
     
@@ -202,7 +272,7 @@ def EICIOULoss(dummyX, dummyY, numClasses = None):
     ## Calculate MSE
     mse = tf.reduce_mean(tf.square(rtInds-prtInds), axis=1)
     ## Combine iou loss with MSE
-    loss = mse * tf.sqrt(tf.abs(iouloss))
+    loss = mse * (tf.sqrt(tf.abs(iouloss)) + tf.sqrt(mse))
     loss = tf.where(iouloss > 0, loss, tf.zeros_like(iouloss))
     
     return loss

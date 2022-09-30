@@ -264,7 +264,7 @@ Example: To search for all files containing the substring _Blk, the filter must 
 Example: To search for all files containing the substring _Cal, the filter must be 'samp:_Cal'
 
 ##### Filter substance by regression results
-To filter for regression results on individual substances, the filter must start with the string 'sub:'. Then, a variable python-valid boolean statement must be specified. Here, the variables R2 (None or float), points (None or integer), and type ('Targer', 'ISTD') are available. 
+To filter for regression results on individual substances, the filter must start with the string 'sub:'. Then, a variable python-valid boolean statement must be specified. Here, the variables R2 (None or float), points (None or integer), name (None or str), and type ('Targer', 'ISTD') are available. 
 Example: To search for all regression results of targets that have a R2 value lower than 0.75 or use less than 4 points for the calibration curve, the filter must be 'sub: type == 'Target' and (R2 < 0.75 or points < 4)
 
 ### Save results
