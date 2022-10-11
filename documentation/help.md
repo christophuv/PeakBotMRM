@@ -54,6 +54,7 @@ The Prediction mode is for processing new experiments with an established model 
 Currently the training mode is restricted to experienced users and will be provided with a GUI in a later iteration of the software. We apologize for this inconvenience. 
 
 ## Prediction mode
+In this mode new, raw LC-MS data can be processed and chromatographic peaks detected. Besides the raw LC-MS data also a transitiion list needs to be provided (see example). 
 
 ### Start the GUI
 Double-click on the runPeakBotMRM.bat in the folder TODO. The GUI will appear in a couple of seconds. 
@@ -114,20 +115,22 @@ Some columns necessary will be provided per default. Please fill as many as poss
 | Tissue weight | The weight of the tissue used for generating this sample. Attention: needs to be the same unit for all samples. |
 | Cell count | The cell count of the sample (if applicable). |
 | Sample volume | The volume of the aqueous sample (if applicable). |
-| Report calculation | Additional calculations after regression. Must be a tuple in the form of 'caluclation, "unit"' (without the ' symbols). E.g. 'val, "NA"' or 'val * 0.2, "µg/l"'. Do not use the , as the decimal separator|
+| Report calculation | Additional calculations after regression. Must be a tuple in the form of 'caluclation, "unit"' (without the ' symbols). E.g. 'val, "NA"' or 'val * 0.2, "µg/l"'. Use a dot (.) as the decimal separator. The other columns can be accessed via sampleInfo["column-name"]. |
 
 The field 'Report calculation' is of utmost importance for correct absolute quantification. Any dilution step, cell count calculation, etc. must be implemented there taking the variable 'val' into consideration. Here 'val' represents the regression calculation of the peak area and the calcualted regression curve. Input values can be:
-* val ## calibration value as determined by the peak area and regression curve is reported
-* val * 0.2 ## A dilution of the factor 1:4 is taken into consideration
-* val * 0.1 * 40000000 / 1000000 ## A diluation of the factor 1:9 is taken into consideration and a normalization from 40E6 cells in the sample to 1E6 cells is calculated. 
+* val, 'NA' ## calibration value as determined by the peak area and regression curve is reported
+* val * 0.2, 'NA' ## A dilution of the factor 1:4 is taken into consideration
+* val * 0.1 * 40000000 / 1000000, 'µg/L' ## A diluation of the factor 1:9 is taken into consideration and a normalization from 40E6 cells in the sample to 1E6 cells is calculated. 
 * val / 17.5 ## The tissue weight of the particular sample was 17.5 µg. 
 * 6 ## incorrect, as regardless of the regression quantification 6 will be reported any time. 
 
+Additionally, any field that is available in the meta-data can also be accessed via the dictonary sampleInfo. Any field in the dictionary directly originates from the meta-data sample table and is not parsed or converted to numbers. This has to be done in the formula with Python code. For example:
+* val * 0.2 / float(sampleInfo["Inj. vol"].replace(" µL", "")), "ppm"
+* val * 0.2 / float(sampleInfo["Inj. vol"].replace(" µL", "")) * float(sampleInfo["Diluation"]), "ppm"
+
 This calcualted new value will be reported in the report export of the experiment. 
 
-Note: The field 'Report calculation' is the most generic form for any post-regression calculations. Thus, it needs to be individually for each sample (for sample-specific information such as tissue weight, cell count or sample volume) and sample preparartion step (for steps with the same numbers). Note: In future versions of the GUI it will be possible to access other meta-data information fields, however, currently this is not supported. 
-
-Caution: There are no checks of the entered data involved. Please use with caution and double-check your work. Once accepted, the edits cannot be undone automatically. 
+Caution: There are no sanity-checks of the data entered involved. Please use with caution and double-check the specified calculations. Once accepted, the edits cannot be undone automatically. 
 
 ## Edit substances
 

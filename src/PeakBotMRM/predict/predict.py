@@ -289,13 +289,9 @@ def getCalibrationSamplesAndLevels(substances):
 
 
 def calcNormalizedValue(val, sampleInfo):
-    if "Report type" not in sampleInfo or "Report calculation" not in sampleInfo:
+    if "Report calculation" not in sampleInfo or sampleInfo["Report calculation"] is None or sampleInfo["Report calculation"] == "":
         return val, "(no calculation)"
-    
-    if sampleInfo["Report type"] is None or sampleInfo["Report type"] == "":
-        return val, "(no calculation)"
-    
-    ## TODO parse info from sampleInfo to be available for calculation
+
     return eval(sampleInfo["Report calculation"])
 
 
@@ -325,7 +321,7 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
         samplesOrder = natsort.natsorted(list(allSamps))
     
     with open(toFile, "w") as fout:
-        headersSample = ["", "", "Name", "Data File", "Type", "Level", "Acq. Date-Time", "Method", "Inj. volume", "Dilution", "Comment","Report type","Report calculation"]
+        headersSample = ["", "", "Name", "Data File", "Type", "Level", "Acq. Date-Time", "Method", "Inj. volume", "Dilution", "Comment","Report type","Report calculation", "sample parameters"]
         headersPerSubstance = ["Comment", "IntegrationType", "RT", "Int. Start", "Int. End", "Apex", "Area", "ISTDRatio", "Final Conc.", "Conc. unit", "Absolut quantification", "Absolut quantification unit", "Accuracy"]
                 
         if oneRowHeader4Results:
@@ -360,8 +356,10 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
         for sample in samplesOrder:
             sampleInfo = {}
             for k in headersSample:
-                if sampleMetaData is not None and sample in sampleMetaData and k in sampleMetaData[sample]:
-                    sampleInfo[k] = sampleMetaData[sample][k]
+                if k == "sample parameters":
+                    sampleInfo[k] = str(sampleMetaData[sample])
+                elif sampleMetaData is not None and sample in sampleMetaData and k in sampleMetaData[sample]:
+                    sampleInfo[k] = str(sampleMetaData[sample][k])
             sampleInfo[""] = "!"
             sampleInfo["Level"] = ""
             if calSamplesAndLevels is not None:

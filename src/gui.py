@@ -1525,13 +1525,17 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     if specificSubstances is None or sub in specificSubstances:
                         for samp in self.loadedExperiments[selExp].integrations[sub]:
                             if (button == PyQt6.QtWidgets.QMessageBox.StandardButton.Yes and self.loadedExperiments[selExp].integrations[sub][samp].type != "Manual integration") or button == PyQt6.QtWidgets.QMessageBox.StandardButton.No:
-                                self.loadedExperiments[selExp].integrations[sub][samp].type      = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.type"]
-                                self.loadedExperiments[selExp].integrations[sub][samp].comment   = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.comment"]
+                                try:
+                                    self.loadedExperiments[selExp].integrations[sub][samp].type      = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.type"]
+                                    self.loadedExperiments[selExp].integrations[sub][samp].comment   = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.comment"]
 
-                                self.loadedExperiments[selExp].integrations[sub][samp].foundPeak = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.foundPeak"]
-                                self.loadedExperiments[selExp].integrations[sub][samp].rtStart   = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.rtstart"]
-                                self.loadedExperiments[selExp].integrations[sub][samp].rtEnd     = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.rtend"]
-                                self.loadedExperiments[selExp].integrations[sub][samp].area      = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.areaPB"]
+                                    self.loadedExperiments[selExp].integrations[sub][samp].foundPeak = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.foundPeak"]
+                                    self.loadedExperiments[selExp].integrations[sub][samp].rtStart   = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.rtstart"]
+                                    self.loadedExperiments[selExp].integrations[sub][samp].rtEnd     = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.rtend"]
+                                    self.loadedExperiments[selExp].integrations[sub][samp].area      = self.loadedExperiments[selExp].integrations[sub][samp].other["pred.areaPB"]
+                                except Exception as ex:
+                                    TimerMessageBox(self, "Error in saving prediciton for exp '%s', substance '%s', sample '%s'"%(selExp, sub, samp), timeout = 3)
+                                    logging.exception("Error in saving prediciton for exp '%s', substance '%s', sample '%s'"%(selExp, sub, samp))
 
                 for tlItemInd in range(self.tree.topLevelItemCount()):
                     treeItem = self.tree.topLevelItem(tlItemInd)
@@ -2226,7 +2230,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                 reportCalculation = self.loadedExperiments[selExp].sampleInfo[samp]["Report calculation"]
 
                                 units = set()
-                                out = [str(sampleID), reportDescription + " (val = %s)"%(reportCalculation.split(",")[0]), reportCalculation.split(",")[1]]
+                                out = [str(sampleID), reportDescription + " (val = %s)"%(reportCalculation), ""]
                                 for sub in substances:
                                     if sub in self.loadedExperiments[selExp].integrations and samp in self.loadedExperiments[selExp].integrations[sub] and self.loadedExperiments[selExp].integrations[sub][samp].concentration is not None:
                                         val = self.loadedExperiments[selExp].integrations[sub][samp].concentration[0]
@@ -2242,6 +2246,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                 if len(units) != 1:
                                     PyQt6.QtWidgets.QMessageBox.critical(self, "Exporting results", "<b>Error</b><br><br>Sample '%s' resulted in ambiguous units for the calculation.<br>The export will be aborted!"%(samp))
                                     logging.error("Error, several units calculated for one sample")
+                                else:
+                                    out[2] = units.pop()
                                 tsvWr.writerow(out)
 
                         tsvWr.writerow(["#"])

@@ -128,6 +128,7 @@ img {
 <h2 id="training-mode">Training mode</h2>
 <p>Currently the training mode is restricted to experienced users and will be provided with a GUI in a later iteration of the software. We apologize for this inconvenience.</p>
 <h2 id="prediction-mode">Prediction mode</h2>
+<p>In this mode new, raw LC-MS data can be processed and chromatographic peaks detected. Besides the raw LC-MS data also a transitiion list needs to be provided (see example).</p>
 <h3 id="start-the-gui">Start the GUI</h3>
 <p>Double-click on the runPeakBotMRM.bat in the folder TODO. The GUI will appear in a couple of seconds.</p>
 <p><img src="./gui_mainWindow.png" alt="Main window of the GUI of PeakBotMRM"></p>
@@ -222,21 +223,25 @@ img {
 </tr>
 <tr>
 <td>Report calculation</td>
-<td>Additional calculations after regression. Must be a tuple in the form of 'caluclation, &quot;unit&quot;' (without the ' symbols). E.g. 'val, &quot;NA&quot;' or 'val * 0.2, &quot;µg/l&quot;'. Do not use the , as the decimal separator</td>
+<td>Additional calculations after regression. Must be a tuple in the form of 'caluclation, &quot;unit&quot;' (without the ' symbols). E.g. 'val, &quot;NA&quot;' or 'val * 0.2, &quot;µg/l&quot;'. Use a dot (.) as the decimal separator. The other columns can be accessed via sampleInfo[&quot;column-name&quot;].</td>
 </tr>
 </tbody>
 </table>
 <p>The field 'Report calculation' is of utmost importance for correct absolute quantification. Any dilution step, cell count calculation, etc. must be implemented there taking the variable 'val' into consideration. Here 'val' represents the regression calculation of the peak area and the calcualted regression curve. Input values can be:</p>
 <ul>
-<li>val ## calibration value as determined by the peak area and regression curve is reported</li>
-<li>val * 0.2 ## A dilution of the factor 1:4 is taken into consideration</li>
-<li>val * 0.1 * 40000000 / 1000000 ## A diluation of the factor 1:9 is taken into consideration and a normalization from 40E6 cells in the sample to 1E6 cells is calculated.</li>
+<li>val, 'NA' ## calibration value as determined by the peak area and regression curve is reported</li>
+<li>val * 0.2, 'NA' ## A dilution of the factor 1:4 is taken into consideration</li>
+<li>val * 0.1 * 40000000 / 1000000, 'µg/L' ## A diluation of the factor 1:9 is taken into consideration and a normalization from 40E6 cells in the sample to 1E6 cells is calculated.</li>
 <li>val / 17.5 ## The tissue weight of the particular sample was 17.5 µg.</li>
 <li>6 ## incorrect, as regardless of the regression quantification 6 will be reported any time.</li>
 </ul>
+<p>Additionally, any field that is available in the meta-data can also be accessed via the dictonary sampleInfo. Any field in the dictionary directly originates from the meta-data sample table and is not parsed or converted to numbers. This has to be done in the formula with Python code. For example:</p>
+<ul>
+<li>val * 0.2 / float(sampleInfo[&quot;Inj. vol&quot;].replace(&quot; µL&quot;, &quot;&quot;)), &quot;ppm&quot;</li>
+<li>val * 0.2 / float(sampleInfo[&quot;Inj. vol&quot;].replace(&quot; µL&quot;, &quot;&quot;)) * float(sampleInfo[&quot;Diluation&quot;]), &quot;ppm&quot;</li>
+</ul>
 <p>This calcualted new value will be reported in the report export of the experiment.</p>
-<p>Note: The field 'Report calculation' is the most generic form for any post-regression calculations. Thus, it needs to be individually for each sample (for sample-specific information such as tissue weight, cell count or sample volume) and sample preparartion step (for steps with the same numbers). Note: In future versions of the GUI it will be possible to access other meta-data information fields, however, currently this is not supported.</p>
-<p>Caution: There are no checks of the entered data involved. Please use with caution and double-check your work. Once accepted, the edits cannot be undone automatically.</p>
+<p>Caution: There are no sanity-checks of the data entered involved. Please use with caution and double-check the specified calculations. Once accepted, the edits cannot be undone automatically.</p>
 <h2 id="edit-substances">Edit substances</h2>
 <p>To edit some properties of the target metabolites, click the second button in the Edit menu on the left side of the main window. A dialog will open showing the substance table.</p>
 <p>A couple of substance properties can be changed. If any of the provided information is incorrect, the data will not be saved.</p>

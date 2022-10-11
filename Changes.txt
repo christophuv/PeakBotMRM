@@ -1,3 +1,8 @@
+Version 0.9.55
+* added report calculation dictionary based on meta-information
+* fixed some bugs
+
+
 Version 0.9.54
 * added name to substance filtering
 * fixed bug in EICIOULoss
