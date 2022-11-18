@@ -1,3 +1,11 @@
+Version 0.9.56
+* switched to new format of loading/saving experiments (old format is still supported, but binary files will be upgraded upon loading)
+* added delay for filter update to not block user interface unnecessarily (implementation is useful, but bad and will always update with the first keystroke and the last (maximum 2 seconds delay), but it was easily implemented)
+* added support for Python 3.10
+* fixed color parsing bug (must be integer values in python 3.10)
+* fixed splash screen bug (requires additional refresh in python 3.10)
+
+
 Version 0.9.55
 * added report calculation dictionary based on meta-information
 * fixed some bugs

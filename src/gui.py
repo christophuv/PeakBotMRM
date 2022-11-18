@@ -1,5 +1,4 @@
 import logging
-from xml.dom.expatbuilder import FragmentBuilderNS
 logging.root.setLevel(logging.NOTSET)
 logFormatter = logging.Formatter("%(asctime)s [%(levelname)-5.5s]  %(message)s")
 rootLogger = logging.getLogger()
@@ -25,13 +24,16 @@ else:
     pythonScriptDirectory = os.path.abspath(os.path.dirname(__file__))
 import os
 import PySimpleGUI as sg
+window = None
 try:
     splashImage = os.path.join(pythonScriptDirectory, "gui-resources", "robot_loading.png")
     window = sg.Window("", [[sg.Image(splashImage)]], transparent_color=sg.theme_background_color(), no_titlebar=True, keep_on_top=True, finalize=True)
     window.bring_to_front()
 except:
     logging.warning("Cannot show splash screen")
-
+if window is not None:
+    window.refresh()
+    
 from typing import OrderedDict
 import functools
 import shutil
@@ -44,8 +46,8 @@ from pathlib import Path
 import copy
 import csv
 import datetime
+import time
 import platform
-from collections import defaultdict
 from scipy.stats import ttest_ind
 
 import unit_converter
@@ -162,7 +164,8 @@ class Experiment:
 
         try:
             with open(toFile, "wb") as fout:
-                pickle.dump((copy.deepcopy(self.expName), copy.deepcopy(self.substances), tempIntegrations, copy.deepcopy(self.sampleInfo), additionalData), fout)
+                content = {"expName": copy.deepcopy(self.expName), "substances": copy.deepcopy(self.substances), "integrations": tempIntegrations, "sampleInfo": copy.deepcopy(self.sampleInfo), "additionalData": additionalData}
+                pickle.dump(content, fout)
                 return True
         except Exception as ex:
             logging.exception("Exception during binary experiment output")
@@ -925,78 +928,85 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 pass
 
             if not msConvertIsFine:
-                logging.error("\033[91mError: msconvert (%s) not found.\033[0m Download and install from https://proteowizard.sourceforge.io/")
+                logging.error("\033[91mError: msconvert (%s) not found.\033[0m Download and install from https://proteowizard.sourceforge.io/ and/or set path in the PeakBotMRM settings accordingly.")
                 PyQt6.QtWidgets.QMessageBox.critical(None, "PeakBotMRM", "Error<br><br>MSConvert (at '%s') cannot be found. Please verify that it is present/installed and/or set the path to the executible accordingly in the settings<br><br>Download MSconvert from <a href='https://proteowizard.sourceforge.io/'>https://proteowizard.sourceforge.io/</a>.<br>Choose the version that is 'able to convert ventdor files'.<br>Install the software.<br>Then try restarting PeakBotMRM. If 'msconvert' alone does not work, try '%%LOCALAPPDATA%%\\Apps\\ProteoWizard 3.0.22119.ba94f16 32-bit\\msconvert.exe' (and/or replace the version with the one you have installed)"%(self.__msConvertPath))
+                
+        self.lastTimeFilterUpdated = time.time()
 
     def filterUpdated(self):
         filter = self.treeFilter.text()
         filter = "" if filter is None else filter
         reset = False
         
-        try:
-            typ = filter[:filter.index(":")]
-
-            if typ.lower() == "samp":
-                fil = filter[(filter.index(":")+1):].strip()
-                if fil is not None and fil != "":
-                    for iti in range(self.tree.topLevelItemCount()):
-                        expit = self.tree.topLevelItem(iti)
-                        expit.setHidden(False)
-                        for subi in range(expit.childCount()):
-                            subit = expit.child(subi)
-                            subit.setHidden(False)
-                            for sampi in range(subit.childCount()):
-                                sampit = subit.child(sampi)
-                                sampit.setHidden(re.search(fil, sampit.text(0)) is None)
-                else:
-                    reset = True
-                        
-            elif typ.lower() == "sub":
-                fil = filter[(filter.index(":")+1):].strip()
-                if fil is not None and fil != "":
-                    for iti in range(self.tree.topLevelItemCount()):
-                        expit = self.tree.topLevelItem(iti)
-                        expit.setHidden(False)
-                        for subi in range(expit.childCount()):   
-                            subit = expit.child(subi)
-                            subName = subit.substance
-                            for sampi in range(subit.childCount()):
-                                sampit = subit.child(sampi)
-                                sampit.setHidden(False)
-                            try:
-                                x = re.search("R2 ([+-]?[0-9]+\.?[0-9]*|\.[0-9]+), ([0-9]+) points, .*", subit.text(2))
-                                type = self.loadedExperiments[expit.experiment].substances[subit.substance].type
-                                r2 = None
-                                try:
-                                    r2 = float(x.groups(0)[0])
-                                except:
-                                    pass
-                                points = None
-                                try:
-                                    points = int(x.groups(0)[1])
-                                except:
-                                    pass
-                                subit.setHidden(not eval(fil.replace("R2", str(r2)).replace("points", str(points)).replace("type", "'%s'"%str(type)).replace("name", "'%s'"%(str(subName)))))
-                            except:
-                                subit.setHidden(False)
-                else:
-                    reset = True
+        if time.time() - self.lastTimeFilterUpdated > 2:
+            self.lastTimeFilterUpdated = time.time()
             
-            else:
+            try:
+                typ = filter[:filter.index(":")]
+
+                if typ.lower() == "samp":
+                    fil = filter[(filter.index(":")+1):].strip()
+                    if fil is not None and fil != "":
+                        for iti in range(self.tree.topLevelItemCount()):
+                            expit = self.tree.topLevelItem(iti)
+                            expit.setHidden(False)
+                            for subi in range(expit.childCount()):
+                                subit = expit.child(subi)
+                                subit.setHidden(False)
+                                for sampi in range(subit.childCount()):
+                                    sampit = subit.child(sampi)
+                                    sampit.setHidden(re.search(fil, sampit.text(0)) is None)
+                    else:
+                        reset = True
+                            
+                elif typ.lower() == "sub":
+                    fil = filter[(filter.index(":")+1):].strip()
+                    if fil is not None and fil != "":
+                        for iti in range(self.tree.topLevelItemCount()):
+                            expit = self.tree.topLevelItem(iti)
+                            expit.setHidden(False)
+                            for subi in range(expit.childCount()):   
+                                subit = expit.child(subi)
+                                subName = subit.substance
+                                for sampi in range(subit.childCount()):
+                                    sampit = subit.child(sampi)
+                                    sampit.setHidden(False)
+                                try:
+                                    x = re.search("R2 ([+-]?[0-9]+\.?[0-9]*|\.[0-9]+), ([0-9]+) points, .*", subit.text(2))
+                                    type = self.loadedExperiments[expit.experiment].substances[subit.substance].type
+                                    r2 = None
+                                    try:
+                                        r2 = float(x.groups(0)[0])
+                                    except:
+                                        pass
+                                    points = None
+                                    try:
+                                        points = int(x.groups(0)[1])
+                                    except:
+                                        pass
+                                    subit.setHidden(not eval(fil.replace("R2", str(r2)).replace("points", str(points)).replace("type", "'%s'"%str(type)).replace("name", "'%s'"%(str(subName)))))
+                                except:
+                                    subit.setHidden(False)
+                    else:
+                        reset = True
+                
+                else:
+                    reset = True
+            except:
                 reset = True
-        except:
-            reset = True
         
-        if reset:
-            for iti in range(self.tree.topLevelItemCount()):
-                expit = self.tree.topLevelItem(iti)
-                expit.setHidden(False)
-                for subi in range(expit.childCount()):
-                    subit = expit.child(subi)
-                    subit.setHidden(False)
-                    for sampi in range(subit.childCount()):
-                        sampit = subit.child(sampi)
-                        sampit.setHidden(False)
+            if reset:
+                for iti in range(self.tree.topLevelItemCount()):
+                    expit = self.tree.topLevelItem(iti)
+                    expit.setHidden(False)
+                    for subi in range(expit.childCount()):
+                        subit = expit.child(subi)
+                        subit.setHidden(False)
+                        for sampi in range(subit.childCount()):
+                            sampit = subit.child(sampi)
+                            sampit.setHidden(False)
+                            
+        self.lastTimeFilterUpdated = time.time()
 
 
     def keyPressEvent(self, event):
@@ -2449,6 +2459,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 integrations   = content["integrations"]
                 sampleInfo     = content["sampleInfo"]
                 additionalData = content["additionalData"]
+            else: 
+                logging.info("Cannot load binary experiment.")
+                raise RuntimeError("Cannot load binary experiment. The format is unexpected.")
 
             i = 1
             while expName in self.loadedExperiments:
@@ -3678,7 +3691,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 if scaleEIC:
                     y = y - np.min(y)
                     y = y / np.max(y)
-                col = PyQt6.QtGui.QColor.fromRgb(self.__normalColor[0], self.__normalColor[1], self.__normalColor[2])
+                col = PyQt6.QtGui.QColor.fromRgb(int(self.__normalColor[0]), int(self.__normalColor[1]), int(self.__normalColor[2]))
                 self._plots[plotInds[0]].plot(x,y, pen = (col.red(), col.green(), col.blue(), 255*transp))
                 if inte.foundPeak is not None and inte.foundPeak % 128:
                     x = x[np.logical_and(inte.rtStart <= inte.chromatogram["rts"], inte.chromatogram["rts"] <= inte.rtEnd)]
@@ -3686,9 +3699,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                     if self.__guiPlotsInSampleColor:
                         col = PyQt6.QtGui.QColor(colors[ind])
                     else:
-                        col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2], 255*transp) # PyQt6.QtGui.QColor(colors[ind])
+                        col = PyQt6.QtGui.QColor.fromRgb(int(self.__highlightColor1[0]), int(self.__highlightColor1[1]), int(self.__highlightColor1[2]), int(255*transp)) # PyQt6.QtGui.QColor(colors[ind])
                         if inte.foundPeak is not None and inte.foundPeak % 128 == 2:
-                            col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor2[0], self.__highlightColor2[1], self.__highlightColor2[2], 255*transp)
+                            col = PyQt6.QtGui.QColor.fromRgb(int(self.__highlightColor2[0]), int(self.__highlightColor2[1]), int(self.__highlightColor2[2]), int(255*transp))
                     self._plots[plotInds[0]].plot(x, y, pen = (col.red(), col.green(), col.blue(), 255))
         if refRT is not None:
             infLine = pyqtgraph.InfiniteLine(pos = [refRT, 0], movable=False, angle=90, label='', pen=self.__normalColor)
@@ -3713,9 +3726,9 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         if self.__guiPlotsInSampleColor:
                             col = PyQt6.QtGui.QColor(colors[ind])
                         else:
-                            col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor1[0], self.__highlightColor1[1], self.__highlightColor1[2], 255*transp) # PyQt6.QtGui.QColor(colors[ind])
+                            col = PyQt6.QtGui.QColor.fromRgb(int(self.__highlightColor1[0]), int(self.__highlightColor1[1]), int(self.__highlightColor1[2]), int(255*transp)) # PyQt6.QtGui.QColor(colors[ind])
                             if inte.foundPeak is not None and inte.foundPeak % 128 == 2:
-                                col = PyQt6.QtGui.QColor.fromRgb(self.__highlightColor2[0], self.__highlightColor2[1], self.__highlightColor2[2], 255*transp)
+                                col = PyQt6.QtGui.QColor.fromRgb(int(self.__highlightColor2[0]), int(self.__highlightColor2[1]), int(self.__highlightColor2[2]), int(255*transp))
                         self._plots[plotInds[1]].plot(tempRT - peakApexRT,
                                                     (temp - minVal) / maxVal,
                                                     pen = (col.red(), col.green(), col.blue(), 255*transp))
