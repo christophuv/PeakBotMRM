@@ -75,14 +75,14 @@ git clone https://github.com/christophuv/PeakBotMRM.git
 cd ..
 ```
 
-5. Create a new python file and implement the settings of the training and validation dataset(s)
+5. Create a new python file Train_XXX.py and implement the settings of the training and validation dataset(s). Modify the parameters accordingle (TODO). Ideally, the raw LC-QQQ-MS data and the transition lists reside in the subfolder 'Reference'. 
 ```
 ################################
 ### Settings
 
 import os
 ## Experiment name
-expName = "Train_METAB02"
+expName = "Train_XXX"
 ## Experiment directory
 expDir = os.path.join(".", expName)
 ## Modelfiles
@@ -98,22 +98,22 @@ valDSs = []
 
 ## R100140_METABO02 dataset
 trainDSs.append(
-    {   ## The dataset's name
-        "DSName"              : "Ref_R100140",
+    {   ## The dataset's name  
+        "DSName"              : "Ref_R100140", ## TODO
         ## File where the MRM information about the substances is saved
-        "transitions"         : "./Reference/transitions_UntilR100269.tsv",
+        "transitions"         : "./Reference/transitions_UntilR100269.tsv", ## TODO
         ## File with the manual integration results
-        "GTPeaks"             : "./Reference/R100140_Integrations.csv",
+        "GTPeaks"             : "./Reference/R100140_Integrations.csv", ## TODO
         ## Path to the chromatograms
-        "samplesPath"         : "./Reference/R100140_METAB02_MCC025_20200306",
+        "samplesPath"         : "./Reference/R100140_METAB02_MCC025_20200306", ## TODO
         ## Substances to exlcude (None refers to no substance)
-        "excludeSubstances"   : ["Hexose 1-phosphate", "Hexose 6-phosphate"], 
+        "excludeSubstances"   : ["Hexose 1-phosphate", "Hexose 6-phosphate"],  ## TODO
         ## Substances to use (None refers to all substances)
-        "includeSubstances"   : None,
+        "includeSubstances"   : None,  ## TODO
         ## Samples to be used or not (None refers to al substances)
-        "sampleUseFunction"   : None,
+        "sampleUseFunction"   : None,  ## TODO
         ## (1, function) .. check peak attributes with function, None or (0, anything) .. dont check peak attributes, (-1, function) .. check peak attributes with function but use the inverse
-        "checkPeakAttributes" : None
+        "checkPeakAttributes" : None  ## TODO
     })
 
 
@@ -175,7 +175,9 @@ PeakBotMRM.train.createHistory(historyFile, locationAndPrefix = os.path.join(exp
 ```
 
 6. Optionally: Modify the GPU index and/or the memory limitation
-7. Play around with the different parameters of the trainPeakBotMRMModel function
+7. Run the script with 'python Train_xxx.py'. 
+8. The model will be saved in the folder 'tmp' and the log will be written to the folder 'log'. All processing results are available as a pandas object in the file 'History_Training.pandas.pickle'. Furthermore, plots of the training will also be put into this folder. 
+9.  Play around with the different parameters of the trainPeakBotMRMModel function or implement a couple of loops that iterate different parameter sets. If the script executes several times, the old results will not be overwritten, but appendend allowing for an easy comparison of the different settings and training replicates. 
 
 
 
