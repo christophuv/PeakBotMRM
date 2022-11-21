@@ -604,7 +604,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         self.__guiPlotsInSampleColor = False
         
         self.__statsUseISTDs = True
-        self.__calculateStatistics = True
+        self.__calculateStatistics = False
         self.__statsQuantifier = "Area" # either "Area" or "Concentration"
         
         if not os.path.exists(os.path.join(os.path.expandvars("%LOCALAPPDATA%"), "PeakBotMRM")):
