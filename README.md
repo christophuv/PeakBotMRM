@@ -82,51 +82,121 @@ cd ..
 
 import os
 ## Experiment name
-expName = "Train_XXX"
+expName = "Train_METAB02"
 ## Experiment directory
-expDir = os.path.join(".", expName)
+expDir = os.path.join(".")
 ## Modelfiles
 modelPath = os.path.join(expDir, "tmp")
 ## Logging directory
 logDir = os.path.join(expDir, "logs")
 ## History object
 historyFile = os.path.join(expDir, "History_Training.pandas.pickle")
+## Parameter file
+parameterFile = os.path.join(expDir, "ParameterMapping.txt")
+## Plots
+plotsDirPrefix = os.path.join(expDir, "plots")
 ### Training datasets
 trainDSs = []
 ### Validation datasets (independent from training dataset)
 valDSs = []
+## Training parameters
+params = {
+    "balanceDataset": [False],
+    "balanceAugmentations": [True],
+    "addRandomNoise": [True], "maxRandFactor": [0.1], "maxNoiseLevelAdd": [0.1],    
+    "shiftRTs": [True],
+    "maxShift": [0.15], 
+    "aug_augment": [True], "aug_addAugPeaks": [True], "aug_maxAugPeaksN": [3],
+    "stratifyDataset": [True], "intThres": [None], "peakWidthThres": [0.3],
+    "useEachInstanceNTimes": [5, 3],
+}
+maxParameterCombinationsToTest = 50
 
 ## R100140_METABO02 dataset
 trainDSs.append(
-    {   ## The dataset's name  
-        "DSName"              : "Ref_R100140", ## TODO
+    {   ## The dataset's name
+        "DSName"              : "Ref_R100140",
         ## File where the MRM information about the substances is saved
-        "transitions"         : "./Reference/transitions_UntilR100269.tsv", ## TODO
+        "transitions"         : "./Reference/transitions.tsv",
         ## File with the manual integration results
-        "GTPeaks"             : "./Reference/R100140_Integrations.csv", ## TODO
+        "GTPeaks"             : "./Reference/R100140_Integrations.csv",
         ## Path to the chromatograms
-        "samplesPath"         : "./Reference/R100140_METAB02_MCC025_20200306", ## TODO
+        "samplesPath"         : "./Reference/R100140_METAB02_MCC025_20200306",
         ## Substances to exlcude (None refers to no substance)
-        "excludeSubstances"   : ["Hexose 1-phosphate", "Hexose 6-phosphate"],  ## TODO
+        "excludeSubstances"   : ["Hexose 1-phosphate", "Hexose 6-phosphate"], 
         ## Substances to use (None refers to all substances)
-        "includeSubstances"   : None,  ## TODO
-        ## Samples to be used or not (None refers to al substances)
-        "sampleUseFunction"   : None,  ## TODO
+        "includeSubstances"   : None,
+        ## Samples to be used or not (None refers to all substances)
+        "sampleUseFunction"   : None,
         ## (1, function) .. check peak attributes with function, None or (0, anything) .. dont check peak attributes, (-1, function) .. check peak attributes with function but use the inverse
-        "checkPeakAttributes" : None  ## TODO
+        "checkPeakAttributes" : None
+    })
+
+## R100138_METABO02 dataset
+trainDSs.append(
+    {   ## The dataset's name
+        "DSName"              : "Ref_R100138",
+        ## File where the MRM information about the substances is saved
+        "transitions"         : "./Reference/transitions.tsv",
+        ## File with the manual integration results
+        "GTPeaks"             : "./Reference/R100138_Integrations.csv",
+        ## Path to the chromatograms
+        "samplesPath"         : "./Reference/R100138_METAB02_MCC025_20200304",
+        ## Substances to exlcude (None refers to no substance)
+        "excludeSubstances"   : ["Hexose 1-phosphate", "Hexose 6-phosphate"], 
+        ## Substances to use (None refers to all substances)
+        "includeSubstances"   : None,
+        ## Samples to be used or not (None refers to all substances)
+        "sampleUseFunction"   : None,
+        ## (1, function) .. check peak attributes with function, None or (0, anything) .. dont check peak attributes, (-1, function) .. check peak attributes with function but use the inverse
+        "checkPeakAttributes" : None
     })
 
 
 
 
 
-################################
-### Imports
 
+
+################################
+### Imports and functions
+
+
+import argparse
+import sys
+
+parser = argparse.ArgumentParser(description='Train a new PeakBotMRM Model ')
+parser.add_argument('--gpuIndex', dest='gpuInd', action='store', default="0", type=int,
+                    help = 'GPU device to be used by Tensorflow')
+parser.add_argument('--gpuIndexMaxForModulo', dest='gpuLen', action='store', default=1, type=int,
+                    help = 'Ignore, this parameter is only necessary for batch-training on multiple GPU devices: Number of GPU devices available.')
+parser.add_argument('--reset', dest='reset', action='store_true', default=False,
+                    help = 'Reset the training metric database. Warning, no backup will be generated automatically')
+parser.add_argument('--train', dest='train', action='store_true', default=False, 
+                    help = 'Indicator to train new model(s)')
+parser.add_argument('--replicates', action='store', dest="replicates", default=1, type=int,
+                    help = 'Number of replicate trainings')
+parser.add_argument('--createHistory', dest='createHistory', action='store_true', default=False, 
+                    help = 'Compile/plot results of different trained models')
+args = parser.parse_args()
+
+print("Provided or default parameters are:")
+print(args)
+
+if len(sys.argv) == 1:
+    parser.print_help(sys.stdout)
+    sys.exit(0)
+    
+
+## Compare parameters:  clear; for i in {1..20}; do (python Train.py --gpuIndex $i --gpuIndexMaxForModulo 2 --train BalAug,BalDS,unBal,noChe --replicates 20 &); done
+## Train best model:    clear; python Train.py --replicates 1 --train BalAug --plot
+args.gpuInd = args.gpuInd % args.gpuLen
+
+## Specific tensorflow configuration. Can re omitted or adapted to users hardware
 import os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["AUTOGRAPH_VERBOSITY"] = "10"
-os.environ["CUDA_VISIBLE_DEVICES"] = 0    ## TODO set number of CUDA devices
+os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpuInd)
 
 import tensorflow as tf
 gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -135,7 +205,8 @@ if len(gpus) > 0:
     ## Restrict TensorFlow to only allocate 1GB of memory on the first GPU
     try:
         tf.config.experimental.set_memory_growth(gpus[0], True)
-        tf.config.experimental.set_virtual_device_configuration(gpus[0], [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=1024)])
+        tf.config.experimental.set_virtual_device_configuration(gpus[0],
+            [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=1024)])
         logical_gpus = tf.config.experimental.list_logical_devices('GPU')
         print("Created virtual GPU device with a memory limitation")
     except RuntimeError as e:
@@ -144,34 +215,97 @@ if len(gpus) > 0:
 tf.get_logger().setLevel('WARNING')
 
 
+
 ## Import PeakBotMRM from directory not as installed package (can be omitted if the package is installed)
 import sys
-sys.path.append(os.path.join(".", "PeakBotMRM", "src")) 
+sys.path.append(os.path.join("..", "PeakBotMRM", "src"))
 ## Load the PeakBotMRM package
 import PeakBotMRM.train
+
+import os
+import uuid
+from pathlib import Path
+import portalocker
+
+def generateParameterCombinations(parametersAndValues, randomlySelect = -1):
+
+    import itertools as it
+    import random
+
+    allNames = sorted(parametersAndValues)
+    combinations = it.product(*(parametersAndValues[Name] for Name in allNames))
+    combinations = [dict((key, comb[keyi]) for keyi, key in enumerate(allNames)) for comb in combinations]
+    random.shuffle(combinations)
+    
+    if randomlySelect > 0 and randomlySelect < len(combinations):
+        combinations = random.sample(combinations, randomlySelect)
+        
+    return combinations
+
+
+
 
 
 
 
 
 ################################
-### Training
+### Start training
 
-PeakBotMRM.train.trainPeakBotMRMModel(expName, 
-                                      trainDSs, valDSs, 
-                                      modelFile = os.path.join(modelPath, "PBMRM.h5", 
-                                      expDir = expDir, logDir = logDir, 
-                                      showPeakMetrics = False,
-                                      balanceDataset = False, balanceAugmentations = True, 
-                                      addRandomNoise = True, 
-                                      shiftRTs = True, 
-                                      aug_augment = True, aug_addAugPeaks = True, aug_maxAugPeaksN = 3,
-                                      stratifyDataset = True, intThres = None, peakWidthThres = 0.3, 
-                                      useEachInstanceNTimes = 5,
-                                      historyFile = historyFile,
-                                      comment="") 
+Path(expDir).mkdir(parents = True, exist_ok = True)
+Path(modelPath).mkdir(parents = True, exist_ok = True)
+Path(logDir).mkdir(parents = True, exist_ok = True)
+Path(plotsDirPrefix).mkdir(parents = True, exist_ok = True)
+if args.reset:
+    print("")
+    print("  Are you sure that you want to delete the old comparison results? This action cannot be undone.")
+    print("  Please confirm this action with entering the string 'yes, delete'. Any other string will abort the script!")
+    inp = str(input())
+    if inp == "yes, delete":
+        try:
+            os.remove(historyFile)
+        except:
+            print("Could not remove history file '%s'"%(historyFile))
+    else:
+        print("  You have not entered the correct passphrase. The script will abort.")
+        sys.exit(-1)
 
-PeakBotMRM.train.createHistory(historyFile, locationAndPrefix = os.path.join(expDir, "summary_"))
+if args.train:
+    params = generateParameterCombinations(params, randomlySelect = maxParameterCombinationsToTest)
+    for param in params:
+        
+        print("\n\n\n")
+        print("Used parameters: ")
+        for key in param:
+            print("   * %s: %s"%(key, str(param[key])))
+        import os, psutil; print("Used memory by python so far: ", psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2)
+        
+        modelID = uuid.uuid4().hex
+        PeakBotMRM.train.trainPeakBotMRMModel(expName, 
+                                              trainDSs, valDSs, 
+                                              modelFile = os.path.join(modelPath, "PBMRM_%s.h5"%(modelID)), 
+                                              expDir = expDir, logDir = logDir, 
+                                              showPeakMetrics = False,
+                                                
+                                              historyFile = historyFile,
+                                              comment=modelID,
+                                                
+                                              **param) 
+        
+        with portalocker.Lock(parameterFile, mode = "a+", timeout = 60, check_interval = 2) as fh:
+            text = ""
+            try:
+                fh.seek(0,0)
+                text = fh.read()
+            except:
+                pass
+            fh.seek(0,0)
+            fh.truncate(0)
+            print(text)
+            fh.write(str(text) + "\n" + "%s: %s"%(modelID, str(param)))
+
+if args.createHistory:
+    PeakBotMRM.train.createHistory(historyFile, locationAndPrefix = os.path.join(plotsDirPrefix, "summary_"))
 ```
 
 6. Optionally: Modify the GPU index and/or the memory limitation
