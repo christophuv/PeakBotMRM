@@ -1210,11 +1210,11 @@ def loadTargets(targetFile, excludeSubstances = None, includeSubstances = None, 
 
 
 
-def loadIntegrations(substances, curatedPeaks, delimiter = ",", commentChar = "#", verbose = True, logPrefix = ""):
+def loadIntegrations(substances, gtFilePath, delimiter = ",", commentChar = "#", verbose = True, logPrefix = ""):
     ## load integrations
     if verbose:
-        logging.info("%sLoading integrations from file '%s'"%(logPrefix, curatedPeaks))
-    headers, integrationData = parseTSVMultiLineHeader(curatedPeaks, headerRowCount=2, delimiter = delimiter, commentChar = commentChar, headerCombineChar = "$")
+        logging.info("%sLoading integrations from file '%s'"%(logPrefix, gtFilePath))
+    headers, integrationData = parseTSVMultiLineHeader(gtFilePath, headerRowCount=2, delimiter = delimiter, commentChar = commentChar, headerCombineChar = "$")
     headers = dict((k.replace("  (ISTD)", "").replace(" (ISTD)", "").replace("  Results", "").replace(" Results", "").strip(), v) for k,v in headers.items())
     foo = set(header[:header.find("$")].strip() for header in headers if not header.startswith("Sample$"))
     
@@ -1251,7 +1251,7 @@ def loadIntegrations(substances, curatedPeaks, delimiter = ",", commentChar = "#
             
             try:
                 if area == "" or float(area) == 0:
-                    integrations[substanceName][sample] = Integration(False, -1, -1, -1, [], type = "Reference", comment = "from file '%s'"%(curatedPeaks))
+                    integrations[substanceName][sample] = Integration(False, -1, -1, -1, [], type = "Reference", comment = "from file '%s'"%gtFilePath)
                     foundNoPeaks += 1
                 else:
                     integrations[substanceName][sample] = Integration(129, 
@@ -1260,7 +1260,7 @@ def loadIntegrations(substances, curatedPeaks, delimiter = ",", commentChar = "#
                                                                       float(integration[headers["%s$Area"      %(substanceName)]]),
                                                                       [], 
                                                                       type = integration[headers["%s$Type"     %(substanceName)]] if "%s$Type" %(substanceName) in headers else "Reference", 
-                                                                      comment = "from file '%s'"%(curatedPeaks))
+                                                                      comment = "from file '%s'"%gtFilePath)
                     foundPeaks += 1
             except Exception as ex:
                 logging.error("Exception, area is", area)
