@@ -1150,8 +1150,22 @@ class Integration:
 def loadTargets(targetFile, excludeSubstances = None, includeSubstances = None, verbose = True, logPrefix = ""):
     if excludeSubstances is None:
         excludeSubstances = []
+    
+#<diagnostic code VB>
+    import os
+    import re
+    import csv
+    out_dict = {"targetFile":targetFile}
+    out_dir = r'/Users/vbrennsteiner/OneDrive - Cemm Research Center GmbH/PeakBot/PeakBotMRM_data/tests/method_inputs/loadTargets_tests'
+    out_path = os.path.join(out_dir,"pb_lT_input.csv")
+    with open(out_path, 'w', newline = '') as csv_file:
+        writer = csv.writer(csv_file)
+        for k, v in out_dict.items():
+            writer.writerow([k, v])
+#</diagnostic code VB>
 
-    ## load targets
+
+# load targets
     if verbose: 
         logging.info("%sLoading targets from file '%s'"%(logPrefix, targetFile))
     headers, substances = readTSVFile(targetFile, header = True, delimiter = "\t", convertToMinIfPossible = True, getRowsAsDicts = True)
@@ -1211,6 +1225,7 @@ def loadTargets(targetFile, excludeSubstances = None, includeSubstances = None, 
 
 
 def loadIntegrations(substances, gtFilePath, delimiter = ",", commentChar = "#", verbose = True, logPrefix = ""):
+
     ## load integrations
     if verbose:
         logging.info("%sLoading integrations from file '%s'"%(logPrefix, gtFilePath))
@@ -1283,6 +1298,24 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                       allowedMZOffset = 0.05, MRMHeader = None,
                       pathToMSConvert = "msconvert.exe", maxValCallback = None, curValCallback = None, 
                       verbose = True, logPrefix = "", errorCallback = None):
+    
+    #<diagnostic code VB>
+    
+    import os
+    import re
+    import csv
+    out_dir = r'/Users/vbrennsteiner/OneDrive - Cemm Research Center GmbH/PeakBot/PeakBotMRM_data/tests/method_inputs/loadChromatograms_tests'
+    infodict = {
+            "class_substances":type(substances),
+            "class_integrations":type(integrations),
+            "class_samplesPath":type(samplesPath)}
+    dict_path = os.path.join(out_dir,'pb_lc_dict.csv')
+    with open(dict_path, 'w', newline = '') as csv_file:
+        writer = csv.writer(csv_file)
+        for k, v in infodict.items():
+            writer.writerow([k, v])
+    #</code added for testing by VB>
+
     ## load chromatograms
     tic("procChroms")
     
