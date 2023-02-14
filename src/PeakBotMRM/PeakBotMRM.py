@@ -67,6 +67,7 @@ class Config(object):
     INTEGRATENOISE_EndQuantile = 0.5
     
     MRMHEADER = "- SRM SIC Q1=(\d+\.?\d*[eE]?-?\d+) Q3=(\d+\.?\d*[eE]?-?\d+) start=(\d+\.?\d*[eE]?-?\d+) end=(\d+\.?\d*[eE]?-?\d+)"
+    MRMHEADER_waters = "- SRM SIC Q1=(\d+\.\d+) Q3=(\d+\.\d+ function=\d+ offset=\d+)"
 
     @staticmethod
     def getAsStringFancy():
@@ -115,6 +116,14 @@ class Config(object):
             "Integrate noise end quantile: %.2f"%Config.INTEGRATENOISE_EndQuantile,
         ])
 
+#<new code VB>
+def ExtractChromBorders(pymzmlSpecChromatogram):
+    if not isinstance(pymzmlSpecChromatogram, pymzml.spec.Chromatogram):
+        raise ValueError(' --> ExtractChromBorders requires pymzml.spec.Chromatogram as input!')
+    startRT = pymzmlSpecChromatogram.peaks()[0,0]
+    endRT = pymzmlSpecChromatogram.peaks()[-1,0]
+    return(startRT, endRT)  
+#</new code VB>
 
 def getTensorflowVersion():
     return tf.__version__
@@ -1297,10 +1306,9 @@ def _getRTOverlap(astart, aend, bstart, bend):
 def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction = None, loadFromPickleIfPossible = True,
                       allowedMZOffset = 0.05, MRMHeader = None,
                       pathToMSConvert = "msconvert.exe", maxValCallback = None, curValCallback = None, 
-                      verbose = True, logPrefix = "", errorCallback = None):
+                      verbose = True, logPrefix = "", errorCallback = None, agilent_or_waters = "waters"):
     
     #<diagnostic code VB>
-    
     import os
     import re
     import csv
@@ -1314,7 +1322,15 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
         writer = csv.writer(csv_file)
         for k, v in infodict.items():
             writer.writerow([k, v])
-    #</code added for testing by VB>
+    #</diagnostic code VB>
+
+    #<new code VB>
+    if MRMHeader is None:
+        if agilent_or_waters == "agilent":
+            MRMHeader = Config.MRMHEADER
+    elif agilent_or_waters == "waters":
+        MRMHeader = Config.MRMHEADER_waters
+    #</new code VB>
 
     ## load chromatograms
     tic("procChroms")
@@ -1434,7 +1450,18 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
         for i, entry in enumerate(run):
             if isinstance(entry, pymzml.spec.Chromatogram) and entry.ID.startswith("- SRM"):
                 m = re.match(MRMHeader, entry.ID)
-                Q1, Q3, rtstart, rtend = float(m.group(1)), float(m.group(2)), float(m.group(3)), float(m.group(4))
+
+                #<new code VB>
+                #depending on vendor, load mzML files and get start/end times
+                if agilent_or_waters == "agilent":
+                    Q1, Q3, rtstart, rtend = float(m.group(1)), float(m.group(2)), float(m.group(3)), float(m.group(4))
+                elif agilent_or_waters == "waters":
+                    try:
+                        Q1, Q3 = float(m.group(1)), float(m.group(2))
+                        rtstart, rtend = ExtractChromBorders(pymzmlSpecChromatogram = entry)
+                    except:
+                        continue
+                #</new code VB>
 
                 assert rtstart < rtend, "Error: start of XIC is not before its end"
 
