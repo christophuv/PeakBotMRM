@@ -1549,14 +1549,13 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
             for i in allChannels:
                 writer.writerow([i])
 
-        #snippet to save substances
-
-
         ## merge channels with integration results for this sample
         alreadyProcessed = []
         for i, (Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID, chrom) in enumerate(allChannels):
+            print(i)
             ## test if channel is unique
             for bi, (bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID, bchrom) in enumerate(allChannels):
+                print(bi)
                 if i != bi:  ## correct, cannot be optimized as both channels (earlier and later) shall not be used in case of a collision
                     if abs(Q1 - bq1) <= allowedMZOffset and abs(Q3 - bq3) <= allowedMZOffset and \
                                 ((rtstart <= brtstart <= rtend) or (rtstart <= brtend <= rtend)) and \
@@ -1577,14 +1576,8 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                                 substance.CE == bcollisionEnergy and substance.CEMethod == bcollisionMethod and \
                                 brtstart <= substance.refRT <= brtend:
                                     reqForB.append(substance)
-                        print("channel:")
-                        print(i)
                         print(reqForA)
                         print(reqForB)
-                        print(logPrefix, Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entry.ID)
-                        print(type(substance))
-                        sys.exit()
-                        
                         if rtstart < brtstart and rtend > brtend:
                             if verbose: 
                                 logging.info("%s    \033[91mProblematic channel combination found in sample '%s'.\033[0m"%(logPrefix, sampleName))
