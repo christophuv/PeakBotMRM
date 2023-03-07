@@ -1420,6 +1420,8 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
 
     #in the end, only .mzML files are considered
     samples = [os.path.join(samplesPath, f) for f in os.listdir(samplesPath) if os.path.isfile(os.path.join(samplesPath, f)) and f.lower().endswith(".mzml")]
+    print("SAMPLES")
+    print(samples)
     usedSamples = set()
     
     if verbose:
@@ -1441,7 +1443,7 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
         foundTargets = []
         unusedChannels = []
 
-        #run pymzml reader to read in chromatograms
+        #run pymzml reader to read in chromatograms --> this does not happen for Waters files yet
         run = pymzml.run.Reader(sample, skip_chromatogram = False)
         print("RUN Loaded")
         
@@ -1471,6 +1473,7 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                 #depending on vendor, load mzML files and get start/end times
                 if agilent_or_waters == "agilent":
                     Q1, Q3, rtstart, rtend = float(m.group(1)), float(m.group(2)), float(m.group(3)), float(m.group(4))
+                    collisionEnergy = None
                     #snippet to intercept settings from header
                     import os
                     import re
@@ -1490,6 +1493,7 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                 elif agilent_or_waters == "waters":
                     Q1, Q3 = float(m.group(1)), float(m.group(2))
                     rtstart, rtend = ExtractChromBorders(pymzmlSpecChromatogram = entry)
+                    collisionEnergy = 99.9
                     #snippet to intercept settings from header
                     import os
                     import re
@@ -1516,7 +1520,7 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                 elif entry.get_element_by_name("positive scan") is not None:
                     polarity = "positive"
 
-                collisionEnergy = None
+                #collisionEnergy = None
                 if entry.get_element_by_name("collision energy") is not None:
                     collisionEnergy = entry.get_element_by_name("collision energy").get("value", default=None)
                     if collisionEnergy is not None:
@@ -1534,16 +1538,12 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
 
                 allChannels.append([Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entry.ID, chrom])
 
-                #<VB code>
-                print(Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entry.ID)
-                #</VB code>
-
-        #snippet to intercept settings from header
+        #snippet to intercept channel lists
         import os
         import re
         import csv
         out_dir = r'/Users/vbrennsteiner/OneDrive - Cemm Research Center GmbH/PeakBot/PeakBotMRM_data/tests/method_inputs/loadChromatograms_tests'
-        dict_path = os.path.join(out_dir,'pb_lc_allChannels_ALLCHANNELS.csv')
+        dict_path = os.path.join(out_dir,'pb_lc_ALLCHANNELS.csv')
         with open(dict_path, 'w', newline = '') as csv_file:
             writer = csv.writer(csv_file)
             for i in allChannels:
@@ -1551,33 +1551,46 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
 
         ## merge channels with integration results for this sample
         alreadyProcessed = []
+        #channels in this sense means TRANSITIONS --> each transition has Q1, Q3, start, end, etc. 
+        #below, we search each transition against all others to see if it is unique in terms of mass and retention time. 
+        #If the two are close enough, match either one to its respective substances, i.e. transitions in the transitions.tsv file
         for i, (Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID, chrom) in enumerate(allChannels):
-            print(i)
             ## test if channel is unique
             for bi, (bq1, bq3, brtstart, brtend, bpolarity, bcollisionEnergy, bcollisionMethod, bentryID, bchrom) in enumerate(allChannels):
-                print(bi)
                 if i != bi:  ## correct, cannot be optimized as both channels (earlier and later) shall not be used in case of a collision
+                    #if the absolute difference between Q1 and Q3 of both channels is less than the allowed offset, and if 
+                    #channel B start OR end are within A retention time borders
+                    #the indices are not in "alreadyProcessed", then
+                    #channel is not unique and blocks below are executed
                     if abs(Q1 - bq1) <= allowedMZOffset and abs(Q3 - bq3) <= allowedMZOffset and \
                                 ((rtstart <= brtstart <= rtend) or (rtstart <= brtend <= rtend)) and \
                                 polarity == bpolarity and \
                                 collisionEnergy == bcollisionEnergy and \
                                 collisionMethod == bcollisionMethod and \
                                 "%d - %d"%(i, bi) not in alreadyProcessed:
-                                    
+                        
+                        #make a list reqForA which contains required substances for the first channel         
                         reqForA = []
+                        #for each row in the transitions file
                         for substance in substances.values():
+                            #if substance Q1 and Q3 are closer than the allowed offset and substance reference RT is within retentiont time borders
                             if abs(substance.Q1 - Q1) < allowedMZOffset and abs(substance.Q3 - Q3) <= allowedMZOffset and \
                                 substance.CE == collisionEnergy and substance.CEMethod == collisionMethod and \
                                 rtstart <= substance.refRT <= rtend:
+                                    #append the substance to reqForA
                                     reqForA.append(substance)
+
+                        #same for channel B, find substances that match
+                        #based on the OR condition above for RTs, the substances matched to A and B could overlap in their elution times
                         reqForB = []
                         for substance in substances.values():
                             if abs(substance.Q1 - bq1) < allowedMZOffset and abs(substance.Q3 - bq3) <= allowedMZOffset and \
                                 substance.CE == bcollisionEnergy and substance.CEMethod == bcollisionMethod and \
                                 brtstart <= substance.refRT <= brtend:
                                     reqForB.append(substance)
-                        print(reqForA)
-                        print(reqForB)
+
+                        #work through different cases: 
+                        #1. channel A completely contains channel B
                         if rtstart < brtstart and rtend > brtend:
                             if verbose: 
                                 logging.info("%s    \033[91mProblematic channel combination found in sample '%s'.\033[0m"%(logPrefix, sampleName))
@@ -1590,6 +1603,7 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                             if verbose:
                                 logging.info(logPrefix)
                         
+                        #2. channel B completely contains channel A
                         elif brtstart < rtstart and brtend > rtend:
                             if verbose: 
                                 logging.info("%s    \033[91mProblematic channel combination found in sample '%s'.\033[0m"%(logPrefix, sampleName))
@@ -1602,6 +1616,7 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                             if verbose:
                                 logging.info(logPrefix)
                         
+                        #3. Neither channel is matched to any substance
                         elif len(reqForA) == 0 and len(reqForB) == 0:
                             if verbose: 
                                 logging.info("%s    \033[91mProblematic channel combination found in sample '%s'.\033[0m"%(logPrefix, sampleName))
@@ -1615,7 +1630,8 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                             unusedChannels.append(bentryID)
                             if verbose:
                                 logging.info(logPrefix)
-                            
+                        
+                        #4. Channel A is required for at least one substance, channel B is not
                         elif len(reqForA) == 1 and len(reqForB) == 0:
                             if verbose: 
                                 logging.info("%s    \033[91mProblematic channel combination found in sample '%s'.\033[0m"%(logPrefix, sampleName))
@@ -1628,7 +1644,8 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                             unusedChannels.append(bentryID)
                             if verbose:
                                 logging.info(logPrefix)
-                            
+                        
+                        #5. Channel B is required for at least one substance, channel A is not 
                         elif len(reqForA) == 0 and len(reqForB) == 1:
                             if verbose: 
                                 logging.info("%s    \033[91mProblematic channel combination found in sample '%s'.\033[0m"%(logPrefix, sampleName))
@@ -1642,6 +1659,7 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                             if verbose:
                                 logging.info(logPrefix)
                         
+                        #6. In case channels match the same single substance and RTs are similar, use the earlier starting one
                         elif len(reqForA) == 1 and len(reqForB) == 1 and reqForA[0].name == reqForB[0].name and _getRTOverlap(rtstart, rtend, brtstart, brtend) > 0.95:
                             if verbose: 
                                 logging.info("%s    \033[91mProblematic channel combination found in sample '%s'.\033[0m"%(logPrefix, sampleName))
@@ -1656,6 +1674,7 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                             if verbose:
                                 logging.info(logPrefix)
                         
+                        #7. In case channels match the same single substance and RTs are dissimilar enough, keep the one whose mid-RT is closer to the reference RT
                         elif len(reqForA) == 1 and len(reqForB) == 1 and reqForA[0].name == reqForB[0].name and _getRTOverlap(rtstart, rtend, brtstart, brtend) <= 0.95:
                             if verbose: 
                                 logging.info("%s    \033[91mProblematic channel combination found in sample '%s'.\033[0m"%(logPrefix, sampleName))
@@ -1672,7 +1691,8 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                             unusedChannels.append(bentryID if unused == "B" else entryID)
                             if verbose:
                                 logging.info(logPrefix)
-                            
+
+                        #8. In case channels match the same multiple substances, use the earlier starting one
                         elif len(reqForA) == len(reqForB) and all([i.name in [j.name for j in reqForB] for i in reqForA]):
                             if verbose: 
                                 logging.info("%s    \033[91mProblematic channel combination found in sample '%s'.\033[0m"%(logPrefix, sampleName))
@@ -1696,6 +1716,7 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                             if verbose: 
                                 logging.info(logPrefix)
 
+                        #9. If all the above conditions are not true, the Q1/Q3 identical channels are both problematic and dropped
                         else:
                             if verbose: 
                                 logging.warning("%s    \033[91mProblematic channel combination found in sample '%s'. Both will be skipped\033[0m"%(logPrefix, sampleName))
@@ -1718,13 +1739,18 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                         alreadyProcessed.append("%d - %d"%(bi, i))       
             
         usedChannel = []
+        #VALID CHANNEL EVALUATION:
+        #if none of the critical cases above are true, the channel is a valid channel and will be searched against all substances
         for i, (Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID, chrom) in enumerate(allChannels):
+            print(Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod)
             if entryID not in unusedChannels:
                 ## use channel if it is unique and find the integrated substance(s) for it
                 for substance in substances.values():
                     if abs(substance.Q1 - Q1) < allowedMZOffset and abs(substance.Q3 - Q3) <= allowedMZOffset and \
                         substance.CE == collisionEnergy and substance.CEMethod == collisionMethod and \
                         rtstart <= substance.refRT <= rtend:
+                        print('MATCHED SUBSTANCE TO CHANNEL')
+                        print(substance.name)
                         if createNewIntegrations and substance.name not in integrations:
                             integrations[substance.name] = {}
                         if createNewIntegrations and sampleName not in integrations[substance.name]:
