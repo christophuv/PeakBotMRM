@@ -67,10 +67,9 @@ class Config(object):
     INTEGRATENOISE_EndQuantile = 0.5
     
     MRMHEADER = "- SRM SIC Q1=(\d+\.?\d*[eE]?-?\d+) Q3=(\d+\.?\d*[eE]?-?\d+) start=(\d+\.?\d*[eE]?-?\d+) end=(\d+\.?\d*[eE]?-?\d+)"
-    #<VB code>
-    MRMHEADER_waters = "- SRM SIC Q1=(\d+?\.?\d+) Q3=(\d+?\.?\d+) function=(\d+) offset=(\d+)"
     
-    #</VB code>
+    #additional MRMHEADER to deal with XEVO (Waters) MRM data
+    MRMHEADER_waters = "- SRM SIC Q1=(\d+?\.?\d+) Q3=(\d+?\.?\d+) function=(\d+) offset=(\d+)"
 
     @staticmethod
     def getAsStringFancy():
@@ -119,15 +118,13 @@ class Config(object):
             "Integrate noise end quantile: %.2f"%Config.INTEGRATENOISE_EndQuantile,
         ])
 
-#<VB code>
-#function to extract chromatogram borders from chromatogram, to be used for waters files
+#Added method to extract chromatogram borders from chromatogram, to deal with XEVO (Waters) MRM data
 def ExtractChromBorders(pymzmlSpecChromatogram):
     if not isinstance(pymzmlSpecChromatogram, pymzml.spec.Chromatogram):
         raise ValueError(' --> ExtractChromBorders requires pymzml.spec.Chromatogram as input!')
     startRT = pymzmlSpecChromatogram.peaks()[0,0]
     endRT = pymzmlSpecChromatogram.peaks()[-1,0]
     return(startRT, endRT)  
-#</VB code>
 
 def getTensorflowVersion():
     return tf.__version__
@@ -1163,20 +1160,6 @@ class Integration:
 def loadTargets(targetFile, excludeSubstances = None, includeSubstances = None, verbose = True, logPrefix = ""):
     if excludeSubstances is None:
         excludeSubstances = []
-    
-#<VB code>
-    import os
-    import re
-    import csv
-    out_dict = {"targetFile":targetFile}
-    out_dir = r'/Users/vbrennsteiner/OneDrive - Cemm Research Center GmbH/PeakBot/PeakBotMRM_data/tests/method_inputs/loadTargets_tests'
-    out_path = os.path.join(out_dir,"pb_lT_input.csv")
-    with open(out_path, 'w', newline = '') as csv_file:
-        writer = csv.writer(csv_file)
-        for k, v in out_dict.items():
-            writer.writerow([k, v])
-#</VB code>
-
 
 # load targets
     if verbose: 
@@ -1311,22 +1294,6 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                       allowedMZOffset = 0.05, MRMHeader = None,
                       pathToMSConvert = "msconvert.exe", maxValCallback = None, curValCallback = None, 
                       verbose = True, logPrefix = "", errorCallback = None):
-    
-    #<VB code>
-    import os
-    import re
-    import csv
-    out_dir = r'/Users/vbrennsteiner/OneDrive - Cemm Research Center GmbH/PeakBot/PeakBotMRM_data/tests/method_inputs/loadChromatograms_tests'
-    infodict = {
-            "class_substances":type(substances),
-            "class_integrations":type(integrations),
-            "class_samplesPath":type(samplesPath)}
-    dict_path = os.path.join(out_dir,'pb_lc_dict.csv')
-    with open(dict_path, 'w', newline = '') as csv_file:
-        writer = csv.writer(csv_file)
-        for k, v in infodict.items():
-            writer.writerow([k, v])
-    #</VB code>
 
     ## load chromatograms
     tic("procChroms")
@@ -1412,16 +1379,14 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
             if not os.path.isfile(pathsample.replace(".d", ".mzML")):
                 cmd = [pathToMSConvert, "-o", samplesPath, "--mzML", "--z", pathsample]
                 subprocess.call(cmd)
-                #if conversion failed, throw error
+                #if conversion failed, raise error
                 if not os.path.isfile(pathsample.replace(".d", ".mzML")):
                     logging.error("Error: Converting the file '%s' failed. Probably msconvert is not registered in your path, please register it. (command is '%s'"%(sample, cmd))
                     if errorCallback is not None:
                         errorCallback("<b>Error converting file '%s'</b><br><br>Please inspect why this file cannot be converted (maybe it is empty) and either convert it yourself or remove it from the analysis. See log for further details. <br><br>For now the file will be skipped."%(pathsample))
 
-    #in the end, only .mzML files are considered
+    #Consider only .mzML files for loading
     samples = [os.path.join(samplesPath, f) for f in os.listdir(samplesPath) if os.path.isfile(os.path.join(samplesPath, f)) and f.lower().endswith(".mzml")]
-    print("SAMPLES")
-    print(samples)
     usedSamples = set()
     
     if verbose:
@@ -1445,7 +1410,6 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
 
         #run pymzml reader to read in chromatograms --> this does not happen for Waters files yet
         run = pymzml.run.Reader(sample, skip_chromatogram = False)
-        print("RUN Loaded")
         
         ## get channels from the chromatogram, decide whether to match header of agilent or waters files
         #this works for waters files now!
@@ -1453,64 +1417,30 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
         for i, entry in enumerate(run):
             if isinstance(entry, pymzml.spec.Chromatogram) and entry.ID.startswith("- SRM"):
 
-                #<VB code>
-                #here, the decision for agilent or waters MRMHEADER is made. Both start with '- SRM' but only agilent headers contains 'start' and 'end'
+                #Detect Agilent QQQ or Waters XEVO mzML chromatogram header.
                 if bool(re.search('start|end',entry.ID)):
                     agilent_or_waters = "agilent"
                 else:
                     agilent_or_waters = "waters"
+                
                 #load correct MRMHeader
                 if MRMHeader is None and agilent_or_waters == "agilent":
                     MRMHeader = Config.MRMHEADER
                 elif MRMHeader is None and agilent_or_waters == "waters":
                     MRMHeader = Config.MRMHEADER_waters
-                #</VB code>        
 
                 #return re.match object. 0th group is entire match, then each capture group is indexed 1 - N
                 m = re.match(MRMHeader, entry.ID)
 
-                #<VB code>
-                #depending on vendor, load mzML files and get start/end times
+                #depending on vendor, load mzML files and get start/end times and set default collisionEnergy
                 if agilent_or_waters == "agilent":
                     Q1, Q3, rtstart, rtend = float(m.group(1)), float(m.group(2)), float(m.group(3)), float(m.group(4))
                     collisionEnergy = None
-                    #snippet to intercept settings from header
-                    import os
-                    import re
-                    import csv
-                    out_dir = r'/Users/vbrennsteiner/OneDrive - Cemm Research Center GmbH/PeakBot/PeakBotMRM_data/tests/method_inputs/loadChromatograms_tests'
-                    infodict = {
-                            "vendor":agilent_or_waters,
-                            "Q1":Q1,
-                            "Q3":Q3,
-                            "rtstart":rtstart,
-                            "rtend":rtend}
-                    dict_path = os.path.join(out_dir,'pb_lc_headerPars_Agilent.csv')
-                    with open(dict_path, 'w', newline = '') as csv_file:
-                        writer = csv.writer(csv_file)
-                        for k, v in infodict.items():
-                            writer.writerow([k, v])
+                    
                 elif agilent_or_waters == "waters":
                     Q1, Q3 = float(m.group(1)), float(m.group(2))
                     rtstart, rtend = ExtractChromBorders(pymzmlSpecChromatogram = entry)
                     collisionEnergy = 99.9
-                    #snippet to intercept settings from header
-                    import os
-                    import re
-                    import csv
-                    out_dir = r'/Users/vbrennsteiner/OneDrive - Cemm Research Center GmbH/PeakBot/PeakBotMRM_data/tests/method_inputs/loadChromatograms_tests'
-                    infodict = {
-                            "vendor":agilent_or_waters,
-                            "Q1":Q1,
-                            "Q3":Q3,
-                            "rtstart":rtstart,
-                            "rtend":rtend}
-                    dict_path = os.path.join(out_dir,'pb_lc_headerPars_Waters.csv')
-                    with open(dict_path, 'w', newline = '') as csv_file:
-                        writer = csv.writer(csv_file)
-                        for k, v in infodict.items():
-                            writer.writerow([k, v])
-                #</VB code>
 
                 assert rtstart < rtend, "Error: start of XIC is not before its end"
 
@@ -1520,7 +1450,6 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                 elif entry.get_element_by_name("positive scan") is not None:
                     polarity = "positive"
 
-                #collisionEnergy = None
                 if entry.get_element_by_name("collision energy") is not None:
                     collisionEnergy = entry.get_element_by_name("collision energy").get("value", default=None)
                     if collisionEnergy is not None:
@@ -1538,21 +1467,10 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
 
                 allChannels.append([Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entry.ID, chrom])
 
-        #snippet to intercept channel lists
-        import os
-        import re
-        import csv
-        out_dir = r'/Users/vbrennsteiner/OneDrive - Cemm Research Center GmbH/PeakBot/PeakBotMRM_data/tests/method_inputs/loadChromatograms_tests'
-        dict_path = os.path.join(out_dir,'pb_lc_ALLCHANNELS.csv')
-        with open(dict_path, 'w', newline = '') as csv_file:
-            writer = csv.writer(csv_file)
-            for i in allChannels:
-                writer.writerow([i])
-
         ## merge channels with integration results for this sample
         alreadyProcessed = []
         #channels in this sense means TRANSITIONS --> each transition has Q1, Q3, start, end, etc. 
-        #below, we search each transition against all others to see if it is unique in terms of mass and retention time. 
+        #Search each transition against all others to see if it is unique in terms of mass and retention time. 
         #If the two are close enough, match either one to its respective substances, i.e. transitions in the transitions.tsv file
         for i, (Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID, chrom) in enumerate(allChannels):
             ## test if channel is unique
@@ -1740,17 +1658,14 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
             
         usedChannel = []
         #VALID CHANNEL EVALUATION:
-        #if none of the critical cases above are true, the channel is a valid channel and will be searched against all substances
+        #If none of the critical cases above are true, the channel is a valid channel and will be searched against all substances
         for i, (Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod, entryID, chrom) in enumerate(allChannels):
-            print(Q1, Q3, rtstart, rtend, polarity, collisionEnergy, collisionMethod)
             if entryID not in unusedChannels:
                 ## use channel if it is unique and find the integrated substance(s) for it
                 for substance in substances.values():
                     if abs(substance.Q1 - Q1) < allowedMZOffset and abs(substance.Q3 - Q3) <= allowedMZOffset and \
                         substance.CE == collisionEnergy and substance.CEMethod == collisionMethod and \
                         rtstart <= substance.refRT <= rtend:
-                        print('MATCHED SUBSTANCE TO CHANNEL')
-                        print(substance.name)
                         if createNewIntegrations and substance.name not in integrations:
                             integrations[substance.name] = {}
                         if createNewIntegrations and sampleName not in integrations[substance.name]:

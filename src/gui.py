@@ -2484,19 +2484,6 @@ class Window(PyQt6.QtWidgets.QMainWindow):
 
     def loadExperiment(self, expName, transitionFile, rawDataPath, integrationsFile, delimChar):
 
-        #<checking code inserted by VB>
-        import csv
-        import os
-        infodict = {"delimChar":delimChar}
-        dictPath = r'C:\Users\vbrennsteiner\OneDrive - CeMM Research Center GmbH\PeakBot\PeakBotMRM_data\tests'
-        dictPath = os.path.join(dictPath, 'pb_le_delimChar.csv')
-        print(delimChar)
-        with open(dictPath, 'w', newline = '') as csv_file:
-            writer = csv.writer(csv_file)
-            for k, v in infodict.items():
-                writer.writerow([k, v])
-        #</checking code inserted by VB>
-
         procDiag = PyQt6.QtWidgets.QProgressDialog(self, labelText="Loading experiment '%s'"%(expName))
         procDiag.setWindowIcon(PyQt6.QtGui.QIcon(os.path.join(self._pyFilePath, "gui-resources", "robot.png")))
         procDiag.setWindowTitle("PeakBotMRM")
