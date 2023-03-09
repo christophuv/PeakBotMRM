@@ -3472,7 +3472,6 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                             if ret is not None and type(ret) == dict and "R2" in ret and "points" in ret:
                                 it.setText(2, "R2 %.3f, %d points, %s"%(ret["R2"], ret["points"], ret["fromType"]))
                     
-                    self.__guiPlotEmbedding = False
                     if self.__guiPlotEmbedding:
                         if selExp != self.lastExp or self.paCMAP is None:
                             self.paCMAPAllEICsS = []
