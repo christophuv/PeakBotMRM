@@ -357,6 +357,8 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
             sampleInfo = {}
             for k in headersSample:
                 if k == "sample parameters":
+                    print("sampleMetaData")
+                    print(sampleMetaData)
                     sampleInfo[k] = str(sampleMetaData[sample])
                 elif sampleMetaData is not None and sample in sampleMetaData and k in sampleMetaData[sample]:
                     sampleInfo[k] = str(sampleMetaData[sample][k])
