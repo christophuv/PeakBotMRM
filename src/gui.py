@@ -1585,17 +1585,26 @@ class Window(PyQt6.QtWidgets.QMainWindow):
     def editExperimentMetaData(self):
 
         l = list(self.tree.selectedItems())
+        #self.tree.selectedItems()[0].__dict__ only contains experiment name, substance None and sample None, also made with mzml data 
+        #print(list(self.tree.selectedItems())[0].__dict__)
         if len(l) == 1 and "experiment" in l[0].__dict__:
             it = l[0]
+            #print(it.parent()) #also None for agilent .d files 
             while it.parent() is not None:
                 it = it.parent()
 
+            #just record experiment name, exists for .d and .mzml files 
             selExp = it.experiment if "experiment" in it.__dict__ else None
 
             order = ["File name", "Sample ID", "Comment", "Group", "Type", "Color", "use4Stats", "Inj. volume", "Dilution", "Report type", "Tissue type", "Tissue weight",
                      "Cell count", "Sample volume", "Report calculation"]
+            
+            #not none for mzml files
             if selExp is not None:
                 data = []
+                #access self.loadedExperiments with key = experiment name entered, and sample info thereof; selExp = experiment name 
+                #access sampleInfo attribute of self.loadedExperiments[selExp] --> type  = <class '__main__.Experiment'> it belongs to Experiment class.
+                #Experiment class has to have sampleInfo, it is instantiated 
                 for samp in self.loadedExperiments[selExp].sampleInfo:
                     temp = OrderedDict()
                     temp["File name"] = samp
@@ -2518,13 +2527,14 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 return
 
         procDiag.close()
-
         self.addExperimentToGUI(expName, substances, integrations, sampleInfo, integrationsLoaded)
 
     def addExperimentToGUI(self, expName, substances, integrations, sampleInfo, integrationsLoaded = False, experimentFile = None, showProcDiag = True):
+        
 
         self.tree.blockSignals(True)
         self.loadedExperiments[expName] = Experiment(expName, substances, integrations, sampleInfo)
+        #sampleInfo is in loadedExperiment object but comes from loadChromatograms;
         if experimentFile is not None:
             self.loadedExperiments[expName].experimentFile = experimentFile
         else:
@@ -2538,11 +2548,16 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             procDiag.show()
 
         i = 0
+        #iterate over a dictionary of dictionaries: the keys k are experiment names, the dictionaries are sampleInfo dictionaries. 
+        #if the sampleInfo dictionaries do not contain the keys of interest, they are added with default values
         for k, v in self.loadedExperiments[expName].sampleInfo.items():
+            print(k)
+            print(self.loadedExperiments[expName].sampleInfo)
             if showProcDiag:
                 procDiag.setValue(i)
             i = i + 1
-
+            #this point is not reached with mzML files 
+            #one expName summarizes several files, each file has a dictionary in sampleInfo, and each of these dictionaries contains (or not) Group, Color, etc. information.
             if "Group" not in self.loadedExperiments[expName].sampleInfo[k]:
                 self.loadedExperiments[expName].sampleInfo[k]["Group"]     = "Unknown"
             if "Color" not in self.loadedExperiments[expName].sampleInfo[k]:

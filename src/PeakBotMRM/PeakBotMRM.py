@@ -1316,12 +1316,18 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
     if maxValCallback is not None:
         maxValCallback(len(samples))
 
+    
+
     #iterate over each file in the samples directory
     for samplei, sample in enumerate(os.listdir(samplesPath)):
         if curValCallback is not None:
             curValCallback(samplei)
         pathsample = os.path.join(samplesPath, sample)
-        if os.path.isdir(pathsample) and pathsample.endswith(".d"):
+        #new check for .mzML file ending: if file does not end with .mzML, check if it is a .d file and load as usual
+        if pathsample.endswith(".mzML"):
+            print("mzML file found {}".format(sample)) 
+            foundSamples[Path(sample).stem] = {"path": pathsample, "converter": pathsample}
+        elif os.path.isdir(pathsample) and any(pathsample.endswith(ext) for ext in [".d"]):
             foundSamples[Path(sample).stem] = {"path": pathsample, "converted": pathsample.replace(".d", ".mzML")}
             #try to get sample_info.xml data, not available for waters files!
             try:
@@ -1762,4 +1768,6 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
         logging.info("%s  | .. took %.1f seconds"%(logPrefix, toc("procChroms")))
         logging.info(logPrefix)
 
+    print("foundSamples")
+    print(foundSamples)
     return substances, integrations, foundSamples
