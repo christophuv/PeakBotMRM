@@ -1326,7 +1326,7 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
         #new check for .mzML file ending: if file does not end with .mzML, check if it is a .d file and load as usual
         if pathsample.endswith(".mzML"):
             print("mzML file found {}".format(sample)) 
-            foundSamples[Path(sample).stem] = {"path": pathsample, "converter": pathsample}
+            foundSamples[Path(sample).stem] = {"path": pathsample, "converted": pathsample}
         elif os.path.isdir(pathsample) and any(pathsample.endswith(ext) for ext in [".d"]):
             foundSamples[Path(sample).stem] = {"path": pathsample, "converted": pathsample.replace(".d", ".mzML")}
             #try to get sample_info.xml data, not available for waters files!
