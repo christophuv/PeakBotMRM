@@ -3561,6 +3561,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                 logging.exception("Could not save auto backup to '%s'"%(self.loadedExperiments[selExp].experimentFile))
                                 PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "<b>Error</b><br><br>Could not save backup file to '%s'. <br>Please save your work to avoid loss of data"%(self.loadedExperiments[selExp].experimentFile))
                     
+                    self.__calculateStatistics = False
                     if self.__calculateStatistics:
                         try:
                             self._plots[10].clear(); self._plots[11].clear()
