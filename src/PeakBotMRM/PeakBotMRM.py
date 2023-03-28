@@ -1430,9 +1430,11 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                     agilent_or_waters = "waters"
                 
                 #load correct MRMHeader
-                if MRMHeader is None and agilent_or_waters == "agilent":
+                print("\n --> MRMHEADER")
+                print(MRMHeader)
+                if agilent_or_waters == "agilent":
                     MRMHeader = Config.MRMHEADER
-                elif MRMHeader is None and agilent_or_waters == "waters":
+                elif agilent_or_waters == "waters":
                     MRMHeader = Config.MRMHEADER_waters
 
                 #return re.match object. 0th group is entire match, then each capture group is indexed 1 - N
@@ -1444,6 +1446,12 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                     collisionEnergy = None
                     
                 elif agilent_or_waters == "waters":
+                    print("\n --> agilent_or_waters")
+                    print(agilent_or_waters)
+                    print("\n --> entry.ID")
+                    print(entry.ID)
+                    print("\n --> MRMHEADER")
+                    print(MRMHeader)
                     Q1, Q3 = float(m.group(1)), float(m.group(2))
                     rtstart, rtend = ExtractChromBorders(pymzmlSpecChromatogram = entry)
                     collisionEnergy = 99.9
