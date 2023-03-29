@@ -1226,9 +1226,8 @@ def loadIntegrations(substances, gtFilePath, delimiter = ",", commentChar = "#",
     if verbose:
         logging.info("%sLoading integrations from file '%s'"%(logPrefix, gtFilePath))
     headers, integrationData = parseTSVMultiLineHeader(gtFilePath, headerRowCount=2, delimiter = delimiter, commentChar = commentChar, headerCombineChar = "$")
-    print("\n --> Headers: \n",headers)
-    print("\n --> Rows: \n", integrationData)
     headers = dict((k.replace("  (ISTD)", "").replace(" (ISTD)", "").replace("  Results", "").replace(" Results", "").strip(), v) for k,v in headers.items())
+    print("\n --> headers: ",headers)
     foo = set(header[:header.find("$")].strip() for header in headers if not header.startswith("Sample$"))
     
     notUsingSubstances = []
@@ -1259,9 +1258,9 @@ def loadIntegrations(substances, gtFilePath, delimiter = ",", commentChar = "#",
     for substanceName in substances:
         integrations[substanceName] = {}
         for integration in integrationData:
-            sample = integration[headers["Sample$Data File"]].replace(".d", "")
+            sample = integration[headers["Sample$Data File"]].replace(".mzML", "").replace(".d","")
             area = integration[headers["%s$Area"%(substanceName)]]
-            
+
             try:
                 if area == "" or float(area) == 0:
                     integrations[substanceName][sample] = Integration(False, -1, -1, -1, [], type = "Reference", comment = "from file '%s'"%gtFilePath)
@@ -1286,7 +1285,6 @@ def loadIntegrations(substances, gtFilePath, delimiter = ",", commentChar = "#",
         logging.info("%s  | .. there are %d areas and %d no peaks"%(logPrefix, foundPeaks, foundNoPeaks))
         logging.info(logPrefix)
     # integrations [['Pyridinedicarboxylic acid Results', 'R100140_METAB02_MCC025_CAL1_20200306', '14.731', '14.731', '0'], ...]
-
     return substances, integrations
 
 def _getRTOverlap(astart, aend, bstart, bend):
