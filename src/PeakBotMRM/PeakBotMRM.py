@@ -1226,6 +1226,8 @@ def loadIntegrations(substances, gtFilePath, delimiter = ",", commentChar = "#",
     if verbose:
         logging.info("%sLoading integrations from file '%s'"%(logPrefix, gtFilePath))
     headers, integrationData = parseTSVMultiLineHeader(gtFilePath, headerRowCount=2, delimiter = delimiter, commentChar = commentChar, headerCombineChar = "$")
+    print("\n --> Headers: \n",headers)
+    print("\n --> Rows: \n", integrationData)
     headers = dict((k.replace("  (ISTD)", "").replace(" (ISTD)", "").replace("  Results", "").replace(" Results", "").strip(), v) for k,v in headers.items())
     foo = set(header[:header.find("$")].strip() for header in headers if not header.startswith("Sample$"))
     
@@ -1430,8 +1432,6 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                     agilent_or_waters = "waters"
                 
                 #load correct MRMHeader
-                print("\n --> MRMHEADER")
-                print(MRMHeader)
                 if agilent_or_waters == "agilent":
                     MRMHeader = Config.MRMHEADER
                 elif agilent_or_waters == "waters":
@@ -1446,12 +1446,6 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                     collisionEnergy = None
                     
                 elif agilent_or_waters == "waters":
-                    print("\n --> agilent_or_waters")
-                    print(agilent_or_waters)
-                    print("\n --> entry.ID")
-                    print(entry.ID)
-                    print("\n --> MRMHEADER")
-                    print(MRMHeader)
                     Q1, Q3 = float(m.group(1)), float(m.group(2))
                     rtstart, rtend = ExtractChromBorders(pymzmlSpecChromatogram = entry)
                     collisionEnergy = 99.9
@@ -1776,6 +1770,4 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
         logging.info("%s  | .. took %.1f seconds"%(logPrefix, toc("procChroms")))
         logging.info(logPrefix)
 
-    print("foundSamples")
-    print(foundSamples)
     return substances, integrations, foundSamples
