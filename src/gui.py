@@ -3062,6 +3062,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                     self.istdpeakStart.setValue(inte.rtStart)
                                     self.istdpeakEnd.setValue(inte.rtEnd)
 
+                                print("\n inte.rtStart, inte.rtEnd",inte.rtStart,inte.rtEnd)
                                 inte.area = PeakBotMRM.integrateArea(inte.chromatogram["eic"], inte.chromatogram["rts"], inte.rtStart, inte.rtEnd)
                                 inte.other["GUIElement"].setText(1, self.__areaFormatter%(inte.area))
                                 inte.other["GUIElement"].setText(2, "%.2f - %.2f"%(inte.rtStart, inte.rtEnd) if inte.foundPeak else "")
@@ -3351,6 +3352,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         else:
                             plot.clear()
 
+                    #set compound and internal standard peaks to 0
                     self.hasPeak.setCurrentIndex(0); self.peakStart.setValue(0); self.peakEnd.setValue(0); self.istdhasPeak.setCurrentIndex(0); self.istdpeakStart.setValue(0); self.istdpeakEnd.setValue(0)
 
                     self.infoLabel.setText("Selected: Experiment <b>%s</b>, Substance <b>%s</b> (ISTD <b>%s</b>), Sample(s) <b>%s</b>"%(
@@ -3359,13 +3361,13 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         selIST if selIST is not None else "-",
                         (str(len(selSams)) if len(selSams) > 1 else selSam) if selSam is not None else "-"
                     ))
+
+                    #iterate over selected runs; multiple runs can be selected; set 'it' to current substance
                     it = None
                     for it in its:
-
                         if "userType" in it.__dict__:
                             if it.userType == "Single peak":
                                 selSam = it.sample if "sample" in it.__dict__ else None
-
                                 inte = self.loadedExperiments[selExp].integrations[selSub][selSam]
                                 if len(its) == 1:
                                         self.infoLabel.setText("%s<br>Sub integration <b>%s%s</b>"%(self.infoLabel.text(), inte.type, " (%s)"%(inte.comment) if inte.comment is not None and inte.comment != "" else ""))
@@ -3393,6 +3395,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                         self.istdhasPeak.setCurrentIndex({0:0, 1:1, 2:2, 128:3, 129:4, 130:5}[inte.foundPeak])
                                         self.istdpeakStart.setValue(inte.rtStart)
                                         self.istdpeakEnd.setValue(inte.rtEnd)
+                                    #plot integration with correct color
                                     self.plotIntegration(inte, self.loadedExperiments[selExp].sampleInfo[selSam]["Color"] if selSam in self.loadedExperiments[selExp].sampleInfo and "Color" in self.loadedExperiments[selExp].sampleInfo[selSam] else "Black", "", refRT = self.loadedExperiments[selExp].substances[selIST].refRT if selIST is not None and selIST in self.loadedExperiments[selExp].substances else None, plotInd = 3, transp = max(0.05, 0.8 /len(its)))
                                 it = it.parent()
 
@@ -3422,6 +3425,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                 if self.__guiPlotISTD and len(intsIS) > 0:
                                     self.plotIntegrations(intsIS, colorsIS, "", refRT = self.loadedExperiments[selExp].substances[selIST].refRT if selIST is not None and selIST in self.loadedExperiments[selExp].substances else None, plotInds = [4,5], target = "istd")
 
+                    #'it' has been set to the current substance
                     if "userType" in it.__dict__:
                         if it.userType == "All samples" and it.substance is not None and it.substance in self.loadedExperiments[it.experiment].substances:
                             substance = self.loadedExperiments[selExp].substances[selSub]
@@ -3438,34 +3442,47 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                             peakAreaLevel = []
                             peakAreaLevelIS = []
                             peakAreaLevelRatio = []
-                            
+                            #it = substance
                             for oitInd in range(it.childCount()):
+                                #oit = runs belonging to substance
                                 oit = it.child(oitInd)
                                 used = False
+                                #iterate over cal runs for the current oit run; calSampPart like _CAL1_, etc., level like 0.001, etc. to 
+                                #find integration areas and internal standard integration areas
                                 for calSampPart, level in substance.calSamples.items():
+                                    #if current cal sample identifier is found in current oit run sample (=run) name
                                     if "userType" in oit.__dict__ and oit.userType == "Single peak" and calSampPart in oit.sample:
+                                        #match current experiment substance integrations to sample, check for foundPeak presence and divisibility by 128
                                         if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1:
+                                            #if foundPeak is valid, append found peak area and (dilution * concentration) to subArea
                                             subArea.append((self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].area, level * substance.calLevel1Concentration))
                                             if oit.sample == selSam:
                                                 highlightLevel = level * substance.calLevel1Concentration
+                                            #set used for this run to TRUE
                                             used = True
+                                        #get internal standard area for current substance
                                         if istd is not None:
+                                            #match current experiment internal standard integrations to sample, check for foundPeak presence and divisibility by 128
                                             if self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1:
+                                                #if found internal standard peak is valid, append found peak area and (dilution * concentration) to subArea
                                                 isArea.append((self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area, level * istd.calLevel1Concentration))
                                                 if oit.sample == selSam:
                                                     highlightLevelIS = level
+                                                #repeat block from above where current experiment substance integrations are matched to sample, as well as current experiment internal standard integrations
                                                 if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1 and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1 and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area > 0:
                                                     subRatio.append((self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].area / self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area, level * substance.calLevel1Concentration))
                                                     if oit.sample == selSam:
                                                         highlightLevelRatio = level * substance.calLevel1Concentration
+                                                #set used for this run to TRUE
                                                 used = True
                                 if not used:
                                     if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1:
                                         peakAreaLevel.append(self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].area)
+                                    #same block as above, lacking zero area check
                                     if istd is not None:
                                         if oit.sample in self.loadedExperiments[oit.experiment].integrations[istd.name] and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1:
                                             peakAreaLevelIS.append(self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area)        
-                                            if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1 and oit.sample in self.loadedExperiments[oit.experiment].integrations[istd.name] and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1:
+                                            if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1 and oit.sample in self.loadedExperiments[oit.experiment].integrations[istd.name] and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1 and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area > 0:
                                                 peakAreaLevelRatio.append(self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].area / self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area)
                                                     
                             self.calibrationMethod.setCurrentIndex(self.calibrationMethod.findText(self.loadedExperiments[selExp].substances[selSub].calibrationMethod))

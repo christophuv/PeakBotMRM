@@ -848,7 +848,12 @@ def trainPeakBotMRMModel(trainDataset, logBaseDir, modelName = None, valDataset 
 @timeit
 def integrateArea(eic, rts, start, end):
     method = Config.INTEGRATIONMETHOD
-        
+    
+    if start == 0 and end == 0:
+        import traceback
+        traceback.print_stack()
+        raise SystemExit("Both start and end are zero!")        
+
     startInd = arg_find_nearest(rts, start)
     endInd   = arg_find_nearest(rts, end)
     
@@ -1227,7 +1232,6 @@ def loadIntegrations(substances, gtFilePath, delimiter = ",", commentChar = "#",
         logging.info("%sLoading integrations from file '%s'"%(logPrefix, gtFilePath))
     headers, integrationData = parseTSVMultiLineHeader(gtFilePath, headerRowCount=2, delimiter = delimiter, commentChar = commentChar, headerCombineChar = "$")
     headers = dict((k.replace("  (ISTD)", "").replace(" (ISTD)", "").replace("  Results", "").replace(" Results", "").strip(), v) for k,v in headers.items())
-    print("\n --> headers: ",headers)
     foo = set(header[:header.find("$")].strip() for header in headers if not header.startswith("Sample$"))
     
     notUsingSubstances = []
