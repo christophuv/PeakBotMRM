@@ -1528,6 +1528,20 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 logging.info("")
                 logging.info("Processing dataset '%s'"%(selExp))
                 PeakBotMRM.predict.predictDataset(peakBotMRMModelFile, self.loadedExperiments[selExp].substances, self.loadedExperiments[selExp].integrations, specificSubstances = specificSubstances, callBackFunctionValue = prDiag.setValue, callBackFunctionText = prDiag.setLabelText, showConsoleProgress = False)
+                #inspect one integration:
+                ct_dict = 0
+                for k, v in self.loadedExperiments[selExp].integrations.items():
+                    #k = substance
+                    #v = dictionary of runs and integration objects
+                    ct_dict += 1
+                    for k2, v2 in v.items():
+                        #k2 = run
+                        #v2 = integration object
+                        #print run and start / end times from integration object
+                        print("\n --> Integration object for run {}, start time {}, end time {}, area {}".format(k2, v2.rtStart, v2.rtEnd, v2.area))
+                    #break loop after first substance
+                    if ct_dict == 1:
+                        break
                 self.updateCalibrationLabels(expName = selExp)
 
                 prDiag.setLabelText("Updating peak areas")
