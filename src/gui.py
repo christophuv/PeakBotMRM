@@ -2525,6 +2525,12 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                                                     delimiter = delimChar,
                                                                     logPrefix = "  | ..")
                 integrationsLoaded = True
+                #print integrations to console
+                for substance in integrations:
+                    print(substance)
+                    for sample in integrations[substance]:
+                        print("  %s: %s"%(sample, integrations[substance][sample]))
+                    print("")
             allAre = []
             for substance in substances:
                 allAre.append(substance)
