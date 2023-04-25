@@ -157,6 +157,8 @@ def predictDataset(modelFile, substances, integrations, specificSubstances = Non
                                     
             ## predict and calculate metrics
             pred_peakTypes, pred_rtStartInds, pred_rtEndInds = PeakBotMRM.runPeakBotMRM(temp, model = pbModelPred, verbose = False)
+            print("\n pred_rtStartInds:", pred_rtStartInds)
+            print("\n pred_rtEndInds:", pred_rtEndInds)
                     
             ## inspect and summarize the results of the prediction and the metrics, optionally plot
             startRTs = []
@@ -357,8 +359,6 @@ def exportIntegrations(toFile, substances, integrations, substanceOrder = None, 
             sampleInfo = {}
             for k in headersSample:
                 if k == "sample parameters":
-                    print("sampleMetaData")
-                    print(sampleMetaData)
                     sampleInfo[k] = str(sampleMetaData[sample])
                 elif sampleMetaData is not None and sample in sampleMetaData and k in sampleMetaData[sample]:
                     sampleInfo[k] = str(sampleMetaData[sample][k])

@@ -1600,10 +1600,8 @@ class Window(PyQt6.QtWidgets.QMainWindow):
 
         l = list(self.tree.selectedItems())
         #self.tree.selectedItems()[0].__dict__ only contains experiment name, substance None and sample None, also made with mzml data 
-        #print(list(self.tree.selectedItems())[0].__dict__)
         if len(l) == 1 and "experiment" in l[0].__dict__:
             it = l[0]
-            #print(it.parent()) #also None for agilent .d files 
             while it.parent() is not None:
                 it = it.parent()
 
@@ -2571,8 +2569,6 @@ class Window(PyQt6.QtWidgets.QMainWindow):
         #iterate over a dictionary of dictionaries: the keys k are experiment names, the dictionaries are sampleInfo dictionaries. 
         #if the sampleInfo dictionaries do not contain the keys of interest, they are added with default values
         for k, v in self.loadedExperiments[expName].sampleInfo.items():
-            print(k)
-            print(self.loadedExperiments[expName].sampleInfo)
             if showProcDiag:
                 procDiag.setValue(i)
             i = i + 1
@@ -3082,7 +3078,6 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                     self.istdpeakStart.setValue(inte.rtStart)
                                     self.istdpeakEnd.setValue(inte.rtEnd)
 
-                                print("\n inte.rtStart, inte.rtEnd",inte.rtStart,inte.rtEnd)
                                 inte.area = PeakBotMRM.integrateArea(inte.chromatogram["eic"], inte.chromatogram["rts"], inte.rtStart, inte.rtEnd)
                                 inte.other["GUIElement"].setText(1, self.__areaFormatter%(inte.area))
                                 inte.other["GUIElement"].setText(2, "%.2f - %.2f"%(inte.rtStart, inte.rtEnd) if inte.foundPeak else "")

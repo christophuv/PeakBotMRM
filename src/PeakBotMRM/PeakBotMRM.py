@@ -849,10 +849,10 @@ def trainPeakBotMRMModel(trainDataset, logBaseDir, modelName = None, valDataset 
 def integrateArea(eic, rts, start, end):
     method = Config.INTEGRATIONMETHOD
     
-    if start == 0 and end == 0:
-        import traceback
-        traceback.print_stack()
-        raise SystemExit("Both start and end are zero!")        
+    # if start == 0 and end == 0:
+    #     import traceback
+    #     traceback.print_stack()
+    #     raise SystemExit("Both start and end are zero!")        
 
     startInd = arg_find_nearest(rts, start)
     endInd   = arg_find_nearest(rts, end)
