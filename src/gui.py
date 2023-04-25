@@ -1528,6 +1528,20 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 logging.info("")
                 logging.info("Processing dataset '%s'"%(selExp))
                 PeakBotMRM.predict.predictDataset(peakBotMRMModelFile, self.loadedExperiments[selExp].substances, self.loadedExperiments[selExp].integrations, specificSubstances = specificSubstances, callBackFunctionValue = prDiag.setValue, callBackFunctionText = prDiag.setLabelText, showConsoleProgress = False)
+                #inspect one integration:
+                ct_dict = 0
+                for k, v in self.loadedExperiments[selExp].integrations.items():
+                    #k = substance
+                    #v = dictionary of runs and integration objects
+                    ct_dict += 1
+                    for k2, v2 in v.items():
+                        #k2 = run
+                        #v2 = integration object
+                        #print run and start / end times from integration object
+                        print("\n --> Integration object for run {}, start time {}, end time {}, area {}".format(k2, v2.rtStart, v2.rtEnd, v2.area))
+                    #break loop after first substance
+                    if ct_dict == 1:
+                        break
                 self.updateCalibrationLabels(expName = selExp)
 
                 prDiag.setLabelText("Updating peak areas")
@@ -1585,17 +1599,24 @@ class Window(PyQt6.QtWidgets.QMainWindow):
     def editExperimentMetaData(self):
 
         l = list(self.tree.selectedItems())
+        #self.tree.selectedItems()[0].__dict__ only contains experiment name, substance None and sample None, also made with mzml data 
         if len(l) == 1 and "experiment" in l[0].__dict__:
             it = l[0]
             while it.parent() is not None:
                 it = it.parent()
 
+            #just record experiment name, exists for .d and .mzml files 
             selExp = it.experiment if "experiment" in it.__dict__ else None
 
             order = ["File name", "Sample ID", "Comment", "Group", "Type", "Color", "use4Stats", "Inj. volume", "Dilution", "Report type", "Tissue type", "Tissue weight",
                      "Cell count", "Sample volume", "Report calculation"]
+            
+            #not none for mzml files
             if selExp is not None:
                 data = []
+                #access self.loadedExperiments with key = experiment name entered, and sample info thereof; selExp = experiment name 
+                #access sampleInfo attribute of self.loadedExperiments[selExp] --> type  = <class '__main__.Experiment'> it belongs to Experiment class.
+                #Experiment class has to have sampleInfo, it is instantiated 
                 for samp in self.loadedExperiments[selExp].sampleInfo:
                     temp = OrderedDict()
                     temp["File name"] = samp
@@ -2502,6 +2523,12 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                                                     delimiter = delimChar,
                                                                     logPrefix = "  | ..")
                 integrationsLoaded = True
+                #print integrations to console
+                for substance in integrations:
+                    print(substance)
+                    for sample in integrations[substance]:
+                        print("  %s: %s"%(sample, integrations[substance][sample]))
+                    print("")
             allAre = []
             for substance in substances:
                 allAre.append(substance)
@@ -2518,13 +2545,14 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                 return
 
         procDiag.close()
-
         self.addExperimentToGUI(expName, substances, integrations, sampleInfo, integrationsLoaded)
 
     def addExperimentToGUI(self, expName, substances, integrations, sampleInfo, integrationsLoaded = False, experimentFile = None, showProcDiag = True):
+        
 
         self.tree.blockSignals(True)
         self.loadedExperiments[expName] = Experiment(expName, substances, integrations, sampleInfo)
+        #sampleInfo is in loadedExperiment object but comes from loadChromatograms;
         if experimentFile is not None:
             self.loadedExperiments[expName].experimentFile = experimentFile
         else:
@@ -2538,11 +2566,14 @@ class Window(PyQt6.QtWidgets.QMainWindow):
             procDiag.show()
 
         i = 0
+        #iterate over a dictionary of dictionaries: the keys k are experiment names, the dictionaries are sampleInfo dictionaries. 
+        #if the sampleInfo dictionaries do not contain the keys of interest, they are added with default values
         for k, v in self.loadedExperiments[expName].sampleInfo.items():
             if showProcDiag:
                 procDiag.setValue(i)
             i = i + 1
-
+            #this point is not reached with mzML files 
+            #one expName summarizes several files, each file has a dictionary in sampleInfo, and each of these dictionaries contains (or not) Group, Color, etc. information.
             if "Group" not in self.loadedExperiments[expName].sampleInfo[k]:
                 self.loadedExperiments[expName].sampleInfo[k]["Group"]     = "Unknown"
             if "Color" not in self.loadedExperiments[expName].sampleInfo[k]:
@@ -3336,6 +3367,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         else:
                             plot.clear()
 
+                    #set compound and internal standard peaks to 0
                     self.hasPeak.setCurrentIndex(0); self.peakStart.setValue(0); self.peakEnd.setValue(0); self.istdhasPeak.setCurrentIndex(0); self.istdpeakStart.setValue(0); self.istdpeakEnd.setValue(0)
 
                     self.infoLabel.setText("Selected: Experiment <b>%s</b>, Substance <b>%s</b> (ISTD <b>%s</b>), Sample(s) <b>%s</b>"%(
@@ -3344,13 +3376,13 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                         selIST if selIST is not None else "-",
                         (str(len(selSams)) if len(selSams) > 1 else selSam) if selSam is not None else "-"
                     ))
+
+                    #iterate over selected runs; multiple runs can be selected; set 'it' to current substance
                     it = None
                     for it in its:
-
                         if "userType" in it.__dict__:
                             if it.userType == "Single peak":
                                 selSam = it.sample if "sample" in it.__dict__ else None
-
                                 inte = self.loadedExperiments[selExp].integrations[selSub][selSam]
                                 if len(its) == 1:
                                         self.infoLabel.setText("%s<br>Sub integration <b>%s%s</b>"%(self.infoLabel.text(), inte.type, " (%s)"%(inte.comment) if inte.comment is not None and inte.comment != "" else ""))
@@ -3378,6 +3410,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                         self.istdhasPeak.setCurrentIndex({0:0, 1:1, 2:2, 128:3, 129:4, 130:5}[inte.foundPeak])
                                         self.istdpeakStart.setValue(inte.rtStart)
                                         self.istdpeakEnd.setValue(inte.rtEnd)
+                                    #plot integration with correct color
                                     self.plotIntegration(inte, self.loadedExperiments[selExp].sampleInfo[selSam]["Color"] if selSam in self.loadedExperiments[selExp].sampleInfo and "Color" in self.loadedExperiments[selExp].sampleInfo[selSam] else "Black", "", refRT = self.loadedExperiments[selExp].substances[selIST].refRT if selIST is not None and selIST in self.loadedExperiments[selExp].substances else None, plotInd = 3, transp = max(0.05, 0.8 /len(its)))
                                 it = it.parent()
 
@@ -3407,6 +3440,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                 if self.__guiPlotISTD and len(intsIS) > 0:
                                     self.plotIntegrations(intsIS, colorsIS, "", refRT = self.loadedExperiments[selExp].substances[selIST].refRT if selIST is not None and selIST in self.loadedExperiments[selExp].substances else None, plotInds = [4,5], target = "istd")
 
+                    #'it' has been set to the current substance
                     if "userType" in it.__dict__:
                         if it.userType == "All samples" and it.substance is not None and it.substance in self.loadedExperiments[it.experiment].substances:
                             substance = self.loadedExperiments[selExp].substances[selSub]
@@ -3423,30 +3457,43 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                             peakAreaLevel = []
                             peakAreaLevelIS = []
                             peakAreaLevelRatio = []
-                            
+                            #it = substance
                             for oitInd in range(it.childCount()):
+                                #oit = runs belonging to substance
                                 oit = it.child(oitInd)
                                 used = False
+                                #iterate over cal runs for the current oit run; calSampPart like _CAL1_, etc., level like 0.001, etc. to 
+                                #find integration areas and internal standard integration areas
                                 for calSampPart, level in substance.calSamples.items():
+                                    #if current cal sample identifier is found in current oit run sample (=run) name
                                     if "userType" in oit.__dict__ and oit.userType == "Single peak" and calSampPart in oit.sample:
+                                        #match current experiment substance integrations to sample, check for foundPeak presence and divisibility by 128
                                         if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1:
+                                            #if foundPeak is valid, append found peak area and (dilution * concentration) to subArea
                                             subArea.append((self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].area, level * substance.calLevel1Concentration))
                                             if oit.sample == selSam:
                                                 highlightLevel = level * substance.calLevel1Concentration
+                                            #set used for this run to TRUE
                                             used = True
+                                        #get internal standard area for current substance
                                         if istd is not None:
+                                            #match current experiment internal standard integrations to sample, check for foundPeak presence and divisibility by 128
                                             if self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1:
+                                                #if found internal standard peak is valid, append found peak area and (dilution * concentration) to subArea
                                                 isArea.append((self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area, level * istd.calLevel1Concentration))
                                                 if oit.sample == selSam:
                                                     highlightLevelIS = level
+                                                #repeat block from above where current experiment substance integrations are matched to sample, as well as current experiment internal standard integrations
                                                 if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1 and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1 and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area > 0:
                                                     subRatio.append((self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].area / self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area, level * substance.calLevel1Concentration))
                                                     if oit.sample == selSam:
                                                         highlightLevelRatio = level * substance.calLevel1Concentration
+                                                #set used for this run to TRUE
                                                 used = True
                                 if not used:
                                     if self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].foundPeak % 128 == 1:
                                         peakAreaLevel.append(self.loadedExperiments[oit.experiment].integrations[oit.substance][oit.sample].area)
+                                    #same block as above, lacking zero area check
                                     if istd is not None:
                                         if oit.sample in self.loadedExperiments[oit.experiment].integrations[istd.name] and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak is not None and self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].foundPeak % 128 == 1:
                                             peakAreaLevelIS.append(self.loadedExperiments[oit.experiment].integrations[istd.name][oit.sample].area)        
@@ -3546,6 +3593,7 @@ class Window(PyQt6.QtWidgets.QMainWindow):
                                 logging.exception("Could not save auto backup to '%s'"%(self.loadedExperiments[selExp].experimentFile))
                                 PyQt6.QtWidgets.QMessageBox.critical(self, "PeakBotMRM", "<b>Error</b><br><br>Could not save backup file to '%s'. <br>Please save your work to avoid loss of data"%(self.loadedExperiments[selExp].experimentFile))
                     
+                    self.__calculateStatistics = False
                     if self.__calculateStatistics:
                         try:
                             self._plots[10].clear(); self._plots[11].clear()

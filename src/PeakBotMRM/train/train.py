@@ -90,6 +90,7 @@ def compileInstanceDataset(substances, integrations, experimentName, dataset = N
         peaks = 0
         noPeaks = 0
         for substance in integrations:
+            print(substance)
             for sample in integrations[substance]:
                 inte = integrations[substance][sample]
                 if inte.chromatogram is not None:

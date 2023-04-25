@@ -848,7 +848,12 @@ def trainPeakBotMRMModel(trainDataset, logBaseDir, modelName = None, valDataset 
 @timeit
 def integrateArea(eic, rts, start, end):
     method = Config.INTEGRATIONMETHOD
-        
+    
+    # if start == 0 and end == 0:
+    #     import traceback
+    #     traceback.print_stack()
+    #     raise SystemExit("Both start and end are zero!")        
+
     startInd = arg_find_nearest(rts, start)
     endInd   = arg_find_nearest(rts, end)
     
@@ -1257,9 +1262,9 @@ def loadIntegrations(substances, gtFilePath, delimiter = ",", commentChar = "#",
     for substanceName in substances:
         integrations[substanceName] = {}
         for integration in integrationData:
-            sample = integration[headers["Sample$Data File"]].replace(".d", "")
+            sample = integration[headers["Sample$Data File"]].replace(".mzML", "").replace(".d","")
             area = integration[headers["%s$Area"%(substanceName)]]
-            
+
             try:
                 if area == "" or float(area) == 0:
                     integrations[substanceName][sample] = Integration(False, -1, -1, -1, [], type = "Reference", comment = "from file '%s'"%gtFilePath)
@@ -1284,7 +1289,6 @@ def loadIntegrations(substances, gtFilePath, delimiter = ",", commentChar = "#",
         logging.info("%s  | .. there are %d areas and %d no peaks"%(logPrefix, foundPeaks, foundNoPeaks))
         logging.info(logPrefix)
     # integrations [['Pyridinedicarboxylic acid Results', 'R100140_METAB02_MCC025_CAL1_20200306', '14.731', '14.731', '0'], ...]
-
     return substances, integrations
 
 def _getRTOverlap(astart, aend, bstart, bend):
@@ -1316,12 +1320,18 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
     if maxValCallback is not None:
         maxValCallback(len(samples))
 
+    
+
     #iterate over each file in the samples directory
     for samplei, sample in enumerate(os.listdir(samplesPath)):
         if curValCallback is not None:
             curValCallback(samplei)
         pathsample = os.path.join(samplesPath, sample)
-        if os.path.isdir(pathsample) and pathsample.endswith(".d"):
+        #new check for .mzML file ending: if file does not end with .mzML, check if it is a .d file and load as usual
+        if pathsample.endswith(".mzML"):
+            print("mzML file found {}".format(sample)) 
+            foundSamples[Path(sample).stem] = {"path": pathsample, "converted": pathsample}
+        elif os.path.isdir(pathsample) and any(pathsample.endswith(ext) for ext in [".d"]):
             foundSamples[Path(sample).stem] = {"path": pathsample, "converted": pathsample.replace(".d", ".mzML")}
             #try to get sample_info.xml data, not available for waters files!
             try:
@@ -1424,9 +1434,9 @@ def loadChromatograms(substances, integrations, samplesPath, sampleUseFunction =
                     agilent_or_waters = "waters"
                 
                 #load correct MRMHeader
-                if MRMHeader is None and agilent_or_waters == "agilent":
+                if agilent_or_waters == "agilent":
                     MRMHeader = Config.MRMHEADER
-                elif MRMHeader is None and agilent_or_waters == "waters":
+                elif agilent_or_waters == "waters":
                     MRMHeader = Config.MRMHEADER_waters
 
                 #return re.match object. 0th group is entire match, then each capture group is indexed 1 - N

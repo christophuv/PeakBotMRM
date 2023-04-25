@@ -157,6 +157,8 @@ def predictDataset(modelFile, substances, integrations, specificSubstances = Non
                                     
             ## predict and calculate metrics
             pred_peakTypes, pred_rtStartInds, pred_rtEndInds = PeakBotMRM.runPeakBotMRM(temp, model = pbModelPred, verbose = False)
+            print("\n pred_rtStartInds:", pred_rtStartInds)
+            print("\n pred_rtEndInds:", pred_rtEndInds)
                     
             ## inspect and summarize the results of the prediction and the metrics, optionally plot
             startRTs = []
